@@ -6,12 +6,11 @@ mundo mas não está aqui, para efeito do desafio ele não existe.
 Três estruturas de resolução, uma por natureza de registro:
 
 ``acordao`` (998)
-    Índice de números **próprios**. O ponto delicado, e a armadilha que mais
-    custa precisão: o texto de um acórdão cita outros acórdãos o tempo todo, e
-    uma busca por contenção devolve todos eles. O que separa "este documento *é*
-    o processo" de "este documento apenas o *cita*" é a posição — o número do
-    próprio processo aparece no cabeçalho, ou, no TST, na fórmula
-    ``... estes autos de ... nº TST-RR-...``.
+    Índice de números **próprios** — a construir. O ponto delicado, e a
+    armadilha que mais custa precisão: o texto de um acórdão cita outros
+    acórdãos o tempo todo, e uma busca por contenção devolve todos eles. O que
+    separa "este documento *é* o processo" de "este documento apenas o *cita*" é
+    a posição. Ver ``docs/investigacao.md``.
 
 ``sumula`` (5) e ``dispositivo`` (13)
     Poucos demais para indexar por texto, e o texto sequer contém o número da
@@ -26,19 +25,12 @@ interna do acervo; ``id`` é o doc_id do Jusbrasil, e é ele que vai em
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
 from .normalizacao import numeros_do_texto
 
-# Quantos caracteres do início do documento contam como região de identificação.
-CARACTERES_DE_CABECALHO = 400
-# O TST não põe o número no cabeçalho: ele aparece no meio da primeira página,
-# na fórmula "estes autos de <classe> nº TST-...", e de novo no rodapé.
-ANCORA_TST = re.compile(r"N[ºo°]\s*TST[-\s]", re.IGNORECASE)
-JANELA_ANCORA = 150
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
 MINIMO_DIGITOS = 4
 
@@ -89,17 +81,20 @@ class Registro:
 
 
 def regiao_de_identificacao(texto: str) -> str:
-    """Os pedaços do documento onde o número do *próprio* processo aparece."""
-    partes = [texto[:CARACTERES_DE_CABECALHO]]
-    for m in ANCORA_TST.finditer(texto):
-        partes.append(texto[m.start() : m.start() + JANELA_ANCORA])
-    return "\n".join(partes)
+    """Os pedaços do documento onde o número do *próprio* processo aparece.
+
+    **A IMPLEMENTAR.** Recebe o inteiro teor de um acórdão e devolve só os
+    trechos que identificam o processo — não os que citam outros. Cada tribunal
+    põe essa informação num lugar; ver ``docs/investigacao.md``.
+    """
+    raise NotImplementedError
 
 
 def construir_indice(caminho_db: Path) -> dict:
     """Varre a base uma vez e devolve o índice de números próprios.
 
-    Custa alguns segundos e é feito offline: em runtime só carregamos o JSON.
+    Feito offline: em runtime só carregamos o JSON. O material do desafio
+    recomenda explicitamente esse caminho em vez de varrer o FTS a cada citação.
     """
     conexao = sqlite3.connect(f"file:{caminho_db}?mode=ro", uri=True)
     numeros: dict[str, list[str]] = {}
@@ -155,8 +150,7 @@ class BaseCanonica:
         """Registros que têm esse número como número próprio.
 
         Quando há mais de um, são duplicatas do mesmo julgado indexadas duas
-        vezes. Devolvemos em ordem determinística — o maior ``texto_len``
-        primeiro, que é a versão mais completa do par.
+        vezes — ver ``docs/investigacao.md``. A ordem é determinística.
         """
         if len(numero) < MINIMO_DIGITOS:
             return []
