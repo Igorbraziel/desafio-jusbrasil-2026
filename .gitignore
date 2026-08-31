@@ -1,0 +1,30 @@
+# Dados do desafio — enviados por e-mail apenas aos inscritos, não são de download
+# público. O .db tem 93 MB. Nada de data/ entra no git. Ver docs/dados.md.
+data/
+
+# Artefatos derivados dos dados
+*.sqlite
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Ambiente
+.env
+# requirements.txt é versionado de propósito: o Dockerfile o copia, e sem ele o
+# bundle reproduzível não constrói a partir de um clone limpo. Gere com
+# `make requirements`.
+
+# Editores / SO
+.DS_Store
+.idea/
+*.swp
