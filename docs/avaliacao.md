@@ -46,16 +46,13 @@ Estes pontos não estão especificados publicamente. Estão isolados no topo de
 | como contar a penalidade dupla | peso 2 no FP de `real` e no FN de `inventada` |
 | predições sem par | falso positivo da classe predita; entram no Brier como erro |
 
-## Placar atual da baseline
+## Como medir localmente
 
-Medido nos 26 documentos de desenvolvimento (`make rodar && make avaliar`):
+```bash
+make rodar      # gera data/out/
+make avaliar    # F1 macro por nível, Brier e score ponderado
+```
 
-| Nível | F1 macro | Brier | inventada→real |
-|---|---|---|---|
-| 1 (peso 1×) | 1,0000 | 0,0071 | 0 |
-| 2 (peso 2×) | 1,0000 | 0,0077 | 0 |
-
-**Este número não deve ser lido como expectativa de desempenho no conjunto
-cego.** É o score sobre a mesma amostra em que a solução foi construída, e
-várias decisões do pipeline foram tomadas olhando para os erros nela. Ver a
-seção *Onde isto provavelmente cai* em [dados.md](dados.md#onde-isto-provavelmente-cai).
+O avaliador também imprime a matriz de confusão e a contagem de
+`inventada`→`real`, que é o erro que pesa dobrado. Enquanto o pipeline estiver
+incompleto, `make rodar` falha com `NotImplementedError` — é o esperado.

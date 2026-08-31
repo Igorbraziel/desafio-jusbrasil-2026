@@ -107,8 +107,9 @@ CREATE TABLE documentos (
 são `jurisprudencia`.
 
 Há ainda uma tabela virtual `documentos_fts` (FTS5, external content,
-`unicode61 remove_diacritics 2`) indexando o texto integral. **Nosso pipeline não
-a usa** — ver [decisoes/0002-indice-de-cabecalhos.md](decisoes/0002-indice-de-cabecalhos.md).
+`unicode61 remove_diacritics 2`) indexando o texto integral. Ela não duplica o
+conteúdo — aponta para `documentos` pelo `rowid`. Ver a armadilha 4 abaixo antes
+de usá-la.
 
 ### Atualizações de 28/08/2026
 
@@ -116,10 +117,10 @@ a usa** — ver [decisoes/0002-indice-de-cabecalhos.md](decisoes/0002-indice-de-
 - `doc_0227` e `doc_0461` foram removidos: eram duplicatas exatas, o mesmo
   julgado indexado duas vezes sob doc_ids diferentes, o que criava duas
   respostas certas para a mesma citação. A base passou de 1.018 para 1.016.
-- Existem **outras duplicatas** no acervo, mas nenhuma citação do gabarito
-  aponta para elas — então não afetam a avaliação. Nosso resolvedor ainda assim
-  precisa lidar com elas; ver
-  [decisoes/0003-desempate-de-duplicatas.md](decisoes/0003-desempate-de-duplicatas.md).
+- Existem **outras duplicatas** no acervo. A organização informou que nenhuma
+  citação do gabarito aponta para elas; medindo, encontramos três casos em que
+  aponta — ver
+  [investigacao.md § Três pares de duplicatas](investigacao.md#três-pares-de-duplicatas-com-id-diferentes).
 
 ## O gabarito
 
@@ -187,7 +188,7 @@ cabeçalho; nos que apenas citam, ele aparece no corpo.
 O TST é a exceção que quebra o limiar de posição ingênuo: o número não está no
 cabeçalho, e sim na fórmula `… estes autos de <classe> nº TST-RR-…`, por volta
 do caractere 1.000. Ver
-[decisoes/0002-indice-de-cabecalhos.md](decisoes/0002-indice-de-cabecalhos.md).
+[investigacao.md § Onde o número aparece](investigacao.md#onde-o-número-do-processo-aparece-na-base).
 
 ### 6. Leis e súmulas resolvem por registro próprio
 
@@ -206,24 +207,19 @@ banco por [`tests/test_base_canonica.py`](../tests/test_base_canonica.py).
 tenta o atalho de casar só pelo número — e o atalho erra exatamente nos casos
 que o gabarito construiu para pegá-lo.
 
-## Onde isto provavelmente cai
+## Riscos conhecidos para o conjunto cego
 
-A baseline acerta 225/225 nos 26 documentos de desenvolvimento. Isso é o teto do
-que essa amostra consegue medir, não uma previsão. As partes do pipeline que
-provavelmente **não** generalizam:
+Coisas que a amostra de desenvolvimento **não** consegue medir, e que valem
+cautela ao construir a solução:
 
-- **A lista de frases vagas** em [`deteccao.py`](../src/verificador/deteccao.py)
-  foi levantada das 65 citações `incompleta` do dev set. O gerador do conjunto
-  cego pode usar outras frases. É o ponto mais frágil da solução.
-- **Os parâmetros do casamento tolerante** (duas primeiras letras + comprimento
-  ±1) foram ajustados até absorver as corrupções observadas. Ruído mais forte
-  passa despercebido; ruído em palavra curta pode gerar falso positivo.
-- **O desempate por `texto_len`** foi validado em três pares de duplicatas. São
-  três exemplos.
-- **O vocabulário de classes processuais** cobre as siglas vistas. Uma sigla
-  nova faz a citação perder o prefixo e, com sorte, ainda casar por IoU ≥ 0,5 —
-  mas o span fica curto.
-
-O que deve generalizar bem: a normalização de números, a regra de cardinalidade,
-o índice de números próprios e as tabelas de súmulas e dispositivos (que são
-completas por construção, já que a cobertura é congelada).
+- **As frases vagas podem ser outras.** As 65 citações `incompleta` do dev set
+  usam um repertório fechado de frases. Uma solução que dependa de casar essa
+  lista específica não generaliza — e as `incompleta` são 29% do gabarito.
+- **O ruído do nível 2 é amostrado.** As confusões de OCR observadas são um
+  subconjunto do que o gerador sabe produzir.
+- **As siglas processuais observadas não esgotam o domínio.** Uma classe
+  processual não vista faz a citação perder o prefixo; com sorte o span ainda
+  casa por IoU ≥ 0,5, mas fica curto.
+- **Qualquer score medido nos 26 documentos é otimista**, porque é a mesma
+  amostra usada para construir a solução. O leaderboard público (40% do teste) é
+  a primeira medida honesta, e mesmo ele não é o ranking final.

@@ -1,7 +1,7 @@
 # Verificador de Citações Jurídicas — Desafio Jusbrasil x BRACIS 2026
 
-Sistema que lê um parecer jurídico em `.txt`, encontra todas as citações de jurisprudência e de
-lei, e classifica cada uma em três classes:
+Sistema que lê um parecer jurídico em `.txt`, encontra todas as citações de
+jurisprudência e de lei, e classifica cada uma em três classes:
 
 | Classe | Quando | `resolucao` |
 |---|---|---|
@@ -9,32 +9,37 @@ lei, e classifica cada uma em três classes:
 | `inventada` | identificadores suficientes para buscar, **nenhum** registro corresponde | `null` |
 | `incompleta` | informação insuficiente para consultar, ou **dois ou mais** candidatos sem desempate | `null` |
 
-A distinção entre `inventada` e `incompleta` é o ponto da tarefa: a inventada é alucinação ativa
-de um LLM e deve ser bloqueada; a incompleta é evasiva e vai para revisão humana.
+A distinção entre `inventada` e `incompleta` é o ponto da tarefa: a inventada é
+alucinação ativa de um LLM e deve ser bloqueada; a incompleta é evasiva e vai
+para revisão humana.
 
-## Como funciona
-
-A baseline é **determinística e sem pesos de modelo**. A classe não é predita por um classificador
-— é uma consequência da cardinalidade da consulta à base canônica:
+## Arquitetura
 
 ```
 .txt ──▶ deteccao ──▶ normalizacao ──▶ base_canonica ──▶ resolucao ──▶ JSON
-        acha spans    ruído → forma     índice dos       1 candidato → real
-        de citação    canônica          cabeçalhos       0 candidatos → inventada
+        acha spans    ruído → forma     índice da        1 candidato → real
+        de citação    canônica          cobertura        0 candidatos → inventada
                                                          ≥2 candidatos → incompleta
 ```
 
-Módulos em [src/verificador/](src/verificador/):
+A classe não precisa ser predita por um classificador: ela é consequência da
+cardinalidade da consulta à base canônica fechada.
 
-| Arquivo | Responsabilidade |
-|---|---|
-| [texto.py](src/verificador/texto.py) | carrega `.txt` em NFC; offsets em codepoints Unicode |
-| [deteccao.py](src/verificador/deteccao.py) | acha os spans de citação, inclusive as vagas |
-| [normalizacao.py](src/verificador/normalizacao.py) | desfaz ruído de OCR, abreviações, formatação de número |
-| [base_canonica.py](src/verificador/base_canonica.py) | índice dos cabeçalhos + súmulas e dispositivos |
-| [resolucao.py](src/verificador/resolucao.py) | cardinalidade → classe, e a confiança |
-| [contrato.py](src/verificador/contrato.py) | schema 1.2 de saída e validador de formato |
-| [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI |
+| Arquivo | Responsabilidade | Estado |
+|---|---|---|
+| [contrato.py](src/verificador/contrato.py) | schema 1.2 de saída e validador de formato | pronto |
+| [texto.py](src/verificador/texto.py) | carrega `.txt` em NFC, offsets em codepoints | pronto |
+| [texto.fim_do_cabecalho](src/verificador/texto.py) | separa os metadados (distratores) do corpo | **a implementar** |
+| [deteccao.py](src/verificador/deteccao.py) | acha os spans de citação, inclusive as vagas | **a implementar** |
+| [normalizacao.py](src/verificador/normalizacao.py) | desfaz ruído de OCR, abreviações, formatação | **a implementar** |
+| [base_canonica.py](src/verificador/base_canonica.py) | consulta à cobertura; tabelas de súmulas e leis | parcial |
+| [resolucao.py](src/verificador/resolucao.py) | cardinalidade → classe, `id_canonico` e confiança | **a implementar** |
+| [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
+
+Os stubs trazem a assinatura, a documentação da etapa e as armadilhas
+conhecidas. Os testes em [tests/](tests/) são a especificação: estão marcados
+como falha esperada (`xfail`) e passam a valer conforme cada etapa é
+implementada.
 
 ## Instalação
 
@@ -44,22 +49,25 @@ Requer Python 3.12+ e [uv](https://docs.astral.sh/uv/).
 uv sync
 ```
 
-Não há dependências de runtime — só biblioteca padrão. `pytest` e `ruff` estão no grupo `dev`.
+Não há dependências de runtime — só biblioteca padrão. `pytest` e `ruff` estão
+no grupo `dev`.
 
 ## Uso
 
-Coloque o zip recebido por e-mail em `data/raw/dados_desafio_jusbrasil.zip` e rode:
+Coloque o zip recebido por e-mail em `data/raw/dados_desafio_jusbrasil.zip` e
+rode:
 
 ```bash
 make dados      # extrai, confere SHA-256, gera data/dev/goldenset.csv (ids inteiros)
-make indice     # constrói o índice de números próprios — uma vez, offline (0,5 s)
+make indice     # constrói o índice da base canônica — uma vez, offline
 make testar     # pytest
 make rodar      # um JSON por documento em data/out/
 make avaliar    # F1 macro por nível + score ponderado
 make submissao  # empacota data/out/ em data/submissao.zip
 ```
 
-`make ajuda` lista todos os alvos.
+`make ajuda` lista todos os alvos. Enquanto o pipeline estiver incompleto,
+`make indice` e `make rodar` falham com `NotImplementedError` — é o esperado.
 
 ### No contrato de execução da organização
 
@@ -73,26 +81,32 @@ docker run --rm --network none \
   verificador-citacoes:latest --input /data/in --output /data/out
 ```
 
-Verificado: roda com `--network none` e produz saída byte a byte idêntica à
-execução local. Pesos e dados ficam fora da imagem, como exige o regulamento — a
-base canônica entra por volume.
+Pesos e dados ficam fora da imagem, como exige o regulamento — a base canônica
+entra por volume, e o container roda sem rede.
 
-## Resultados
+## Por onde começar
 
-Nos 26 documentos de desenvolvimento (`make rodar && make avaliar`):
+Antes de escrever código, leia **[docs/dados.md](docs/dados.md)** e
+**[docs/investigacao.md](docs/investigacao.md)**. As armadilhas documentadas ali
+(`documento_id` ≠ `id_canonico`; o FTS que não casa número sem pontuação; o FTS
+que devolve quem *cita* e não quem *é*; o `id_canonico` gravado como float no
+xlsx) custam horas a quem descobre sozinho.
 
-| Nível | F1 macro | Brier | `inventada`→`real` |
-|---|---|---|---|
-| 1 (peso 1×) | 1,0000 | 0,0071 | 0 |
-| 2 (peso 2×) | 1,0000 | 0,0077 | 0 |
+Uma ordem de ataque que respeita as dependências:
 
-225 de 225 citações detectadas e classificadas corretamente, incluindo todos os
-`id_canonico`. Custo: **~9 ms por documento** em CPU, contra um teto de 60 s.
+1. **`normalizacao.py`** — não depende de nada e é o que mais pesa na nota, já
+   que o nível 2 vale o dobro. `uv run pytest tests/test_normalizacao.py` é a
+   especificação.
+2. **`base_canonica.regiao_de_identificacao`** — define o que conta como número
+   próprio de um acórdão. Depois, `make indice`.
+3. **`texto.fim_do_cabecalho`** e **`deteccao.py`** — os spans. Sem eles não há o
+   que classificar, e citação não detectada conta como erro de recall.
+4. **`resolucao.py`** — com as três anteriores prontas, é quase só a regra de
+   cardinalidade.
+5. `make rodar && make avaliar` para ver o primeiro número.
 
-> **Leia este número com desconfiança.** É o score sobre a mesma amostra em que a
-> solução foi construída — várias decisões do pipeline foram tomadas olhando para
-> os erros nela. O que provavelmente não generaliza está listado em
-> [docs/dados.md § Onde isto provavelmente cai](docs/dados.md#onde-isto-provavelmente-cai).
+Registre as decisões de projeto em [docs/decisoes/](docs/decisoes/) conforme
+forem tomadas — o modelo está lá.
 
 ## Documentação
 
@@ -100,23 +114,38 @@ Nos 26 documentos de desenvolvimento (`make rodar && make avaliar`):
 |---|---|
 | [docs/desafio.md](docs/desafio.md) | regras, cronograma, envelope de execução, o que é permitido |
 | [docs/dados.md](docs/dados.md) | os 26 documentos, a base canônica, o goldenset, **as armadilhas** |
+| [docs/investigacao.md](docs/investigacao.md) | o que medimos nos dados: distribuições, duplicatas, ruído |
 | [docs/contrato.md](docs/contrato.md) | formato de entrada e saída, schema 1.2, encoding, offsets |
 | [docs/avaliacao.md](docs/avaliacao.md) | métrica: IoU ≥ 0,5, F1 macro, penalidade dupla, calibração |
 | [docs/decisoes/](docs/decisoes/) | registro das decisões de projeto e seus porquês |
 | [MANIFESTO_MODELO.md](MANIFESTO_MODELO.md) | declaração de pesos usados (hoje: nenhum) |
 
-Se você vai mexer no código, leia **[docs/dados.md](docs/dados.md)** antes — as armadilhas
-documentadas ali (`documento_id` ≠ `id_canonico`, o FTS que não casa número sem pontuação, o
-`id_canonico` gravado como float no xlsx) custam horas a quem descobre sozinho.
-
 ## Dados
 
-Os dados **não estão neste repositório** e `data/` inteiro está no `.gitignore`. Foram enviados por
-e-mail apenas às equipes inscritas e não têm download público; além disso, a base canônica tem
-93 MB. Ver [docs/dados.md](docs/dados.md) para obtenção e checksums.
+Os dados **não estão neste repositório** e `data/` inteiro está no `.gitignore`.
+Foram enviados por e-mail apenas às equipes inscritas e não têm download
+público; além disso, a base canônica tem 93 MB. Ver
+[docs/dados.md](docs/dados.md) para obtenção e checksums.
 
-## Estado
+## Estrutura
 
-Baseline determinística funcionando ponta a ponta. O script oficial de avaliação da organização
-sai em 01/09/2026 — até lá, [scripts/avaliar.py](scripts/avaliar.py) é a nossa leitura da métrica
-descrita no PDF, e deve ser substituído assim que o oficial chegar.
+```
+src/verificador/     o pipeline (ver a tabela em "Arquitetura")
+scripts/             preparar_dados · construir_indice · avaliar
+tests/               a especificação executável de cada etapa
+docs/                desafio · dados · investigacao · contrato · avaliacao · decisoes/
+Dockerfile           imagem de submissão, sem pesos e sem dados dentro
+MANIFESTO_MODELO.md  declaração de pesos usados
+data/                gitignored — ver docs/dados.md
+```
+
+## Próximos passos
+
+1. **01/09/2026** — a organização libera a plataforma, o script oficial de
+   avaliação e os detalhes da métrica. Substituir
+   [scripts/avaliar.py](scripts/avaliar.py) pelo oficial e comparar os dois:
+   divergência indica que interpretamos alguma regra errado. Conferir também se
+   `id_canonico` sai como string ou inteiro ([docs/contrato.md](docs/contrato.md)).
+2. Implementar o pipeline na ordem sugerida em *Por onde começar*.
+3. Submeter cedo e com frequência — o leaderboard público usa 40% do conjunto de
+   teste e é a primeira medida honesta do desempenho.
