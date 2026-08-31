@@ -5,6 +5,13 @@ import pytest
 from verificador.deteccao import detectar
 from verificador.texto import fim_do_cabecalho
 
+# Estes testes são a **especificação** da etapa: descrevem o comportamento
+# esperado antes de ele existir. Enquanto o módulo for um stub, ficam marcados
+# como falha esperada para que `make testar` continue verde. Vá removendo o
+# marcador conforme implementar.
+pytestmark = pytest.mark.xfail(raises=NotImplementedError, reason="a implementar", strict=False)
+
+
 CABECALHO = (
     "EXCELENTÍSSIMO SENHOR MINISTRO RELATOR\n"
     "SUPERIOR TRIBUNAL DE JUSTIÇA\n"
