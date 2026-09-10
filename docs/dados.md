@@ -4,19 +4,102 @@
 > equipes inscritas e não têm download público. `data/` inteiro está no
 > `.gitignore`.
 
+> ✅ **Atualizado em 10/09/2026** com a distribuição da aba *Data* do Kaggle
+> (arquivos de 04/09). O gabarito passou de 225 para **195 citações**; a base
+> canônica e os 26 `.txt` são bit a bit os mesmos de 28/08. Detalhes abaixo.
+
+## Atualização do goldenset (01/09/2026)
+
+A organização removeu do gabarito citações da classe `incompleta` que eram, na
+prática, referências difusas — trechos que não apontam para nenhuma fonte
+específica, só remetem de forma vaga à matéria ou à orientação de um tribunal.
+Exemplos que **saíram** do gabarito:
+
+- "normas de regência da matéria"
+- "jurisprudência pacífica desta Corte"
+
+O que **continua** sendo `incompleta`: citações que apontam uma fonte
+específica e trazem contexto de identificação — tribunal, relator, ano, classe
+processual — mas sem os identificadores mínimos para confirmar ou refutar a
+existência do registro na base canônica. Exemplos:
+
+- "julgado do STF proferido em 2024 pela relatoria de Dias Toffoli"
+- "Reclamação do STF, de 2025, Rel. Min. CRISTIANO ZANIN"
+- "acórdão do TSE julgado em 2016 sob relatoria de HENRIQUE NEVES DA SILVA"
+
+Critério, em uma frase: existe uma decisão concreta por trás da citação, mas os
+dados fornecidos não permitem chegar a um registro único na base canônica —
+isso a distingue de uma citação vaga demais para sequer contar como citação.
+
+Medido contra o arquivo novo: saíram **30 citações**, todas `incompleta`,
+nenhuma entrou e nenhuma mudou de classe. O gabarito foi de 225 para 195, e as
+`incompleta` de 65 para 35 — de 29% para **18%** do total.
+
+Das 35 que restaram, **32 são do padrão tribunal + ano + relator** e apenas
+**3 são frases sem número**, e mesmo essas nomeiam uma fonte concreta:
+"artigo correspondente do Código de Processo Civil" (2×) e "reiterados
+precedentes do Superior Tribunal de Justiça". As genéricas ("normas de regência
+da matéria", "jurisprudência pacífica desta Corte") sumiram por completo.
+
+Consequência para a detecção: o repertório de frase vaga deixou de ser o
+caminho principal para `incompleta` — o padrão tribunal + ano + relator agora
+responde por 91% da classe. O texto de
+[`deteccao.py`](../src/verificador/deteccao.py) sobre citações vagas foi escrito
+contra o gabarito antigo e precisa ser revisto.
+
 ## Como obter
 
-1. Coloque o zip recebido em `data/raw/dados_desafio_jusbrasil.zip`.
-2. Rode `make dados`. O script extrai para `data/dev/`, descarta o lixo de macOS,
-   imprime os checksums e converte o gabarito para CSV.
+Fonte atual: a aba *Data* da competição no Kaggle
+(<https://www.kaggle.com/t/b175ca36f02ce8d3a0422d3f7b339664>) — inclui os
+documentos, a base canônica, o goldenset atualizado, o conversor de submissão e
+o script oficial da métrica. O zip enviado por e-mail em 25/08 continua
+funcionando para os documentos e a base canônica, mas o `goldenset.xlsx` dele é
+o antigo.
+
+### Caminho recomendado — `make dados-kaggle`
+
+1. Gere um token da API em <https://www.kaggle.com/settings> → *API* →
+   *Create New Token* e salve como `~/.kaggle/kaggle.json` (ou exporte
+   `KAGGLE_USERNAME` e `KAGGLE_KEY`).
+2. Rode `make dados-kaggle`. O script baixa a competição inteira com
+   `kagglehub` e organiza em `data/dev/`: `txt/`, `desafio1_bracis.db`,
+   `goldenset.csv`, `sample_submission.csv` e, em `data/dev/ferramentas/`, o
+   `json_to_submission.py` e o `kaggle_metric.py` oficiais. Um `goldenset.csv`
+   pré-existente é preservado como `goldenset_anterior.csv` para o diff.
 3. Rode `make indice` para construir o índice de números próprios.
 
-Checksums da distribuição de 28/08/2026:
+`kagglehub` **não** é dependência do projeto — a solução roda offline no
+ambiente da organização, e nada de rede pode entrar no bundle reproduzível. O
+alvo o injeta com `uv run --with kagglehub`.
+
+### Caminho legado — zip do e-mail
+
+1. Coloque o zip em `data/raw/dados_desafio_jusbrasil.zip` e o `goldenset.xlsx`
+   em `data/dev/goldenset.xlsx`.
+2. Rode `make dados`. O script extrai para `data/dev/`, descarta o lixo de macOS,
+   imprime os checksums e converte o gabarito para CSV.
+
+Este caminho continua servindo para os documentos e a base canônica, mas o
+`goldenset.xlsx` do e-mail é o de 25/08.
+
+Como `data/` não é versionado, são estes checksums que garantem que dois clones
+estão olhando para os mesmos bytes. Confira depois de `make dados-kaggle`.
+
+Distribuição atual — Kaggle, arquivos de 04/09/2026:
+
+| Arquivo | SHA-256 |
+|---|---|
+| `desafio-jusbrasil-bracis-2026.zip` | `de2b4f308b4c01636ea285eaeb52ec170cbf8d6e3044ead595564ebe7dddae1a` |
+| `desafio1_bracis.db` | `d759681be82ee00f383b49a5c76c42dd475564e042272e00730252468dcb6e71` |
+| `goldenset.csv` | `3e28218c9e92974e006db520762113a96aab158320e97a1b584f5bc83263c8d1` |
+| `ferramentas/kaggle_metric.py` | `3c4d30e70971144afbd0ae73c6d4ac887faf0f5926de986170de32f72544fc3f` |
+| `ferramentas/json_to_submission.py` | `c6ec4963e884c7fc19939816d7398e512cc8f7d60af472fb1a3bd723f1fee05c` |
+
+Distribuição anterior — e-mail de 28/08/2026 (o `.db` é o mesmo):
 
 | Arquivo | SHA-256 |
 |---|---|
 | `dados_desafio_jusbrasil.zip` | `2a3716eb688e56e0c6c43823ab789099af50eae376ee01c29e795bf6484b5d02` |
-| `desafio1_bracis.db` | `d759681be82ee00f383b49a5c76c42dd475564e042272e00730252468dcb6e71` |
 | `goldenset.xlsx` | `496af2b3271a2872d21cb2a2fe110bf0f37130623904895cd8747db7b23735db` |
 
 ## Os documentos de entrada
@@ -32,9 +115,9 @@ O nome do arquivo entrega o nível: `gen_n1_001`…`gen_n1_013` são nível 1 e
 | | Nível 1 (1×) | Nível 2 (2×) |
 |---|---|---|
 | documentos | 13 | 13 |
-| citações | 116 | 109 |
+| citações | 101 | 94 |
 | tamanho médio | 3.372 chars | 3.276 chars |
-| `real` / `inventada` / `incompleta` | 52 / 32 / 32 | 44 / 32 / 33 |
+| `real` / `inventada` / `incompleta` | 52 / 32 / 17 | 44 / 32 / 18 |
 
 Esta é a **amostra de desenvolvimento**. O conjunto final é cego, tem o mesmo
 formato, os mesmos níveis e distribuição de classes equivalente. Ele não é
@@ -124,8 +207,10 @@ de usá-la.
 
 ## O gabarito
 
-`goldenset.xlsx` — uma linha por citação esperada, 225 no total, nos 26
-documentos. `make dados` converte para `data/dev/goldenset.csv`.
+`goldenset.csv` — uma linha por citação esperada, 195 no total, nos 26
+documentos. Vem pronto na aba *Data*; `make dados-kaggle` o copia para
+`data/dev/goldenset.csv`. (O `goldenset.xlsx` do e-mail é o gabarito antigo, de
+225 linhas; `make dados` ainda o converte, para efeito de comparação.)
 
 | Coluna | Descrição |
 |---|---|
@@ -212,9 +297,10 @@ que o gabarito construiu para pegá-lo.
 Coisas que a amostra de desenvolvimento **não** consegue medir, e que valem
 cautela ao construir a solução:
 
-- **As frases vagas podem ser outras.** As 65 citações `incompleta` do dev set
-  usam um repertório fechado de frases. Uma solução que dependa de casar essa
-  lista específica não generaliza — e as `incompleta` são 29% do gabarito.
+- **As frases vagas podem ser outras.** As 35 citações `incompleta` do dev set
+  usam um repertório fechado de formas — 32 do padrão tribunal + ano + relator e
+  3 frases sem número. Uma solução que dependa de casar essa lista específica não
+  generaliza — e as `incompleta` são 18% do gabarito.
 - **O ruído do nível 2 é amostrado.** As confusões de OCR observadas são um
   subconjunto do que o gerador sabe produzir.
 - **As siglas processuais observadas não esgotam o domínio.** Uma classe

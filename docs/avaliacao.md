@@ -1,10 +1,12 @@
 # Avaliação
 
-> ⚠️ **O script oficial sai em 01/09/2026.** Até lá,
-> [`scripts/avaliar.py`](../scripts/avaliar.py) é a *nossa leitura* da métrica
-> descrita no material do desafio. Quando o oficial chegar, substitua e compare
-> os dois: divergência é sinal de que interpretamos alguma regra errado, e é
-> melhor descobrir isso em setembro do que em outubro.
+> ⚠️ **O script oficial já está baixado**, em
+> `data/dev/ferramentas/kaggle_metric.py` (junto com `json_to_submission.py`),
+> via `make dados-kaggle`. [`scripts/avaliar.py`](../scripts/avaliar.py) era a
+> *nossa leitura* da métrica antes de o oficial sair — **falta comparar os
+> dois** e apontar `make avaliar` para o oficial: divergência é sinal de que
+> interpretamos alguma regra errado, e é melhor descobrir isso agora do que em
+> outubro.
 
 ## Como as soluções são medidas
 
@@ -29,10 +31,14 @@ avaliação oficial: todo score é reproduzível localmente.
 
 ## Leaderboard e ranking final
 
-Durante as submissões, um leaderboard público atualizado em tempo real usa **40%**
-do conjunto de teste. O ranking final é calculado sobre os **60% restantes**,
-mantidos em sigilo até o encerramento. Otimizar demais para o leaderboard
-público não garante nada no resultado final.
+O leaderboard do Kaggle tem duas fases. Agora, enquanto o conjunto de avaliação
+final está em construção, ele roda sobre a amostra de treino/desenvolvimento
+(gabarito aberto) e é **referencial** — submissões desta fase **não contam**
+para o ranking final. Quando o conjunto final for ativado, o leaderboard
+**reinicia** e passa a usar a parte pública dele (**40%**); o ranking final é
+calculado sobre os **60% privados** restantes, mantidos em sigilo até o
+encerramento. Otimizar demais para qualquer um dos dois leaderboards públicos
+não garante nada no resultado final.
 
 ## O que nossa implementação escolheu por conta própria
 

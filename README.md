@@ -54,11 +54,11 @@ no grupo `dev`.
 
 ## Uso
 
-Coloque o zip recebido por e-mail em `data/raw/dados_desafio_jusbrasil.zip` e
-rode:
+Salve seu token da API do Kaggle em `~/.kaggle/kaggle.json` (Settings → API →
+Create New Token) e rode:
 
 ```bash
-make dados      # extrai, confere SHA-256, gera data/dev/goldenset.csv (ids inteiros)
+make dados-kaggle  # baixa a competição do Kaggle para data/dev/ (ver docs/dados.md)
 make indice     # constrói o índice da base canônica — uma vez, offline
 make testar     # pytest
 make rodar      # um JSON por documento em data/out/
@@ -141,11 +141,20 @@ data/                gitignored — ver docs/dados.md
 
 ## Próximos passos
 
-1. **01/09/2026** — a organização libera a plataforma, o script oficial de
-   avaliação e os detalhes da métrica. Substituir
-   [scripts/avaliar.py](scripts/avaliar.py) pelo oficial e comparar os dois:
-   divergência indica que interpretamos alguma regra errado. Conferir também se
-   `id_canonico` sai como string ou inteiro ([docs/contrato.md](docs/contrato.md)).
-2. Implementar o pipeline na ordem sugerida em *Por onde começar*.
-3. Submeter cedo e com frequência — o leaderboard público usa 40% do conjunto de
-   teste e é a primeira medida honesta do desempenho.
+1. **Feito (01/09/2026)** — a organização liberou a competição no Kaggle:
+   <https://www.kaggle.com/t/b175ca36f02ce8d3a0422d3f7b339664>. Cada integrante
+   entra na competição, e um integrante forma a equipe (até 4 pessoas) na aba
+   *Team*. Ver [docs/desafio.md § A competição no Kaggle](docs/desafio.md#a-competição-no-kaggle).
+2. Baixar da aba *Data* do Kaggle: o goldenset atualizado (o critério de
+   `incompleta` mudou — ver
+   [docs/dados.md § Atualização do goldenset](docs/dados.md#atualização-do-goldenset-01092026)),
+   o conversor `json_to_submission.py` e o script oficial da métrica.
+   Substituir [scripts/avaliar.py](scripts/avaliar.py) pelo oficial e comparar
+   os dois: divergência indica que interpretamos alguma regra errado. Conferir
+   também se `id_canonico` sai como string ou inteiro
+   ([docs/contrato.md](docs/contrato.md)).
+3. Implementar o pipeline na ordem sugerida em *Por onde começar*.
+4. Gerar `submission.csv` com `json_to_submission.py` e submeter cedo e com
+   frequência — o leaderboard do Kaggle nesta fase roda sobre a amostra de
+   desenvolvimento (gabarito aberto) e é referencial, para validar o pipeline
+   de ponta a ponta; o limite é 5 submissões/dia por **equipe**.

@@ -4,31 +4,40 @@ O que foi medido nos 26 documentos e na base canônica, com o comando que produz
 cada número. São observações sobre os dados — não decisões de implementação, que
 vão em [decisoes/](decisoes/).
 
-Tudo aqui vale para a distribuição de 28/08/2026 (checksums em
-[dados.md](dados.md#como-obter)).
+Tudo aqui vale para a distribuição atual do Kaggle, arquivos de 04/09/2026
+(checksums em [dados.md](dados.md#como-obter)). A base canônica e os 26 `.txt`
+não mudaram desde 28/08; o gabarito, sim — ver
+[dados.md § Atualização do goldenset](dados.md#atualização-do-goldenset-01092026).
 
 ## Composição do gabarito
 
-225 citações em 26 documentos:
+195 citações em 26 documentos:
 
 | | `real` | `inventada` | `incompleta` | total |
 |---|---|---|---|---|
-| nível 1 | 52 | 32 | 32 | 116 |
-| nível 2 | 44 | 32 | 33 | 109 |
+| nível 1 | 52 | 32 | 17 | 101 |
+| nível 2 | 44 | 32 | 18 | 94 |
 
-Por tipo: 186 `jurisprudencia`, 39 `lei`. Todas as 96 `real` têm `id_canonico`;
+Por tipo: 165 `jurisprudencia`, 30 `lei`. Todas as 96 `real` têm `id_canonico`;
 nenhuma não-`real` tem.
+
+As 30 citações que saíram na revisão de 01/09 eram todas `incompleta` difusas —
+`real` e `inventada` não mudaram nem em contagem nem em conteúdo.
 
 ## As `incompleta` são duas formas fixas
 
-Nenhuma das 65 citações `incompleta` tem número de processo. Elas se dividem em:
+Nenhuma das 35 citações `incompleta` tem número de processo. Elas se dividem em:
 
-- **33 frases vagas**, sem identificador nenhum: "jurisprudência pacífica desta
-  Corte", "normas de regência da matéria", "verbete sumular aplicável à espécie",
-  "dispositivo legal de regência".
 - **32 do padrão tribunal + ano + relator**: "julgado do STF proferido em 2024
   pela relatoria de Dias Toffoli", "Rcl de 2021, Rel. Min. Rosa Weber". Os únicos
-  dígitos são o ano.
+  dígitos são o ano. Hoje são 91% da classe.
+- **3 frases sem número**, que ainda assim nomeiam uma fonte concreta: "artigo
+  correspondente do Código de Processo Civil" (2×) e "reiterados precedentes do
+  Superior Tribunal de Justiça".
+
+O gabarito antigo tinha mais 30 frases genéricas nesta classe ("normas de
+regência da matéria", "jurisprudência pacífica desta Corte"); a revisão de
+01/09 as removeu por não apontarem para nenhuma fonte específica.
 
 Isso simplifica a resolução: se a citação carrega número de processo, ela é
 `real` ou `inventada`; a decisão de `incompleta` é tomada na detecção.
