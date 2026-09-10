@@ -60,38 +60,89 @@ Ver [avaliacao.md](avaliacao.md).
 
 ## Submissão e reprodutibilidade
 
-Submissão ao leaderboard: `.zip` com as saídas. Toda submissão exige um bundle
-reproduzível: repositório com o código, README, referência dos modelos (link +
-revisão), ambiente (requirements/Dockerfile), o comando exato que reproduz as
-saídas, e configuração de decodificação determinística quando aplicável.
+Submissão ao leaderboard: `.zip` com as saídas (via `submission.csv` gerado por
+`json_to_submission.py`, ver acima). Múltiplas submissões são permitidas
+durante todo o período, respeitando o teto diário por **equipe**.
 
-Verificação: re-execução das top-N mais uma amostra. Score reproduzido não pode
-cair mais que 5% (relativo). Não rodar, não bater o score ou violar a regra de
-modelo desclassifica.
+**Bundle reproduzível — exigido das equipes finalistas** (não de toda
+submissão): repositório com o código, README, referência dos modelos (link +
+revisão), ambiente (requirements/Dockerfile), o comando exato que reproduz as
+saídas submetidas, e configuração de decodificação determinística quando
+aplicável (ex.: `temperature=0`, seed fixa). Solução não reprodutível não entra
+no ranking.
+
+Verificação: re-execução das top-N mais uma amostra, após o encerramento das
+submissões, com janela de recurso após a divulgação preliminar do resultado —
+depois dela, as decisões da organização são finais. Não rodar, não bater o
+score ou violar a regra de ferramentas abertas desclassifica.
 
 Neste repositório: [../Dockerfile](../Dockerfile),
 [../MANIFESTO_MODELO.md](../MANIFESTO_MODELO.md) e a seção *Uso* do
-[README](../README.md).
+[README](../README.md) — já preparados para servir de bundle reproduzível
+quando chegarmos à fase final.
 
 ## Cronograma
 
 | Marco | Data |
 |---|---|
 | Envio dos dados por e-mail aos inscritos | 25/08/2026 |
-| Webinar de tira-dúvidas | 28/08/2026 |
-| Plataforma de submissão, script de avaliação e detalhes da métrica | 01/09/2026 |
+| Webinar de tira-dúvidas (gravação disponível) | 28/08/2026 |
+| Plataforma de submissão (Kaggle), script de avaliação e goldenset atualizado | 01/09/2026 |
 | Período de submissões, leaderboard público ao vivo | 01/09 a 30/09/2026 |
 | Fechamento das submissões | 30/09/2026, 23h59 (BRT) |
 | Avaliação no conjunto privado, verificação e ranking final | 01/10 a 10/10/2026 |
 | Apresentação das melhores soluções (BRACIS 2026, Cuiabá-MT) | 19 a 22/10/2026 |
 
+## A competição no Kaggle
+
+A plataforma de submissão é o Kaggle:
+<https://www.kaggle.com/t/b175ca36f02ce8d3a0422d3f7b339664>.
+
+- **Conta:** uma conta Kaggle por pessoa — contas duplicadas desclassificam a
+  equipe.
+- **Entrar:** cada integrante acessa o link e clica em *Join Competition*,
+  aceitando as regras.
+- **Formar equipe (até 4 pessoas):** com todos já inscritos, um integrante abre
+  a aba *Team* e convida os demais para o merge (ou aceita os pedidos). O nome
+  definido ali é o que aparece no leaderboard.
+- **Dados:** ficam na aba *Data* — os documentos (`txt/`), a base canônica, o
+  gabarito da amostra de desenvolvimento, o conversor de submissão
+  (`json_to_submission.py`) e o script oficial da métrica.
+- **Submeter:** gerar `submission.csv` com `json_to_submission.py` a partir das
+  saídas do pipeline e enviar em *Submit Prediction*. Qualquer integrante pode
+  submeter — o limite é **5 submissões/dia por equipe** (soma de todos os
+  integrantes), não por pessoa.
+- **Leaderboard em duas fases.** Enquanto o conjunto de avaliação final está em
+  construção, o leaderboard roda sobre a amostra de treino/desenvolvimento
+  (gabarito aberto) e é **referencial** — serve para validar o pipeline de
+  ponta a ponta, e **submissões desta fase não contam para o ranking final**.
+  Quando o conjunto final for ativado, o leaderboard **reinicia** e passa a
+  usar a parte pública dele (40%); o ranking final é calculado sobre os 60%
+  privados restantes, mantidos em sigilo até o encerramento.
+
+### Goldenset atualizado (01/09/2026)
+
+A organização publicou uma nova versão do gabarito no Kaggle, com o critério de
+`incompleta` mais estrito — ver
+[dados.md § Atualização do goldenset (01/09/2026)](dados.md#atualização-do-goldenset-01092026).
+O `goldenset.xlsx` local (distribuição de 28/08) está desatualizado: baixar a
+versão nova da aba *Data* antes de continuar o desenvolvimento.
+
 ## Regras de participação
 
 Individual ou em equipes de até 4 pessoas, apenas estudantes, do Brasil. A
-inscrição na conferência não é pré-requisito, mas equipes vencedoras devem
-comparecer à sessão. Múltiplas submissões são permitidas, respeitando o teto
-diário. Tentativas de extrair ou inferir o conjunto de teste privado
-desclassificam a equipe. O ranking final usa exclusivamente os 60% privados.
+elegibilidade dos integrantes é verificada pela organização — nas equipes
+finalistas, só antes da divulgação do resultado, não na inscrição. A inscrição
+no BRACIS 2026 não é pré-requisito, mas equipes vencedoras devem comparecer (ou
+enviar representante) à sessão de encerramento.
+
+**Desclassifica a equipe:** tentar extrair ou inferir o conjunto de teste
+privado, plágio de solução de terceiros sem crédito, ou violar a regra de
+ferramentas abertas (pesos/serviços fechados ou pagos em runtime).
+
+**Publicação:** as melhores soluções são apresentadas no BRACIS 2026, e o
+desafio é liberado como benchmark público depois da conferência — o que
+inclui, presumivelmente, este conjunto de dados e o gabarito hoje fechados.
 
 Dúvidas: desafio-bracis@jusbrasil.com.br ·
 <https://challenge-bracis.production.jusbrasil.com.br/>

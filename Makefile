@@ -6,12 +6,15 @@ DEV  ?= data/dev
 OUT  ?= data/out
 RUN  := uv run
 
-.PHONY: ajuda dados indice testar lint rodar avaliar submissao requirements docker limpar
+.PHONY: ajuda dados dados-kaggle indice testar lint rodar avaliar submissao requirements docker limpar
 
 ajuda:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-dados: ## Descompacta o zip, confere o checksum e gera data/dev/goldenset.csv
+dados-kaggle: ## Baixa os arquivos da competição no Kaggle direto para data/dev/
+	$(RUN) --with kagglehub python scripts/baixar_dados.py --destino $(DEV)
+
+dados: ## (legado) Descompacta o zip do e-mail e gera data/dev/goldenset.csv do xlsx
 	$(RUN) python scripts/preparar_dados.py --zip $(ZIP) --destino $(DEV)
 
 indice: ## Constrói o índice de cabeçalhos dos acórdãos (offline, uma vez)
