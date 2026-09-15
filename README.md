@@ -118,6 +118,7 @@ forem tomadas — o modelo está lá.
 | [docs/investigacao.md](docs/investigacao.md) | o que medimos nos dados: distribuições, duplicatas, ruído |
 | [docs/contrato.md](docs/contrato.md) | formato de entrada e saída, schema 1.2, encoding, offsets |
 | [docs/avaliacao.md](docs/avaliacao.md) | métrica: IoU ≥ 0,5, F1 macro, penalidade dupla, calibração |
+| [docs/referencias.md](docs/referencias.md) | literatura que ajuda, e o que dá para usar agora |
 | [docs/decisoes/](docs/decisoes/) | registro das decisões de projeto e seus porquês |
 | [MANIFESTO_MODELO.md](MANIFESTO_MODELO.md) | declaração de pesos usados (hoje: nenhum) |
 
@@ -136,7 +137,7 @@ publicados; além disso, a base canônica tem 94 MB. Ver
 src/verificador/     o pipeline (ver a tabela em "Arquitetura")
 scripts/             preparar_dados · construir_indice · avaliar
 tests/               a especificação executável de cada etapa
-docs/                desafio · dados · investigacao · contrato · avaliacao · decisoes/
+docs/                desafio · dados · investigacao · contrato · avaliacao · referencias · decisoes/
 Dockerfile           imagem de submissão, sem pesos e sem dados dentro
 MANIFESTO_MODELO.md  declaração de pesos usados
 data/                gitignored — ver docs/dados.md
