@@ -1,12 +1,95 @@
 # Os dados
 
-> Os dados **não estão neste repositório**. Foram enviados por e-mail apenas às
-> equipes inscritas e não têm download público. `data/` inteiro está no
-> `.gitignore`.
+> ⚠ **Os dados não podem ser redistribuídos.** Foram liberados apenas às equipes
+> inscritas e não têm download público. `data/` inteiro está no `.gitignore` e
+> nenhum byte deles jamais entrou no histórico do git. Não anexe o zip a
+> release, issue, gist, bucket público nem ao repositório: **cada pessoa da
+> equipe baixa do Kaggle com a própria credencial** e confere os SHA-256 da
+> tabela abaixo para garantir que as máquinas estão com os mesmos bytes.
 
-> ✅ **Atualizado em 10/09/2026** com a distribuição da aba *Data* do Kaggle
-> (arquivos de 04/09). O gabarito passou de 225 para **195 citações**; a base
-> canônica e os 26 `.txt` são bit a bit os mesmos de 28/08. Detalhes abaixo.
+> ✅ **Atualizado em 15/09/2026** com a distribuição final. O gabarito passou de
+> 195 para **192 citações**, a base canônica mudou pela primeira vez desde 28/08
+> e três dos 26 `.txt` foram corrigidos. A organização avisou que **não haverá
+> novas versões**. Detalhes na seção seguinte.
+
+## Atualização final (15/09/2026)
+
+A última distribuição. O que mudou, medido com `make dados` contra a versão de
+04/09 — a organização não detalha caso a caso, então o diff é levantado pelo
+próprio script de download.
+
+### O gabarito: 195 → 192
+
+**Saíram 3 citações**, todas `incompleta`, e nenhuma entrou. São exatamente as
+três que a seção anterior havia isolado como "frases sem número":
+
+- "artigo correspondente do Código de Processo Civil" (2×)
+- "reiterados precedentes do Superior Tribunal de Justiça"
+
+Com isso o critério fica sem exceção: **as 32 `incompleta` restantes trazem
+todas ao menos um número**, e seguem o padrão tribunal + ano + relator. O
+repertório de frase vaga deixou de ter qualquer papel na detecção dessa classe —
+o que a seção de 01/09 antecipava como tendência agora é regra.
+
+**Quinze citações mudaram**, e vale separar as duas naturezas:
+
+- **Quatro mudanças de conteúdo.** Três são o mesmo caso — o texto do documento
+  ganhou o prefixo processual que faltava, e o `trecho` acompanhou:
+  `AREsp 1576933/SP` → `AgInt no AREsp 1576933/SP`,
+  `Recurso Especial nº 1.657.496/RS` → `AgInt no Recurso Especial nº 1.657.496/RS`,
+  `AREspEI 0601514-91.2020.6.05.0000` → `ED no AgR no AREspEl 0601514-91.2020.6.05.0000`.
+  A quarta é correção de `id_canonico` em `gen_n2_005/g6`
+  (`2813052232` → `1974934139`).
+- **Onze deslocamentos de offset**, consequência mecânica das três correções
+  acima: `inicio` e `fim` andam pelo mesmo delta nas citações que vêm depois, em
+  `gen_n1_003` e `gen_n1_010`.
+
+As classes `real` (96) e `inventada` (64) ficaram intactas.
+
+### A base canônica mudou
+
+Primeira mudança desde 28/08, e a mais consequente desta rodada.
+
+**Dezoito registros ganharam uma primeira linha que se autodeclara.** São
+exatamente as 5 súmulas e os 13 dispositivos — a totalidade das naturezas
+`sumula` e `dispositivo`:
+
+```
+antes:  "Art. 14. O fornecedor de serviços responde, independentemente…"
+depois: "Artigo 14 da Lei nº 8.078, de 11 de setembro de 1990\nArt. 14. O fornecedor…"
+
+antes:  "As reclamações trabalhistas… (enunciado, sem dizer qual súmula é)"
+depois: "Súmula n. 331 do TST\nAs reclamações trabalhistas…"
+```
+
+Isso resolve exatamente a dificuldade que
+[`base_canonica.py`](../src/verificador/base_canonica.py) documentava: até aqui
+o texto desses registros era só o enunciado, não continha "Súmula 331" nem
+"CLT", e o mapeamento sigla → `id_canonico` teve de ser levantado à mão. A
+tabela curada continua correta e continua sendo o caminho de resolução, mas
+agora é **derivável da base**, e o cabeçalho ainda dá a lei por extenso e
+datada, que o repertório de siglas não tinha.
+
+**Dois acórdãos foram removidos** — `doc_0657` e `doc_0662` (ids `1973130981` e
+`1973691658`), ambos TST/2016 do mesmo relator. A base passou de 1.016 para
+**1.014**. Nenhuma citação do gabarito, antigo ou novo, apontava para eles.
+
+Conferido: os 95 `id_canonico` referenciados pelo gabarito novo existem todos na
+base nova.
+
+### Três documentos foram corrigidos
+
+`gen_n1_003.txt`, `gen_n1_006.txt` e `gen_n1_010.txt`, cada um numa única linha,
+para inserir o prefixo processual descrito acima. É a origem dos 11
+deslocamentos de offset. Os outros 23 `.txt` são bit a bit os mesmos.
+
+### O que isso obriga a refazer
+
+- **`make indice`** — o índice foi construído da base velha e está inválido.
+- Qualquer análise presa a `inicio`/`fim` nos três documentos corrigidos.
+- O texto sobre citação vaga em
+  [`deteccao.py`](../src/verificador/deteccao.py): a classe `incompleta` agora é
+  100% tribunal + ano + relator.
 
 ## Atualização do goldenset (01/09/2026)
 
@@ -35,17 +118,15 @@ Medido contra o arquivo novo: saíram **30 citações**, todas `incompleta`,
 nenhuma entrou e nenhuma mudou de classe. O gabarito foi de 225 para 195, e as
 `incompleta` de 65 para 35 — de 29% para **18%** do total.
 
-Das 35 que restaram, **32 são do padrão tribunal + ano + relator** e apenas
-**3 são frases sem número**, e mesmo essas nomeiam uma fonte concreta:
+Das 35 que restaram, **32 eram do padrão tribunal + ano + relator** e apenas
+**3 eram frases sem número**, e mesmo essas nomeavam uma fonte concreta:
 "artigo correspondente do Código de Processo Civil" (2×) e "reiterados
 precedentes do Superior Tribunal de Justiça". As genéricas ("normas de regência
 da matéria", "jurisprudência pacífica desta Corte") sumiram por completo.
 
-Consequência para a detecção: o repertório de frase vaga deixou de ser o
-caminho principal para `incompleta` — o padrão tribunal + ano + relator agora
-responde por 91% da classe. O texto de
-[`deteccao.py`](../src/verificador/deteccao.py) sobre citações vagas foi escrito
-contra o gabarito antigo e precisa ser revisto.
+A distribuição final levou embora também essas três — ver a seção acima. A
+tendência virou regra: `incompleta` é hoje 100% tribunal + ano + relator, e o
+repertório de frase vaga não tem mais papel nenhum na detecção da classe.
 
 ## Como obter
 
@@ -56,17 +137,28 @@ o script oficial da métrica. O zip enviado por e-mail em 25/08 continua
 funcionando para os documentos e a base canônica, mas o `goldenset.xlsx` dele é
 o antigo.
 
-### Caminho recomendado — `make dados-kaggle`
+### Caminho recomendado — `make dados`
 
 1. Gere um token da API em <https://www.kaggle.com/settings> → *API* →
    *Create New Token* e salve como `~/.kaggle/kaggle.json` (ou exporte
-   `KAGGLE_USERNAME` e `KAGGLE_KEY`).
-2. Rode `make dados-kaggle`. O script baixa a competição inteira com
-   `kagglehub` e organiza em `data/dev/`: `txt/`, `desafio1_bracis.db`,
-   `goldenset.csv`, `sample_submission.csv` e, em `data/dev/ferramentas/`, o
-   `json_to_submission.py` e o `kaggle_metric.py` oficiais. Um `goldenset.csv`
-   pré-existente é preservado como `goldenset_anterior.csv` para o diff.
+   `KAGGLE_USERNAME` e `KAGGLE_KEY`). **Cada pessoa da equipe usa a própria
+   credencial** — o zip não pode ser repassado.
+2. Rode `make dados`. O script baixa a competição inteira com `kagglehub` e
+   organiza em `data/dev/`: `txt/`, `desafio1_bracis.db`, `goldenset.csv`,
+   `sample_submission.csv` e, em `data/dev/ferramentas/`, o
+   `json_to_submission.py` e o `kaggle_metric.py` oficiais.
 3. Rode `make indice` para construir o índice de números próprios.
+
+O script só toca em `data/dev/` depois de ter os bytes novos em mãos, então um
+download que falha não estraga o que já estava lá. Um `goldenset.csv`
+pré-existente é preservado como `goldenset_anterior.csv`, e ao final é impresso
+o **diff completo** contra a versão anterior: citações que saíram, entraram ou
+mudaram de campo, registros alterados na base e `.txt` corrigidos. Como a
+organização publica revisões sem detalhar caso a caso, esse relatório é a única
+forma de saber o que precisa ser revisto.
+
+Se a credencial não estiver à mão, `make dados-zip ZIP=caminho/para.zip` aplica
+um zip já baixado da aba *Data* e produz exatamente o mesmo resultado.
 
 `kagglehub` **não** é dependência do projeto — a solução roda offline no
 ambiente da organização, e nada de rede pode entrar no bundle reproduzível. O
@@ -83,24 +175,31 @@ Este caminho continua servindo para os documentos e a base canônica, mas o
 `goldenset.xlsx` do e-mail é o de 25/08.
 
 Como `data/` não é versionado, são estes checksums que garantem que dois clones
-estão olhando para os mesmos bytes. Confira depois de `make dados-kaggle`.
+estão olhando para os mesmos bytes. Confira depois de `make dados`.
 
-Distribuição atual — Kaggle, arquivos de 04/09/2026:
+Distribuição final — Kaggle, arquivos de 15/09/2026:
 
 | Arquivo | SHA-256 |
 |---|---|
-| `desafio-jusbrasil-bracis-2026.zip` | `de2b4f308b4c01636ea285eaeb52ec170cbf8d6e3044ead595564ebe7dddae1a` |
-| `desafio1_bracis.db` | `d759681be82ee00f383b49a5c76c42dd475564e042272e00730252468dcb6e71` |
-| `goldenset.csv` | `3e28218c9e92974e006db520762113a96aab158320e97a1b584f5bc83263c8d1` |
+| `desafio-jusbrasil-bracis-2026.zip` | `b5ea998b301459be4769084f0dc00b7758650697e71bf9843257b21870239c52` |
+| `desafio1_bracis.db` | `78f0708b0a21c11655dfdd882382fea75c62a75415d8d3b118888c0a340bef4c` |
+| `goldenset.csv` | `562e4ee5d0e8cb299ccb99b4c6dd758b195fbb5668617ce4c2ead465ea27211d` |
+| `sample_submission.csv` | `c299ddb54b94d6375de4e58ecad8fec55a68f4cced667e19b3f4f9f60af4ffdc` |
 | `ferramentas/kaggle_metric.py` | `3c4d30e70971144afbd0ae73c6d4ac887faf0f5926de986170de32f72544fc3f` |
 | `ferramentas/json_to_submission.py` | `c6ec4963e884c7fc19939816d7398e512cc8f7d60af472fb1a3bd723f1fee05c` |
 
-Distribuição anterior — e-mail de 28/08/2026 (o `.db` é o mesmo):
+No zip o gabarito se chama `goldenset_offsets.csv`; `make dados` o renomeia para
+`goldenset.csv` ao copiar. O hash acima é do arquivo como vem, byte a byte.
 
-| Arquivo | SHA-256 |
-|---|---|
-| `dados_desafio_jusbrasil.zip` | `2a3716eb688e56e0c6c43823ab789099af50eae376ee01c29e795bf6484b5d02` |
-| `goldenset.xlsx` | `496af2b3271a2872d21cb2a2fe110bf0f37130623904895cd8747db7b23735db` |
+Distribuições anteriores, para referência:
+
+| Arquivo | Origem | SHA-256 |
+|---|---|---|
+| `desafio-jusbrasil-bracis-2026.zip` | Kaggle, 04/09 | `de2b4f308b4c01636ea285eaeb52ec170cbf8d6e3044ead595564ebe7dddae1a` |
+| `desafio1_bracis.db` | Kaggle, 04/09 | `d759681be82ee00f383b49a5c76c42dd475564e042272e00730252468dcb6e71` |
+| `goldenset.csv` | Kaggle, 04/09 | `3e28218c9e92974e006db520762113a96aab158320e97a1b584f5bc83263c8d1` |
+| `dados_desafio_jusbrasil.zip` | e-mail, 28/08 | `2a3716eb688e56e0c6c43823ab789099af50eae376ee01c29e795bf6484b5d02` |
+| `goldenset.xlsx` | e-mail, 25/08 | `496af2b3271a2872d21cb2a2fe110bf0f37130623904895cd8747db7b23735db` |
 
 ## Os documentos de entrada
 
@@ -115,9 +214,9 @@ O nome do arquivo entrega o nível: `gen_n1_001`…`gen_n1_013` são nível 1 e
 | | Nível 1 (1×) | Nível 2 (2×) |
 |---|---|---|
 | documentos | 13 | 13 |
-| citações | 101 | 94 |
-| tamanho médio | 3.372 chars | 3.276 chars |
-| `real` / `inventada` / `incompleta` | 52 / 32 / 17 | 44 / 32 / 18 |
+| citações | 99 | 93 |
+| tamanho médio | 3.393 chars | 3.277 chars |
+| `real` / `inventada` / `incompleta` | 52 / 32 / 15 | 44 / 32 / 17 |
 
 Esta é a **amostra de desenvolvimento**. O conjunto final é cego, tem o mesmo
 formato, os mesmos níveis e distribuição de classes equivalente. Ele não é
@@ -160,7 +259,7 @@ corpo do texto, é citação. É por isso que
 
 ## A base canônica
 
-Um SQLite de 93 MB com os 1.016 registros que definem o universo do desafio. É
+Um SQLite de 94 MB com os 1.014 registros que definem o universo do desafio. É
 contra ele que uma citação é `real` ou `inventada`. É a **cobertura congelada**:
 se um acórdão existe no mundo mas não está aqui, para efeito do desafio ele não
 existe — e, por construção, isso nunca prejudica ninguém, porque toda citação
@@ -182,17 +281,28 @@ CREATE TABLE documentos (
 
 | natureza | registros | o que são |
 |---|---|---|
-| `acordao` | 998 | acórdãos de STF, STJ, TSE, TST e STM (≈200 de cada) |
+| `acordao` | 996 | acórdãos de STF, STJ, TSE, TST e STM (≈200 de cada) |
 | `sumula` | 5 | súmulas do STJ, STF e TST, incluindo vinculante |
 | `dispositivo` | 13 | artigos de CPC, CC, CLT, CF/88, CPP, CPM, CDC, Código Eleitoral e LC 64/1990 |
+
+Desde 15/09 os 18 registros de `sumula` e `dispositivo` trazem na primeira linha
+a própria identificação ("Súmula n. 331 do TST", "Artigo 14 da Lei nº 8.078, de
+11 de setembro de 1990"). Os `acordao` continuam sem cabeçalho desse tipo.
 
 `natureza` existe porque `tipo` sozinho não separa acórdão de súmula — os dois
 são `jurisprudencia`.
 
 Há ainda uma tabela virtual `documentos_fts` (FTS5, external content,
 `unicode61 remove_diacritics 2`) indexando o texto integral. Ela não duplica o
-conteúdo — aponta para `documentos` pelo `rowid`. Ver a armadilha 4 abaixo antes
+conteúdo — aponta para `documentos` pelo `rowid`. Ver a armadilha 5 abaixo antes
 de usá-la.
+
+### Atualizações de 15/09/2026
+
+- 18 registros — as 5 súmulas e os 13 dispositivos — ganharam cabeçalho
+  autodeclarado. Ver [Atualização final](#atualização-final-15092026).
+- `doc_0657` e `doc_0662` foram removidos (TST/2016, mesmo relator). A base
+  passou de 1.016 para 1.014. Nenhuma citação do gabarito apontava para eles.
 
 ### Atualizações de 28/08/2026
 
@@ -203,14 +313,15 @@ de usá-la.
 - Existem **outras duplicatas** no acervo. A organização informou que nenhuma
   citação do gabarito aponta para elas; medindo, encontramos três casos em que
   aponta — ver
-  [investigacao.md § Três pares de duplicatas](investigacao.md#três-pares-de-duplicatas-com-id-diferentes).
+  [investigacao.md § Três pares de duplicatas](investigacao.md#duplicatas-dois-pares-resolvidos-e-a-heurística-caiu).
 
 ## O gabarito
 
-`goldenset.csv` — uma linha por citação esperada, 195 no total, nos 26
-documentos. Vem pronto na aba *Data*; `make dados-kaggle` o copia para
-`data/dev/goldenset.csv`. (O `goldenset.xlsx` do e-mail é o gabarito antigo, de
-225 linhas; `make dados` ainda o converte, para efeito de comparação.)
+`goldenset.csv` — uma linha por citação esperada, 192 no total, nos 26
+documentos. Vem pronto na aba *Data* sob o nome `goldenset_offsets.csv`;
+`make dados` o copia para `data/dev/goldenset.csv`. (O `goldenset.xlsx` do
+e-mail é o gabarito de 25/08, com 225 linhas, e só serve para comparação
+histórica.)
 
 | Coluna | Descrição |
 |---|---|
@@ -233,20 +344,29 @@ Cada uma destas custou tempo. Elas estão aqui para não custarem de novo.
 Entregar `doc_0201` onde se espera `2566535283` derruba a citação para erro,
 mesmo com a classe certa.
 
-### 2. `id_canonico` vem como float no xlsx
+### 2. O gabarito vem com BOM e com outro nome
+
+Na distribuição de 15/09 o arquivo se chama `goldenset_offsets.csv` e começa com
+um BOM UTF-8 (`EF BB BF`). Ler com `encoding="utf-8"` faz a primeira coluna
+virar `\ufeffnivel`, e todo acesso a `linha["nivel"]` estoura com `KeyError`
+— ou, pior, passa despercebido se o código só usa as outras colunas. Abra com
+`encoding="utf-8-sig"`, que lê corretamente com e sem BOM. `make dados`
+normaliza o nome para `goldenset.csv`; o encoding é responsabilidade de quem lê.
+
+### 3. `id_canonico` vem como float no xlsx
 
 No `goldenset.xlsx` o campo está gravado como número de ponto flutuante:
 `5.665364632E9`. Ler com pandas ou openpyxl sem cast devolve `5665364632.0`, que
 não casa com nenhum `id`. Vale o mesmo para `nivel`, `inicio` e `fim`.
 [`preparar_dados.py`](../scripts/preparar_dados.py) converte para inteiro.
 
-### 3. `trecho` traz `\n` escapado
+### 4. `trecho` traz `\n` escapado
 
 As quebras de linha aparecem no gabarito como a sequência de dois caracteres
 `\\n`, não como LF. Comparar direto com `texto[inicio:fim]` falha até
 desescapar.
 
-### 4. O FTS não casa número sem pontuação
+### 5. O FTS não casa número sem pontuação
 
 O tokenizador `unicode61` quebra em qualquer caractere não alfanumérico:
 `1.741.784` vira três tokens (`1`, `741`, `784`).
@@ -262,7 +382,7 @@ Como o nível 2 entrega números sem pontuação com frequência, o pipeline pre
 reconstruir a forma canônica. Nós resolvemos isso normalizando **os dois lados**
 para dígitos puros e indexando por eles, o que dispensa o FTS.
 
-### 5. O FTS devolve quem cita, não só quem é
+### 6. O FTS devolve quem cita, não só quem é
 
 Esta é a armadilha que mais custa precisão. Acórdãos citam uns aos outros o
 tempo todo: uma busca por `"1.276.977"` devolve seis documentos do STF, e
@@ -275,17 +395,24 @@ cabeçalho, e sim na fórmula `… estes autos de <classe> nº TST-RR-…`, por 
 do caractere 1.000. Ver
 [investigacao.md § Onde o número aparece](investigacao.md#onde-o-número-do-processo-aparece-na-base).
 
-### 6. Leis e súmulas resolvem por registro próprio
+### 7. Leis e súmulas resolvem por registro próprio
 
 Buscar "Súmula 83 do STJ" no texto dos acórdãos devolve dezenas de documentos
 que a mencionam — nenhum deles é a súmula. Os 18 registros de natureza `sumula`
 e `dispositivo` existem para isso: são o alvo da resolução, não o texto que
-cita. E o texto deles é o **enunciado**: não contém o número da súmula nem o nome
-do código. Daí a tabela curada em
-[`base_canonica.py`](../src/verificador/base_canonica.py), conferida contra o
-banco por [`tests/test_base_canonica.py`](../tests/test_base_canonica.py).
+cita. A metade da armadilha que continua de pé é essa: **contenção no texto não
+identifica o registro**, e o FTS vai devolver os citantes.
 
-### 7. O número do artigo não basta para identificar o dispositivo
+O que mudou em 15/09: o texto desses 18 registros deixou de ser só o enunciado e
+passou a abrir com a própria identificação ("Súmula n. 331 do TST", "Artigo 14
+da Lei nº 8.078, de 11 de setembro de 1990"). A tabela curada em
+[`base_canonica.py`](../src/verificador/base_canonica.py) — conferida contra o
+banco por [`tests/test_base_canonica.py`](../tests/test_base_canonica.py) —
+continua correta e continua sendo o caminho, mas agora é derivável da base em
+vez de levantada à mão, e o cabeçalho dá a lei por extenso e datada, que o
+repertório de siglas não cobria.
+
+### 8. O número do artigo não basta para identificar o dispositivo
 
 `art. 290 do Código Penal Militar` é `real`; `art 290 da Constituição Federal`
 é `inventada`. Os 13 artigos da cobertura têm números distintos entre si, o que

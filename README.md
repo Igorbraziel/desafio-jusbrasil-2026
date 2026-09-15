@@ -55,10 +55,11 @@ no grupo `dev`.
 ## Uso
 
 Salve seu token da API do Kaggle em `~/.kaggle/kaggle.json` (Settings → API →
-Create New Token) e rode:
+Create New Token) e rode. **Cada pessoa da equipe baixa com a própria
+credencial** — o dataset não pode ser redistribuído.
 
 ```bash
-make dados-kaggle  # baixa a competição do Kaggle para data/dev/ (ver docs/dados.md)
+make dados      # baixa a competição do Kaggle para data/dev/ (ver docs/dados.md)
 make indice     # constrói o índice da base canônica — uma vez, offline
 make testar     # pytest
 make rodar      # um JSON por documento em data/out/
@@ -123,8 +124,10 @@ forem tomadas — o modelo está lá.
 ## Dados
 
 Os dados **não estão neste repositório** e `data/` inteiro está no `.gitignore`.
-Foram enviados por e-mail apenas às equipes inscritas e não têm download
-público; além disso, a base canônica tem 93 MB. Ver
+Foram liberados apenas às equipes inscritas e **não podem ser redistribuídos** —
+nada de anexá-los a release, issue, gist ou bucket público. Cada pessoa da
+equipe baixa do Kaggle com a própria credencial e confere os SHA-256
+publicados; além disso, a base canônica tem 94 MB. Ver
 [docs/dados.md](docs/dados.md) para obtenção e checksums.
 
 ## Estrutura
@@ -145,10 +148,10 @@ data/                gitignored — ver docs/dados.md
    <https://www.kaggle.com/t/b175ca36f02ce8d3a0422d3f7b339664>. Cada integrante
    entra na competição, e um integrante forma a equipe (até 4 pessoas) na aba
    *Team*. Ver [docs/desafio.md § A competição no Kaggle](docs/desafio.md#a-competição-no-kaggle).
-2. Baixar da aba *Data* do Kaggle: o goldenset atualizado (o critério de
-   `incompleta` mudou — ver
-   [docs/dados.md § Atualização do goldenset](docs/dados.md#atualização-do-goldenset-01092026)),
-   o conversor `json_to_submission.py` e o script oficial da métrica.
+2. **Feito (15/09/2026)** — baixada a distribuição final: 192 citações, base
+   canônica com 1.014 registros e três `.txt` corrigidos. Ver
+   [docs/dados.md § Atualização final](docs/dados.md#atualização-final-15092026).
+   Vieram também o conversor `json_to_submission.py` e o script oficial da métrica.
    Substituir [scripts/avaliar.py](scripts/avaliar.py) pelo oficial e comparar
    os dois: divergência indica que interpretamos alguma regra errado. Conferir
    também se `id_canonico` sai como string ou inteiro

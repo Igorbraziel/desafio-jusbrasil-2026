@@ -12,9 +12,14 @@ Faz três coisas, nesta ordem:
    float (``5.665364632E9``); ler sem cast produz ``5665364632.0``, que não casa
    com nenhum ``id`` da base.
 
-Ao final, valida que ``trecho == texto[inicio:fim]`` para as 225 citações. Essa
+Ao final, valida que ``trecho == texto[inicio:fim]`` em cada citação. Essa
 checagem é o teste de fumaça de que estamos lendo offsets em codepoints Unicode
 do mesmo jeito que a organização.
+
+**Caminho legado.** O zip do e-mail traz o ``goldenset.xlsx`` de 25/08, com 225
+citações — duas revisões atrás. Para a distribuição final use
+``scripts/baixar_dados.py`` (``make dados``); este módulo continua aqui porque
+``sha256`` e ``validar_offsets`` são compartilhados com ele.
 
 Uso:
     python scripts/preparar_dados.py --zip data/raw/dados_desafio_jusbrasil.zip --destino data/dev

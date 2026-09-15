@@ -16,6 +16,15 @@ a citação é resolvida:
 ``dispositivo``  ``art. 373, I, do CPC``
 ``vaga``         sem identificador suficiente para consultar a base
 
+**A família ``vaga`` tem uma forma só.** Depois da revisão de 15/09/2026 as 32
+citações ``incompleta`` do gabarito são todas do padrão tribunal + ano +
+relator — "julgado do STF proferido em 2024 pela relatoria de Dias Toffoli". As
+32 nomeiam um relator, o único dígito é o ano e nenhuma traz número de
+processo. As frases genéricas ("normas de regência da matéria") e as sem número
+("reiterados precedentes do STJ") saíram do gabarito nas duas revisões. O sinal
+a procurar é **menção a relator sem número de processo**, não um repertório de
+frase vaga. Ver ``docs/investigacao.md``.
+
 **Distratores.** Os cabeçalhos trazem números que parecem citação e não são:
 número dos autos do próprio documento, protocolo, inscrição na OAB, ``fls.
 234/567``, valor da causa. Nenhum está no gabarito, e extraí-los conta como

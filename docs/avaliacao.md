@@ -2,7 +2,7 @@
 
 > ⚠️ **O script oficial já está baixado**, em
 > `data/dev/ferramentas/kaggle_metric.py` (junto com `json_to_submission.py`),
-> via `make dados-kaggle`. [`scripts/avaliar.py`](../scripts/avaliar.py) era a
+> via `make dados`. [`scripts/avaliar.py`](../scripts/avaliar.py) era a
 > *nossa leitura* da métrica antes de o oficial sair — **falta comparar os
 > dois** e apontar `make avaliar` para o oficial: divergência é sinal de que
 > interpretamos alguma regra errado, e é melhor descobrir isso agora do que em
