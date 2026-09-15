@@ -18,9 +18,9 @@ sem passar pelo banco. E uma referência como "acórdão do STF de 2024, relatad
 pelo Ministro Fulano" é buscável, mas casa com dezenas de candidatos: também
 ``incompleta``, por falta de critério de desempate.
 
-Cuidado com ``lei``: o número do artigo sozinho não identifica o dispositivo.
-``art. 290 do Código Penal Militar`` é ``real`` e ``art 290 da Constituição
-Federal`` é ``inventada``.
+Cuidado com ``lei``: o número do artigo sozinho não identifica o dispositivo. O
+gabarito traz o mesmo número de artigo sob dois códigos diferentes, um dentro e
+outro fora da cobertura — só o código decide entre ``real`` e ``inventada``.
 
 ``confianca`` é opcional, mas alimenta o bônus de calibração de até 10%. Vale
 atribuí-la por caminho de decisão e medir o Brier na amostra de desenvolvimento

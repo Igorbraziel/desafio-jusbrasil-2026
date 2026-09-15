@@ -1,21 +1,21 @@
 # Desafio Jusbrasil x BRACIS 2026 — atalhos do fluxo de trabalho.
 # Ordem típica:  make dados -> make indice -> make testar -> make rodar -> make avaliar
 
-ZIP  ?= data/raw/dados_desafio_jusbrasil.zip
+ZIP  ?= data/raw/desafio-jusbrasil-bracis-2026.zip
 DEV  ?= data/dev
 OUT  ?= data/out
 RUN  := uv run
 
-.PHONY: ajuda dados dados-kaggle indice testar lint rodar avaliar submissao requirements docker limpar
+.PHONY: ajuda dados dados-zip indice testar lint rodar avaliar submissao requirements docker limpar
 
 ajuda:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-dados-kaggle: ## Baixa os arquivos da competição no Kaggle direto para data/dev/
+dados: ## Baixa a distribuição final da aba Data do Kaggle (exige credencial própria)
 	$(RUN) --with kagglehub python scripts/baixar_dados.py --destino $(DEV)
 
-dados: ## (legado) Descompacta o zip do e-mail e gera data/dev/goldenset.csv do xlsx
-	$(RUN) python scripts/preparar_dados.py --zip $(ZIP) --destino $(DEV)
+dados-zip: ## Aplica um zip já baixado à mão da aba Data (ZIP=caminho)
+	$(RUN) python scripts/baixar_dados.py --zip $(ZIP) --destino $(DEV)
 
 indice: ## Constrói o índice de cabeçalhos dos acórdãos (offline, uma vez)
 	$(RUN) python scripts/construir_indice.py --db $(DEV)/desafio1_bracis.db --saida $(DEV)/indice_cabecalhos.json

@@ -1,7 +1,7 @@
 """Constrói o índice de números próprios dos acórdãos, uma vez, offline.
 
 O PDF do desafio recomenda explicitamente isso em vez de varrer o FTS a cada
-citação: 1.016 registros varridos uma vez custam segundos, e a consulta em
+citação: 1.014 registros varridos uma vez custam segundos, e a consulta em
 runtime vira um acesso a dicionário.
 
 Uso:

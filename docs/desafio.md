@@ -88,6 +88,7 @@ quando chegarmos à fase final.
 | Envio dos dados por e-mail aos inscritos | 25/08/2026 |
 | Webinar de tira-dúvidas (gravação disponível) | 28/08/2026 |
 | Plataforma de submissão (Kaggle), script de avaliação e goldenset atualizado | 01/09/2026 |
+| Distribuição final do dataset — não haverá novas versões | 15/09/2026 |
 | Período de submissões, leaderboard público ao vivo | 01/09 a 30/09/2026 |
 | Fechamento das submissões | 30/09/2026, 23h59 (BRT) |
 | Avaliação no conjunto privado, verificação e ranking final | 01/10 a 10/10/2026 |
@@ -120,13 +121,23 @@ A plataforma de submissão é o Kaggle:
   usar a parte pública dele (40%); o ranking final é calculado sobre os 60%
   privados restantes, mantidos em sigilo até o encerramento.
 
-### Goldenset atualizado (01/09/2026)
+### Distribuição final do dataset (15/09/2026)
 
-A organização publicou uma nova versão do gabarito no Kaggle, com o critério de
-`incompleta` mais estrito — ver
-[dados.md § Atualização do goldenset (01/09/2026)](dados.md#atualização-do-goldenset-01092026).
-O `goldenset.xlsx` local (distribuição de 28/08) está desatualizado: baixar a
-versão nova da aba *Data* antes de continuar o desenvolvimento.
+A organização publicou a versão final na aba *Data* e avisou que **não haverá
+novas modificações** — imperfeições remanescentes fazem parte do cenário com que
+a solução precisa lidar. Mudaram as três frentes: gabarito (192 citações), base
+canônica (1.014 registros) e três dos 26 `.txt`. Ver
+[dados.md § Atualização final](dados.md#atualização-final-15092026) para o diff
+completo, levantado pelo próprio `make dados`.
+
+Houve uma revisão anterior em 01/09, que endureceu o critério de `incompleta` —
+ver [dados.md § Atualização do goldenset](dados.md#atualização-do-goldenset-01092026).
+Qualquer cópia local anterior a 15/09 está desatualizada, inclusive o
+`goldenset.xlsx` do e-mail de 25/08.
+
+O dataset **não pode ser redistribuído**: foi liberado só às equipes inscritas e
+não tem download público. Cada integrante baixa do Kaggle com a própria
+credencial.
 
 ## Regras de participação
 

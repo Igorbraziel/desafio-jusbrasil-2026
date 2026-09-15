@@ -83,7 +83,7 @@ def alinhar(gabarito: list[Item], predicoes: list[Item]) -> list[tuple[int | Non
 
 def carregar_gabarito(caminho: Path) -> dict[str, tuple[int, list[Item]]]:
     docs: dict[str, tuple[int, list[Item]]] = {}
-    for linha in csv.DictReader(caminho.open(encoding="utf-8")):
+    for linha in csv.DictReader(caminho.open(encoding="utf-8-sig")):
         doc = linha["documento_id"]
         nivel = int(linha["nivel"])
         item = Item(

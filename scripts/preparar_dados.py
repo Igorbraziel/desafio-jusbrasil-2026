@@ -9,12 +9,17 @@ Faz três coisas, nesta ordem:
    invalidam qualquer índice construído antes.
 3. Converte ``goldenset.xlsx`` em ``goldenset.csv`` com os campos numéricos como
    inteiros. Isso não é cosmético: no xlsx, ``id_canonico`` está gravado como
-   float (``5.665364632E9``); ler sem cast produz ``5665364632.0``, que não casa
+   float (``5.123456789E9``); ler sem cast produz ``5123456789.0``, que não casa
    com nenhum ``id`` da base.
 
-Ao final, valida que ``trecho == texto[inicio:fim]`` para as 225 citações. Essa
+Ao final, valida que ``trecho == texto[inicio:fim]`` em cada citação. Essa
 checagem é o teste de fumaça de que estamos lendo offsets em codepoints Unicode
 do mesmo jeito que a organização.
+
+**Caminho legado.** O zip do e-mail traz o ``goldenset.xlsx`` de 25/08, com 225
+citações — duas revisões atrás. Para a distribuição final use
+``scripts/baixar_dados.py`` (``make dados``); este módulo continua aqui porque
+``sha256`` e ``validar_offsets`` são compartilhados com ele.
 
 Uso:
     python scripts/preparar_dados.py --zip data/raw/dados_desafio_jusbrasil.zip --destino data/dev
