@@ -28,9 +28,9 @@ saíram em 01/09 e mais 3 em 15/09. As contagens de `real` (96) e `inventada`
 ## As `incompleta` são hoje uma forma só
 
 Depois da revisão de 15/09 a classe ficou homogênea. As 32 citações
-`incompleta` seguem todas o padrão **tribunal + ano + relator**: "julgado do STF
-proferido em 2024 pela relatoria de Dias Toffoli", "Rcl de 2021, Rel. Min. Rosa
-Weber". Medindo:
+`incompleta` seguem todas o padrão **tribunal + ano + relator**, nas formas
+"julgado do \<tribunal\> proferido em \<ano\> pela relatoria de \<nome\>" e
+"\<classe\> de \<ano\>, Rel. Min. \<nome\>". Medindo:
 
 | propriedade | vale para |
 |---|---|
@@ -67,36 +67,41 @@ onde o número da citação aparece no documento que o gabarito aponta:
 
 O TST é o que quebra um limiar de posição ingênuo.
 
-Contraexemplo do porquê a posição importa: o número `22357` aparece em nove
-lugares da base — todos citando `MS 22.357` dentro do texto de outros acórdãos.
-A citação `Reclamação nº 22.357/PE` é anotada como `inventada`: não existe
-Reclamação com esse número na cobertura. Resolver por contenção erraria.
+Contraexemplo do porquê a posição importa: há na amostra um número que aparece
+em nove lugares da base, sempre como *citação* dentro do texto de outros
+acórdãos e nunca como número próprio de registro nenhum. A citação
+correspondente é anotada como `inventada`, porque a classe processual invocada
+não existe com aquele número na cobertura. Resolver por contenção erraria.
 
-## Duplicatas: dois pares resolvidos, e a heurística caiu
+## Duplicatas: o que a revisão resolveu
 
-Até 04/09, três números eram o número próprio de dois registros distintos, e o
-gabarito escolhia um. A distribuição de 15/09 mexeu exatamente aqui.
+Até 04/09 havia na base **três números** que eram o número próprio de dois
+registros distintos cada, e em todos os três o gabarito escolhia um dos dois. A
+distribuição de 15/09 mexeu exatamente aqui, e o resultado é o achado mais
+importante desta rodada.
 
-| número | candidatos | `texto_len` | escolha até 04/09 | agora |
-|---|---|---|---|---|
-| `213-85.2010.5.02.0030` | doc_0662, doc_0670 | 95.386 vs 95.622 | doc_0670 | doc_0662 **removido** — sem ambiguidade |
-| `79500-16.2009.5.15.0016` | doc_0640, doc_0657 | 99.783 vs 99.546 | doc_0640 | doc_0657 **removido** — sem ambiguidade |
-| `25823-78.2015.5.24.0091` | doc_0710, doc_0729 | 95.681 vs 60.988 | doc_0710 | **doc_0729** — o gabarito mudou de lado |
+| | até 04/09 | depois de 15/09 |
+|---|---|---|
+| pares ambíguos | 3 | **1** |
+| resolvidos por remoção do candidato perdedor | — | 2 |
+| que inverteram de lado | — | 1 |
 
-Os dois registros que a organização apagou da base são precisamente os dois que
-o gabarito **não** escolhia. Esses dois casos deixaram de ser ambíguos.
+**Dois pares deixaram de ser ambíguos.** Em cada um deles a organização apagou
+da base exatamente o registro que o gabarito **não** escolhia, o que elimina a
+escolha em vez de justificá-la.
 
-O terceiro é o resultado que importa. A versão anterior deste documento
-observava que, nos três pares, o gabarito escolhia o de maior `texto_len`, e
-ressalvava que era pouca evidência para uma regra. A revisão de 15/09 mudou
-`gen_n2_005/g6` de `2813052232` (doc_0710, 95.681 chars) para `1974934139`
-(doc_0729, 60.988 chars) — **o mais curto**. A heurística de `texto_len` está
-refutada: era coincidência nas três observações, e o único par que sobrou a
+**O terceiro inverteu, e isso refuta a heurística.** A versão anterior deste
+documento observava que, nos três pares, o gabarito escolhia sempre o registro
+de maior `texto_len`, e ressalvava que três observações eram pouca evidência
+para uma regra. A ressalva estava certa: a revisão de 15/09 reapontou esse par
+para o candidato **mais curto** — cerca de 61 mil caracteres contra 96 mil. A
+heurística de `texto_len` era coincidência, e o único par que sobrou a
 contradiz.
 
 Não há substituto à vista. Com um par ambíguo restante não dá para inferir
 critério nenhum, e a alternativa de tratar cardinalidade ≥ 2 como `incompleta`
-erraria esse caso. Fica como risco assumido para o conjunto cego.
+erraria esse caso. Fica como risco assumido para o conjunto cego, e está
+sinalizado em `candidatos_por_numero` para quem for implementar a resolução.
 
 ## Os 18 registros que não são acórdão
 
@@ -108,18 +113,18 @@ Em 15/09 a organização deu a esses mesmos 18 registros — a totalidade das
 naturezas `sumula` e `dispositivo` — uma primeira linha que se autodeclara:
 
 ```
-Súmula n. 331 do TST
-As reclamações trabalhistas…
+Súmula n. <número> do <tribunal>
+<enunciado…>
 
-Artigo 14 da Lei nº 8.078, de 11 de setembro de 1990
-Art. 14. O fornecedor de serviços responde…
+Artigo <número> da <lei por extenso, com número e data>
+Art. <número>. <caput…>
 ```
 
 O mapeamento passou a ser **derivável da base**, e o cabeçalho traz de brinde a
 lei por extenso e datada, que o repertório de siglas não cobria — útil para
-casar "Lei nº 8.078/90" tanto quanto "CDC". A cobertura continua congelada, então
-o mapeamento segue completo por construção: qualquer súmula ou artigo fora dele
-é, por definição, `inventada`.
+casar a referência pelo número da lei tanto quanto pela sigla do código. A
+cobertura continua congelada, então o mapeamento segue completo por construção:
+qualquer súmula ou artigo fora dele é, por definição, `inventada`.
 
 As tabelas curadas continuam em
 [`base_canonica.py`](../src/verificador/base_canonica.py) e
@@ -127,8 +132,9 @@ As tabelas curadas continuam em
 contra o banco — agora com a opção de derivá-las em vez de mantê-las à mão.
 
 Os 13 artigos têm números distintos entre si, o que tenta o atalho de casar só
-pelo número. O atalho erra: `art. 290 do Código Penal Militar` é `real`,
-`art 290 da Constituição Federal` é `inventada`.
+pelo número. O atalho erra: o gabarito traz o mesmo número de artigo sob dois
+códigos diferentes, um dentro e outro fora da cobertura, e só o código decide
+entre `real` e `inventada`.
 
 ## Ruído de OCR observado no nível 2
 

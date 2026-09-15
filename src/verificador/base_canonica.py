@@ -17,12 +17,13 @@ Três estruturas de resolução, uma por natureza de registro:
     conferida contra o banco em ``tests/test_base_canonica.py``.
 
     A distribuição de 15/09/2026 mudou o terreno aqui: esses mesmos 18
-    registros ganharam uma primeira linha que se autodeclara — ``Súmula n. 331
-    do TST``, ``Artigo 14 da Lei nº 8.078, de 11 de setembro de 1990``. Antes o
-    texto era só o enunciado, e a tabela abaixo teve de ser levantada à mão. Ela
-    continua correta e continua sendo o caminho de resolução, mas agora é
-    **derivável da base**, e o cabeçalho também dá o número da lei por extenso,
-    que o repertório de siglas não tinha. Ver ``docs/dados.md``.
+    registros ganharam uma primeira linha que se autodeclara, no formato
+    ``Súmula n. <número> do <tribunal>`` e ``Artigo <número> da <lei por
+    extenso>``. Antes o texto era só o enunciado, e a tabela abaixo teve de ser
+    levantada à mão. Ela continua correta e continua sendo o caminho de
+    resolução, mas agora é **derivável da base**, e o cabeçalho também dá o
+    número da lei por extenso, que o repertório de siglas não tinha. Ver
+    ``docs/dados.md``.
 
 Não confunda as duas colunas de id: ``documento_id`` (``doc_0201``) é a chave
 interna do acervo; ``id`` é o doc_id do Jusbrasil, e é ele que vai em
@@ -45,10 +46,11 @@ MINIMO_DIGITOS = 4
 # Súmulas e dispositivos: tabelas curadas.
 #
 # O mapeamento abaixo foi levantado à mão quando o texto desses registros era só
-# o enunciado, sem "Súmula 331" nem "CLT". Desde 15/09/2026 cada um abre com a
-# própria identificação, então a tabela virou derivável da base — continua
-# correta, e os testes a conferem contra o banco. Como a cobertura é congelada,
-# ela é completa: qualquer súmula ou artigo fora dela é, por definição, inventada.
+# o enunciado, sem dizer qual súmula era nem de que código vinha o artigo. Desde
+# 15/09/2026 cada um abre com a própria identificação, então a tabela virou
+# derivável da base — continua correta, e os testes a conferem contra o banco.
+# Como a cobertura é congelada, ela é completa: qualquer súmula ou artigo fora
+# dela é, por definição, inventada.
 # ---------------------------------------------------------------------------
 
 # (tribunal, é_vinculante, número) -> id canônico
@@ -164,8 +166,8 @@ class BaseCanonica:
         ``texto_len`` decrescente vem de uma observação do gabarito de 04/09, em
         que os três pares ambíguos resolviam para o registro mais longo. A
         distribuição de 15/09 apagou dois desses pares da base e **inverteu o
-        terceiro**: ``25823-78.2015.5.24.0091`` agora resolve para doc_0729
-        (60.988 chars) e não para doc_0710 (95.681). A heurística está refutada;
+        terceiro**, que passou a resolver para o candidato mais curto (cerca de
+        61 mil caracteres contra 96 mil). A heurística está refutada;
         a ordem aqui é só estabilidade, não preferência. Quem implementar a
         resolução precisa decidir o desempate com outro critério.
         """

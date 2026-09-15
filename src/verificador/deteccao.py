@@ -11,16 +11,16 @@ Uma organização possível é por família, porque a família determina contra 
 a citação é resolvida:
 
 ``processo``     sigla ou classe processual + número (``AgInt no REsp 1.599.910/PR``)
-``sumula``       ``Súmula 331 do TST``, ``Súmula Vinculante 10``
+``sumula``       ``Súmula <n> do <tribunal>``, ``Súmula Vinculante <n>``
 ``tema``         ``Tema 2.680 da repercussão geral``
-``dispositivo``  ``art. 373, I, do CPC``
+``dispositivo``  ``art. <n>, <inciso>, do <código>``
 ``vaga``         sem identificador suficiente para consultar a base
 
 **A família ``vaga`` tem uma forma só.** Depois da revisão de 15/09/2026 as 32
 citações ``incompleta`` do gabarito são todas do padrão tribunal + ano +
-relator — "julgado do STF proferido em 2024 pela relatoria de Dias Toffoli". As
-32 nomeiam um relator, o único dígito é o ano e nenhuma traz número de
-processo. As frases genéricas ("normas de regência da matéria") e as sem número
+relator — ``julgado do <tribunal> proferido em <ano> pela relatoria de
+<nome>``. As 32 nomeiam um relator, o único dígito é o ano e nenhuma traz
+número de processo. As frases genéricas ("normas de regência da matéria") e as sem número
 ("reiterados precedentes do STJ") saíram do gabarito nas duas revisões. O sinal
 a procurar é **menção a relator sem número de processo**, não um repertório de
 frase vaga. Ver ``docs/investigacao.md``.

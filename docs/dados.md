@@ -33,16 +33,15 @@ o que a seção de 01/09 antecipava como tendência agora é regra.
 
 **Quinze citações mudaram**, e vale separar as duas naturezas:
 
-- **Quatro mudanças de conteúdo.** Três são o mesmo caso — o texto do documento
-  ganhou o prefixo processual que faltava, e o `trecho` acompanhou:
-  `AREsp 1576933/SP` → `AgInt no AREsp 1576933/SP`,
-  `Recurso Especial nº 1.657.496/RS` → `AgInt no Recurso Especial nº 1.657.496/RS`,
-  `AREspEI 0601514-91.2020.6.05.0000` → `ED no AgR no AREspEl 0601514-91.2020.6.05.0000`.
-  A quarta é correção de `id_canonico` em `gen_n2_005/g6`
-  (`2813052232` → `1974934139`).
+- **Quatro mudanças de conteúdo.** Três são o mesmo caso: o texto do documento
+  ganhou o prefixo de classe recursal que faltava, e o `trecho` acompanhou. Um
+  recurso que aparecia pelo nome da classe principal passou a aparecer com o
+  agravo ou os embargos que de fato o precediam. A quarta é a correção de um
+  `id_canonico`, tratada em
+  [investigacao.md](investigacao.md#duplicatas-o-que-a-revis%C3%A3o-resolveu).
 - **Onze deslocamentos de offset**, consequência mecânica das três correções
   acima: `inicio` e `fim` andam pelo mesmo delta nas citações que vêm depois, em
-  `gen_n1_003` e `gen_n1_010`.
+  dois dos documentos corrigidos.
 
 As classes `real` (96) e `inventada` (64) ficaram intactas.
 
@@ -52,36 +51,38 @@ Primeira mudança desde 28/08, e a mais consequente desta rodada.
 
 **Dezoito registros ganharam uma primeira linha que se autodeclara.** São
 exatamente as 5 súmulas e os 13 dispositivos — a totalidade das naturezas
-`sumula` e `dispositivo`:
+`sumula` e `dispositivo`. O texto deles era só o enunciado; agora abre com uma
+linha de identificação no formato:
 
 ```
-antes:  "Art. 14. O fornecedor de serviços responde, independentemente…"
-depois: "Artigo 14 da Lei nº 8.078, de 11 de setembro de 1990\nArt. 14. O fornecedor…"
+Súmula n. <número> do <tribunal>
+<enunciado…>
 
-antes:  "As reclamações trabalhistas… (enunciado, sem dizer qual súmula é)"
-depois: "Súmula n. 331 do TST\nAs reclamações trabalhistas…"
+Artigo <número> da <lei por extenso, com número e data>
+Art. <número>. <caput…>
 ```
 
 Isso resolve exatamente a dificuldade que
-[`base_canonica.py`](../src/verificador/base_canonica.py) documentava: até aqui
-o texto desses registros era só o enunciado, não continha "Súmula 331" nem
-"CLT", e o mapeamento sigla → `id_canonico` teve de ser levantado à mão. A
-tabela curada continua correta e continua sendo o caminho de resolução, mas
-agora é **derivável da base**, e o cabeçalho ainda dá a lei por extenso e
-datada, que o repertório de siglas não tinha.
+[`base_canonica.py`](../src/verificador/base_canonica.py) documentava: o
+enunciado não dizia qual súmula era nem de que código vinha o artigo, e o
+mapeamento sigla → `id_canonico` teve de ser levantado à mão. A tabela curada
+continua correta e continua sendo o caminho de resolução, mas agora é
+**derivável da base**, e o cabeçalho ainda dá a lei por extenso e datada, que o
+repertório de siglas não tinha.
 
-**Dois acórdãos foram removidos** — `doc_0657` e `doc_0662` (ids `1973130981` e
-`1973691658`), ambos TST/2016 do mesmo relator. A base passou de 1.016 para
-**1.014**. Nenhuma citação do gabarito, antigo ou novo, apontava para eles.
+**Dois acórdãos foram removidos**, ambos do mesmo tribunal, ano e relator. A
+base passou de 1.016 para **1.014**. Nenhuma citação do gabarito, antigo ou
+novo, apontava para eles — ver
+[investigacao.md](investigacao.md#duplicatas-o-que-a-revis%C3%A3o-resolveu).
 
-Conferido: os 95 `id_canonico` referenciados pelo gabarito novo existem todos na
+Conferido: todos os `id_canonico` referenciados pelo gabarito novo existem na
 base nova.
 
 ### Três documentos foram corrigidos
 
-`gen_n1_003.txt`, `gen_n1_006.txt` e `gen_n1_010.txt`, cada um numa única linha,
-para inserir o prefixo processual descrito acima. É a origem dos 11
-deslocamentos de offset. Os outros 23 `.txt` são bit a bit os mesmos.
+Três dos 26 `.txt`, cada um numa única linha, para inserir o prefixo de classe
+recursal descrito acima. É a origem dos 11 deslocamentos de offset. Os outros 23
+são bit a bit os mesmos. `make dados` diz quais mudaram no seu diretório.
 
 ### O que isso obriga a refazer
 
@@ -106,9 +107,9 @@ específica e trazem contexto de identificação — tribunal, relator, ano, cla
 processual — mas sem os identificadores mínimos para confirmar ou refutar a
 existência do registro na base canônica. Exemplos:
 
-- "julgado do STF proferido em 2024 pela relatoria de Dias Toffoli"
-- "Reclamação do STF, de 2025, Rel. Min. CRISTIANO ZANIN"
-- "acórdão do TSE julgado em 2016 sob relatoria de HENRIQUE NEVES DA SILVA"
+- "julgado do \<tribunal\> proferido em \<ano\> pela relatoria de \<nome\>"
+- "\<classe processual\> do \<tribunal\>, de \<ano\>, Rel. Min. \<nome\>"
+- "acórdão do \<tribunal\> julgado em \<ano\> sob relatoria de \<nome\>"
 
 Critério, em uma frase: existe uma decisão concreta por trás da citação, mas os
 dados fornecidos não permitem chegar a um registro único na base canônica —
@@ -228,12 +229,15 @@ ele, e é dele que sai o ranking oficial.
 As citações do nível 2 apontam para registros igualmente válidos — o que muda é
 a superfície. Todas as amostras abaixo são `real`:
 
-| Nível 1 | Nível 2 |
-|---|---|
-| `AREsp nº 1.996.496/RJ` | `AgRg no Rec. Esp. n. 1.522.200 (SC)` |
-| `Recurso em Habeas Corpus nº 57.763/PR` | `Recurso em Habeas Corpus nº 93967 - SC` |
-| `RSE nº 7000592-58.2025.7.00.0000/DF` | `Rec. Esp. No 1.880.529\n- SP` |
-| `Súmula Vinculante 10` | `5úmula 211 do STJ` |
+As formas que a superfície assume, com números trocados por exemplos
+sintéticos para não reproduzir o gabarito:
+
+| Nível 1 | Nível 2 | o que variou |
+|---|---|---|
+| `AREsp nº 1.234.567/RJ` | `AgRg no Rec. Esp. n. 1.234.567 (SC)` | abreviação e separador de UF |
+| `Recurso em Habeas Corpus nº 12.345/PR` | `Recurso em Habeas Corpus nº 12345 - SC` | pontuação do número |
+| `RSE nº 1234567-89.2025.7.00.0000/DF` | `Rec. Esp. No 1.234.567\n- SP` | quebra de linha no identificador |
+| `Súmula Vinculante <n>` | `5úmula <n> do STJ` | ruído de OCR na palavra |
 
 O ruído combina variantes de abreviação (`REsp` / `R.Esp.` / `Recurso
 Especial`), formatação do número (`1.741.784` / `1741784` / `1.741. 784`),
@@ -286,8 +290,9 @@ CREATE TABLE documentos (
 | `dispositivo` | 13 | artigos de CPC, CC, CLT, CF/88, CPP, CPM, CDC, Código Eleitoral e LC 64/1990 |
 
 Desde 15/09 os 18 registros de `sumula` e `dispositivo` trazem na primeira linha
-a própria identificação ("Súmula n. 331 do TST", "Artigo 14 da Lei nº 8.078, de
-11 de setembro de 1990"). Os `acordao` continuam sem cabeçalho desse tipo.
+a própria identificação, no formato `Súmula n. <número> do <tribunal>` e
+`Artigo <número> da <lei por extenso>`. Os `acordao` continuam sem cabeçalho
+desse tipo.
 
 `natureza` existe porque `tipo` sozinho não separa acórdão de súmula — os dois
 são `jurisprudencia`.
@@ -301,19 +306,19 @@ de usá-la.
 
 - 18 registros — as 5 súmulas e os 13 dispositivos — ganharam cabeçalho
   autodeclarado. Ver [Atualização final](#atualização-final-15092026).
-- `doc_0657` e `doc_0662` foram removidos (TST/2016, mesmo relator). A base
-  passou de 1.016 para 1.014. Nenhuma citação do gabarito apontava para eles.
+- Dois acórdãos foram removidos (mesmo tribunal, ano e relator). A base passou
+  de 1.016 para 1.014. Nenhuma citação do gabarito apontava para eles.
 
 ### Atualizações de 28/08/2026
 
 - `gen_n2_010.txt` foi corrigido; os offsets do gabarito já refletem o texto novo.
-- `doc_0227` e `doc_0461` foram removidos: eram duplicatas exatas, o mesmo
-  julgado indexado duas vezes sob doc_ids diferentes, o que criava duas
-  respostas certas para a mesma citação. A base passou de 1.018 para 1.016.
+- Dois registros foram removidos: eram duplicatas exatas, o mesmo julgado
+  indexado duas vezes sob doc_ids diferentes, o que criava duas respostas certas
+  para a mesma citação. A base passou de 1.018 para 1.016.
 - Existem **outras duplicatas** no acervo. A organização informou que nenhuma
   citação do gabarito aponta para elas; medindo, encontramos três casos em que
   aponta — ver
-  [investigacao.md § Três pares de duplicatas](investigacao.md#duplicatas-dois-pares-resolvidos-e-a-heurística-caiu).
+  [investigacao.md § Duplicatas](investigacao.md#duplicatas-o-que-a-revis%C3%A3o-resolveu).
 
 ## O gabarito
 
@@ -341,8 +346,8 @@ Cada uma destas custou tempo. Elas estão aqui para não custarem de novo.
 
 `documento_id` (`doc_0201`) é a chave interna do acervo e o nome do arquivo.
 `id` é o doc_id do Jusbrasil, e é **ele** que vai em `resolucao.id_canonico`.
-Entregar `doc_0201` onde se espera `2566535283` derruba a citação para erro,
-mesmo com a classe certa.
+Entregar `doc_0201` onde se espera o doc_id numérico correspondente derruba a
+citação para erro, mesmo com a classe certa.
 
 ### 2. O gabarito vem com BOM e com outro nome
 
@@ -356,7 +361,7 @@ normaliza o nome para `goldenset.csv`; o encoding é responsabilidade de quem l�
 ### 3. `id_canonico` vem como float no xlsx
 
 No `goldenset.xlsx` o campo está gravado como número de ponto flutuante:
-`5.665364632E9`. Ler com pandas ou openpyxl sem cast devolve `5665364632.0`, que
+`5.123456789E9`. Ler com pandas ou openpyxl sem cast devolve `5123456789.0`, que
 não casa com nenhum `id`. Vale o mesmo para `nivel`, `inicio` e `fim`.
 [`preparar_dados.py`](../scripts/preparar_dados.py) converte para inteiro.
 
@@ -397,15 +402,15 @@ do caractere 1.000. Ver
 
 ### 7. Leis e súmulas resolvem por registro próprio
 
-Buscar "Súmula 83 do STJ" no texto dos acórdãos devolve dezenas de documentos
-que a mencionam — nenhum deles é a súmula. Os 18 registros de natureza `sumula`
+Buscar o enunciado de uma súmula no texto dos acórdãos devolve dezenas de
+documentos que a mencionam — nenhum deles é a súmula. Os 18 registros de natureza `sumula`
 e `dispositivo` existem para isso: são o alvo da resolução, não o texto que
 cita. A metade da armadilha que continua de pé é essa: **contenção no texto não
 identifica o registro**, e o FTS vai devolver os citantes.
 
 O que mudou em 15/09: o texto desses 18 registros deixou de ser só o enunciado e
-passou a abrir com a própria identificação ("Súmula n. 331 do TST", "Artigo 14
-da Lei nº 8.078, de 11 de setembro de 1990"). A tabela curada em
+passou a abrir com uma linha de identificação (`Súmula n. <número> do
+<tribunal>`, `Artigo <número> da <lei por extenso>`). A tabela curada em
 [`base_canonica.py`](../src/verificador/base_canonica.py) — conferida contra o
 banco por [`tests/test_base_canonica.py`](../tests/test_base_canonica.py) —
 continua correta e continua sendo o caminho, mas agora é derivável da base em
@@ -414,10 +419,10 @@ repertório de siglas não cobria.
 
 ### 8. O número do artigo não basta para identificar o dispositivo
 
-`art. 290 do Código Penal Militar` é `real`; `art 290 da Constituição Federal`
-é `inventada`. Os 13 artigos da cobertura têm números distintos entre si, o que
-tenta o atalho de casar só pelo número — e o atalho erra exatamente nos casos
-que o gabarito construiu para pegá-lo.
+Os 13 artigos da cobertura têm números distintos entre si, o que tenta o atalho
+de casar só pelo número. O atalho erra: o gabarito traz pares em que o mesmo
+número de artigo aparece sob dois códigos diferentes, um dentro e outro fora da
+cobertura, e só o código decide entre `real` e `inventada`.
 
 ## Riscos conhecidos para o conjunto cego
 
