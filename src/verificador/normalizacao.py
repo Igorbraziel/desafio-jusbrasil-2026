@@ -45,7 +45,6 @@ UFS = frozenset(
 OCR_PARA_DIGITO = {
     "O": "0",
     "o": "0",
-    "D": "0",
     "l": "1",
     "I": "1",
     "i": "1",
@@ -59,6 +58,10 @@ OCR_PARA_DIGITO = {
     "Z": "2",
     "z": "2",
 }
+
+# Um pedaço sem espaço, feito só de alfanuméricos e pontuação de número. É o
+# candidato a "isto é um número com letras dentro".
+_TOKEN = re.compile(r"[0-9A-Za-z][0-9A-Za-z.\-–—/]*[0-9A-Za-z]|[0-9A-Za-z]")
 
 # Todas as formas de hífen que aparecem nos documentos: ASCII, os seis traços do
 # bloco de pontuação geral (‐ ‑ ‒ – — ―) e o sinal de menos.
@@ -76,14 +79,20 @@ _PONTUACAO_NA_BASE = rf"[.{_HIFENS}/]"
 _NUCLEO = re.compile(rf"\d(?:{_PONTUACAO_NO_DOCUMENTO}*\d)*")
 _NUCLEO_LIMPO = re.compile(rf"\d(?:{_PONTUACAO_NA_BASE}*\d)*")
 
-# Sufixo de UF: separador, duas letras e um fecha-parênteses opcional.
-_SUFIXO_UF = re.compile(rf"\s*[/({_HIFENS}]\s*([A-Za-z]{{2}})\s*\)?[\s.]*$")
+# Sufixo de UF: separador, uma ou duas letras, e um fecha-parênteses opcional.
+#
+# Uma letra só parece estranho e é necessário: a detecção ancora o número num
+# núcleo que aceita letras de OCR como continuação, então num span terminado em
+# `/SP` ela engole o `S` e deixa o `P` de fora. Número de
+# processo não termina em barra mais letra — isso é UF truncada, e deixá-la
+# passar faz o `S` virar `5` e corromper o identificador.
+_SUFIXO_UF = re.compile(rf"\s*[/({_HIFENS}]\s*([A-Za-z]{{1,2}})\s*\)?[\s.]*$")
 
 _ESPACOS = re.compile(r"\s+")
 
 
 def sem_acento(texto: str) -> str:
-    """Remove diacríticos, inclusive os corrompidos (``Magãlhães``)."""
+    """Remove diacríticos, inclusive os que o OCR põe na vogal errada."""
     decomposto = unicodedata.normalize("NFD", texto)
     return "".join(c for c in decomposto if not unicodedata.combining(c))
 
@@ -105,26 +114,69 @@ def separar_uf(trecho: str) -> tuple[str, str | None]:
     if casamento is None:
         return trecho.strip(), None
     uf = casamento.group(1).upper()
-    if uf not in UFS:
+    # Duas letras só saem se formarem UF de verdade; uma letra sai sempre, por
+    # ser UF truncada pela detecção (ver o comentário em _SUFIXO_UF).
+    if len(uf) == 2 and uf not in UFS:
         return trecho.strip(), None
     return trecho[: casamento.start()].strip(), uf
 
 
-def _corrigir_ocr(trecho: str) -> str:
-    """Troca letra por dígito **apenas** quando ela encosta num dígito.
+def _token_e_numero(token: str) -> bool:
+    """O token é um número cujas letras são todas confusões de OCR?
 
-    ``21737l8`` → ``2173718`` e ``170076O`` → ``1700760``, sem que
-    ``REsp 1.234.567 DO STJ`` perca o ``DO`` para o número.
+    Três exigências, e cada uma barra um falso positivo concreto:
+
+    * **pelo menos um dígito** — senão ``SOS`` e ``Gols``, que são só letras
+      confundíveis, virariam números;
+    * **toda letra mapeável** — ``DO`` tem o ``D`` e ``STJ`` tem o ``J``, que
+      não são confusões de dígito; os dois ficam de fora;
+    * **pelo menos dois alfanuméricos**, para não converter letra solta.
+    """
+    alfanumericos = [c for c in token if c.isalnum()]
+    if len(alfanumericos) < 2 or not any(c.isdigit() for c in alfanumericos):
+        return False
+    return all(not c.isalpha() or c in OCR_PARA_DIGITO for c in alfanumericos)
+
+
+def _corrigir_ocr(trecho: str) -> str:
+    """Desfaz as trocas de letra por dígito dentro do identificador.
+
+    Duas passadas, e a primeira existe porque a segunda não basta.
+
+    A regra de adjacência sozinha — converter a letra só quando ela encosta num
+    dígito — falha quando o ruído corrompe posições **consecutivas**. Num número
+    sintético, ``9.876.543`` corrompido para ``g.B7G.S43``: o ``g`` inicial e o
+    ``B`` seguinte não encostam em nenhum dígito sobrevivente, ficam como letra,
+    e o núcleo resultante perde os dígitos da frente.
+
+    Medido sob perturbação, essa era a causa de quase metade das citações
+    ``real`` ficarem irrecuperáveis quando o ruído saía das posições vistas na
+    amostra.
+
+    A primeira passada olha o **token inteiro**: se ele é feito só de dígitos e
+    letras confundíveis, é um número, e todas as letras convertem de uma vez. A
+    segunda mantém a adjacência para o que sobrou, que é o caso de uma letra
+    isolada colada ao número (``21737l8``, ``170076O``).
     """
     caracteres = list(trecho)
-    for i, caractere in enumerate(caracteres):
+
+    for casamento in _TOKEN.finditer(trecho):
+        if not _token_e_numero(casamento.group()):
+            continue
+        for i in range(casamento.start(), casamento.end()):
+            substituto = OCR_PARA_DIGITO.get(trecho[i])
+            if substituto is not None:
+                caracteres[i] = substituto
+
+    for i, caractere in enumerate(trecho):
         substituto = OCR_PARA_DIGITO.get(caractere)
-        if substituto is None:
+        if substituto is None or caracteres[i] != caractere:
             continue
         anterior = trecho[i - 1] if i else ""
         seguinte = trecho[i + 1] if i + 1 < len(trecho) else ""
         if anterior.isdigit() or seguinte.isdigit():
             caracteres[i] = substituto
+
     return "".join(caracteres)
 
 
