@@ -15,13 +15,6 @@ from verificador.normalizacao import (
     separar_uf,
 )
 
-# Estes testes são a **especificação** da etapa: descrevem o comportamento
-# esperado antes de ele existir. Enquanto o módulo for um stub, ficam marcados
-# como falha esperada para que `make testar` continue verde. Vá removendo o
-# marcador conforme implementar.
-pytestmark = pytest.mark.xfail(raises=NotImplementedError, reason="a implementar", strict=False)
-
-
 CASOS = [
     # nível 1: forma canônica
     ("REsp 1.234.567/SP", "1234567"),
