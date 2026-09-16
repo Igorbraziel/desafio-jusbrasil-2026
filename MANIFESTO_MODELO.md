@@ -21,8 +21,8 @@ organização.
 | Link HF + revisão fixa (commit hash) | não se aplica |
 | Modelo gated | não se aplica |
 | Fine-tune com pesos publicados | não se aplica |
-| Envelope: 1 GPU 24 GB, 8 vCPUs, 32 GB RAM | **não usa GPU**; roda em CPU, com uso de memória dominado pelo índice (≈ 140 KB em JSON) |
-| Média ≤ 60 s/documento | ≈ **9 ms/documento** medidos nos 26 documentos de desenvolvimento |
+| Envelope: 1 GPU 24 GB, 8 vCPUs, 32 GB RAM | **não usa GPU**; roda em CPU, com uso de memória dominado pelo índice (133 KB em JSON) |
+| Média ≤ 60 s/documento | ≈ **0,5 ms/documento** medidos nos 26 documentos de desenvolvimento |
 | Teto de 4 h no teste completo | folga de três ordens de grandeza |
 | Execução offline, sem rede | nenhuma chamada externa em runtime |
 | Decodificação determinística (seed, temperature=0) | não se aplica — não há amostragem. `PYTHONHASHSEED=0` fixado no Dockerfile e ordenação explícita em todo desempate |
