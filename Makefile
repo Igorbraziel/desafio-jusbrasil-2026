@@ -6,7 +6,7 @@ DEV  ?= data/dev
 OUT  ?= data/out
 RUN  := uv run
 
-.PHONY: ajuda dados dados-zip indice testar lint rodar avaliar submissao requirements docker limpar
+.PHONY: ajuda dados dados-zip indice testar lint rodar avaliar solution submissao requirements docker limpar
 
 ajuda:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -29,12 +29,14 @@ lint: ## Checa estilo e imports
 rodar: ## Gera um JSON por documento em data/out/
 	$(RUN) python -m verificador.cli --input $(DEV)/txt --output $(OUT) --db $(DEV)/desafio1_bracis.db
 
-avaliar: ## Pontua data/out/ contra o goldenset (métrica local, provisória)
+avaliar: ## Pontua data/out/ pela métrica OFICIAL do Kaggle
 	$(RUN) python scripts/avaliar.py --predicoes $(OUT) --goldenset $(DEV)/goldenset.csv
 
-submissao: rodar ## Empacota data/out/ no .zip de submissão ao leaderboard
-	cd $(OUT) && zip -q -r ../submissao.zip *.json
-	@echo "data/submissao.zip pronto ($$(ls $(OUT)/*.json | wc -l) documentos)"
+solution: ## Converte o goldenset no solution.csv da métrica oficial
+	$(RUN) python scripts/construir_solution.py --goldenset $(DEV)/goldenset.csv --saida $(DEV)/solution.csv
+
+submissao: rodar ## Gera data/submission.csv para enviar no Kaggle
+	$(RUN) python $(DEV)/ferramentas/json_to_submission.py $(OUT) data/submission.csv
 
 requirements: ## Exporta requirements.txt pinado para o Dockerfile
 	uv export --no-dev --format requirements-txt --no-emit-project > requirements.txt
