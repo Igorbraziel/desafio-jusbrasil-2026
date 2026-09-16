@@ -9,9 +9,9 @@ A organização é por família, porque a família determina contra o quê a cit
 é resolvida:
 
 ``processo``     sigla ou classe processual + número (``AgInt no REsp 1.599.910/PR``)
-``sumula``       ``Súmula 331 do TST``, ``Súmula Vinculante 10``
+``sumula``       ``Súmula <n> do <tribunal>``, ``Súmula Vinculante <n>``
 ``tema``         ``Tema 2.680 da repercussão geral``
-``dispositivo``  ``art. 373, I, do CPC``
+``dispositivo``  ``art. <n>, <inciso>, do <código>``
 ``vaga``         sem identificador suficiente para consultar a base
 
 **A âncora de ``processo`` é o número, não a sigla.** Medindo o gabarito, as
@@ -22,6 +22,15 @@ material avisa que "as siglas processuais observadas não esgotam o domínio".
 Ancorar no número e expandir para a esquerda degrada bem: numa classe não vista
 o span fica curto, mas o número — que é o que resolve — continua capturado, e o
 span costuma sobreviver ao IoU ≥ 0,5.
+
+**A família ``vaga`` tem uma forma só.** Depois da revisão de 15/09/2026 as 32
+citações ``incompleta`` do gabarito são todas do padrão tribunal + ano +
+relator — ``julgado do <tribunal> proferido em <ano> pela relatoria de
+<nome>``. As 32 nomeiam um relator, o único dígito é o ano e nenhuma traz
+número de processo. As frases genéricas ("normas de regência da matéria") e as sem número
+("reiterados precedentes do STJ") saíram do gabarito nas duas revisões. O sinal
+a procurar é **menção a relator sem número de processo**, não um repertório de
+frase vaga. Ver ``docs/investigacao.md``.
 
 **Distratores.** Os cabeçalhos trazem números que parecem citação e não são:
 número dos autos do próprio documento, protocolo, inscrição na OAB, ``fls.
@@ -42,6 +51,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .normalizacao import OCR_PARA_DIGITO, _corrigir_ocr
 from .texto import fim_do_cabecalho
 
 TRIBUNAIS = ("STF", "STJ", "TSE", "TST", "STM")
@@ -58,9 +68,14 @@ _NUMERO = r"(?:n\s*[.ºo°]{0,2}|N\s*[.ºO°]{0,2})"
 # quebra de linha e o espaço não-quebrável (`533-80. 2012` vem com \xa0).
 _DENTRO = r"[\s.\-–—/]"
 
-# O núcleo numérico: começa e termina em dígito. As letras de OCR coladas a
-# dígito entram no span para não cortar a citação ao meio (`21737l8`).
-_NUCLEO = rf"\d(?:{_DENTRO}*[\dOolISsgGbBZz]){{3,}}"
+# O núcleo numérico: começa em dígito e admite letra de OCR no lugar de um
+# dígito, para não cortar a citação ao meio (`21737l8`).
+#
+# O lookahead impede que ele termine dentro de uma palavra. Sem ele, em "de 2024
+# sem outras", o `s` de "sem" — que é digitoide — entrava no número, a forma
+# canônica virava `2024s` e o filtro de ano solto deixava passar: o ano virava
+# citação `processo`.
+_NUCLEO = rf"\d(?:{_DENTRO}*[\dOolISsgGbBZz]){{3,}}(?![A-Za-zÀ-ÿ])"
 
 # Sufixo de UF: /RJ, - PR, (SC), – MA.
 _UF = re.compile(r"\s*[/(\-–—]\s*[A-Z]{2}\s*\)?")
@@ -140,7 +155,7 @@ _DISPOSITIVO = re.compile(
 # A família `vaga`: tribunal + ano + relator, hoje a totalidade das `incompleta`.
 # O relator é a âncora — é o que separa este padrão de uma menção solta a ano.
 # `d[eoc]` e não `d[eo]`: o nível 2 corrompe letras isoladas, e a amostra traz
-# "relatoria dc Sérgio Kukinã" — e→c. Era a última citação não detectada.
+# o conector "de" aparece corrompido como "dc" (e→c) na amostra.
 _RELATOR = r"(?:[Rr]el(?:at[oa]r[ai]?a?)?\.?\s*(?:Min\.?|Ministr[ao])?\.?|relatoria\s+d[eoc])"
 
 #
@@ -156,11 +171,22 @@ _CABECA_VAGA = (
 
 _NOME_PROPRIO = r"[A-ZÀ-Ú][\wÀ-ú.']*(?:\s+(?:d[aeo]s?\s+)?[A-ZÀ-Ú][\wÀ-ú.']*){0,4}"
 
+# O ano, tolerante ao ruído do nível 2. Esta é a única quantia numérica da
+# família `vaga`, então exigir quatro dígitos limpos apaga a citação inteira
+# quando o OCR troca um deles ou a quebra de linha cai no meio. Medido: era a
+# causa de 25 das 32 `incompleta` sumirem sob ruído no número.
+_ENTRE_DIGITOS = r"[ \t]*\n?[ \t]*"
+_DIGITO_OU_OCR = rf"[\d{''.join(sorted(set(OCR_PARA_DIGITO)))}]"
+_ANO_TOLERANTE = (
+    rf"[12lIZz]{_ENTRE_DIGITOS}[90OoGgqb]{_ENTRE_DIGITOS}"
+    rf"{_DIGITO_OU_OCR}{_ENTRE_DIGITOS}{_DIGITO_OU_OCR}"
+)
+
 _VAGA = re.compile(
     rf"{_CABECA_VAGA}"
     rf"(?:\s*,?\s*d[oa]\s+(?:{'|'.join(TRIBUNAIS)}))?"
     r"\s*,?\s*(?:proferid[oa]|julgad[oa]|profcrid[oa])?\s*(?:de|em)\s*\n?\s*"
-    r"(?:19|20)\d{2}"
+    rf"{_ANO_TOLERANTE}"
     r"[^.]{0,30}?"
     rf"{_RELATOR}\s*{_NOME_PROPRIO}",
 )
@@ -192,10 +218,10 @@ def _digitos(texto: str) -> int:
 # viram citação: eram 40% dos falsos positivos medidos.
 _ANO_SOLTO = re.compile(r"^(?:19|20)\d{2}$")
 
-# `fls. 762/872`, `143/925` — referência de página, distrator documentado.
+# `fls. <n>/<n>` — referência de página, distrator documentado.
 _PAGINAS = re.compile(r"^\d{1,4}\s*/\s*\d{1,4}$")
 
-# `255/2021`, `13.105/2015` — protocolo ou lei. Número de processo não termina
+# `<n>/<ano>` — protocolo ou lei. Número de processo não termina
 # em ano: no padrão CNJ o ano fica no meio, e no número único do STJ, na frente.
 _TERMINA_EM_ANO = re.compile(r"^\d{1,5}(?:\.\d{3})*\s*/\s*(?:19|20)\d{2}$")
 
@@ -207,9 +233,24 @@ _ROTULO_DISTRATOR = re.compile(
 )
 
 
+def _forma_canonica(numero: str) -> str:
+    """O número sem ruído de superfície, mas com a pontuação que o estrutura.
+
+    Existe porque os filtros acima descrevem **formas**, e forma não sobrevive ao
+    nível 2 sem normalização. Medido: um ano partido por quebra de linha escapava
+    de ``_ANO_SOLTO`` e virava citação; uma referência de página com ``\\n`` no
+    meio escapava de ``_PAGINAS``. Os dois viram falso positivo, e o segundo é um
+    distrator que o material do desafio nomeia.
+
+    Mantém ``/`` e ``.`` porque ``_PAGINAS`` e ``_TERMINA_EM_ANO`` dependem
+    deles; tira espaço e quebra de linha, e desfaz a troca de dígito por letra.
+    """
+    return re.sub(r"[\s]+", "", _corrigir_ocr(numero))
+
+
 def _e_numero_de_processo(numero: str, antes: str) -> bool:
     """Filtra o que tem forma de número mas não identifica processo."""
-    compacto = numero.strip()
+    compacto = _forma_canonica(numero)
     if _ANO_SOLTO.match(compacto) or _PAGINAS.match(compacto):
         return False
     if _TERMINA_EM_ANO.match(compacto):
