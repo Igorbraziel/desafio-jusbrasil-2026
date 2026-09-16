@@ -69,13 +69,19 @@ Neste repositório, [`contrato.py`](../src/verificador/contrato.py) implementa a
 serialização e um validador local — `validar(saida, texto)` também confere que
 `trecho == texto[inicio:fim]`.
 
-## Dois pontos em aberto até 01/09
+## Os dois pontos que estavam em aberto — resolvidos
 
-**1. `id_canonico`: string ou inteiro?** O exemplo publicado traz
-`"id_canonico": "2106313729"` — uma string. A base canônica guarda `id` como
-`INTEGER`. Emitimos **string**, seguindo o exemplo, em
-[`contrato.py`](../src/verificador/contrato.py). É uma linha só, isolada de
-propósito: quando o script oficial sair, confira e troque se necessário.
+**1. `id_canonico`: string ou inteiro? — Resolvido: string de dígitos.** O que
+pontua é o `submission.csv`, não o JSON. O conversor oficial
+`json_to_submission.py` faz `str(resolucao["id_canonico"])` e escreve `-` quando
+ausente; o `kaggle_metric.py` exige `id_canonico.isdigit()` em toda citação
+`real` e normaliza os dois lados com `lstrip("0")` antes de comparar. Emitir
+string de dígitos no JSON, como [`contrato.py`](../src/verificador/contrato.py)
+já faz, atravessa os dois sem conversão. Emitir inteiro também funcionaria — o
+conversor faz `str()` de qualquer jeito —, mas não há motivo para mudar.
+
+> O JSON continua sendo o formato de trabalho e o exigido na entrega final, com
+> todos os campos. O CSV é só o transporte do Kaggle.
 
 **2. `id_canonico` passou a ser um único `doc_id`.** Até 28/08/2026 o campo era
 um conjunto de candidatos, para acomodar duplicatas na base. Com `doc_0227` e

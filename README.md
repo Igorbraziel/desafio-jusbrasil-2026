@@ -29,17 +29,22 @@ cardinalidade da consulta à base canônica fechada.
 |---|---|---|
 | [contrato.py](src/verificador/contrato.py) | schema 1.2 de saída e validador de formato | pronto |
 | [texto.py](src/verificador/texto.py) | carrega `.txt` em NFC, offsets em codepoints | pronto |
-| [texto.fim_do_cabecalho](src/verificador/texto.py) | separa os metadados (distratores) do corpo | **a implementar** |
-| [deteccao.py](src/verificador/deteccao.py) | acha os spans de citação, inclusive as vagas | **a implementar** |
-| [normalizacao.py](src/verificador/normalizacao.py) | desfaz ruído de OCR, abreviações, formatação | **a implementar** |
-| [base_canonica.py](src/verificador/base_canonica.py) | consulta à cobertura; tabelas de súmulas e leis | parcial |
-| [resolucao.py](src/verificador/resolucao.py) | cardinalidade → classe, `id_canonico` e confiança | **a implementar** |
+| [texto.fim_do_cabecalho](src/verificador/texto.py) | separa os metadados (distratores) do corpo | pronto |
+| [deteccao.py](src/verificador/deteccao.py) | acha os spans de citação, inclusive as vagas | pronto |
+| [normalizacao.py](src/verificador/normalizacao.py) | desfaz ruído de OCR, abreviações, formatação | pronto |
+| [base_canonica.py](src/verificador/base_canonica.py) | consulta à cobertura; tabelas de súmulas e leis | pronto |
+| [resolucao.py](src/verificador/resolucao.py) | cardinalidade → classe, `id_canonico` e confiança | pronto |
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
-Os stubs trazem a assinatura, a documentação da etapa e as armadilhas
-conhecidas. Os testes em [tests/](tests/) são a especificação: estão marcados
-como falha esperada (`xfail`) e passam a valer conforme cada etapa é
-implementada.
+O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
+cada etapa — 47 deles, todos passando.
+
+**No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
+níveis, τ = 0, score 1,0988.** Leia esse número com a desconfiança que ele
+merece: são os mesmos 26 documentos usados para construir a solução, e
+[docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
+essa amostra não consegue medir. O leaderboard sobre o conjunto final é a
+primeira medida honesta.
 
 ## Instalação
 
@@ -63,12 +68,14 @@ make dados      # baixa a competição do Kaggle para data/dev/ (ver docs/dados.
 make indice     # constrói o índice da base canônica — uma vez, offline
 make testar     # pytest
 make rodar      # um JSON por documento em data/out/
-make avaliar    # F1 macro por nível + score ponderado
-make submissao  # empacota data/out/ em data/submissao.zip
+make avaliar    # métrica OFICIAL do Kaggle, por nível + score ponderado
+make submissao  # gera data/submission.csv para enviar no Kaggle
 ```
 
-`make ajuda` lista todos os alvos. Enquanto o pipeline estiver incompleto,
-`make indice` e `make rodar` falham com `NotImplementedError` — é o esperado.
+`make ajuda` lista todos os alvos. `make solution` e
+`uv run python scripts/medir_regiao.py` são diagnósticos: o primeiro monta o
+`solution.csv` da métrica oficial, o segundo mede a qualidade do índice de
+números próprios.
 
 ### No contrato de execução da organização
 
@@ -85,29 +92,25 @@ docker run --rm --network none \
 Pesos e dados ficam fora da imagem, como exige o regulamento — a base canônica
 entra por volume, e o container roda sem rede.
 
-## Por onde começar
+## Por onde continuar
 
-Antes de escrever código, leia **[docs/dados.md](docs/dados.md)** e
+Antes de mexer no código, leia **[docs/dados.md](docs/dados.md)** e
 **[docs/investigacao.md](docs/investigacao.md)**. As armadilhas documentadas ali
-(`documento_id` ≠ `id_canonico`; o FTS que não casa número sem pontuação; o FTS
-que devolve quem *cita* e não quem *é*; o `id_canonico` gravado como float no
-xlsx) custam horas a quem descobre sozinho.
+(`documento_id` ≠ `id_canonico`; o gabarito com BOM; o FTS que devolve quem
+*cita* e não quem *é*) custam horas a quem descobre sozinho.
 
-Uma ordem de ataque que respeita as dependências:
+O ponto mais frágil é o que **não** dá para medir aqui: o conjunto cego pode
+trazer classes processuais, formas de `incompleta` e ruídos de OCR que a amostra
+não tem. Duas frentes abertas, nessa ordem de valor:
 
-1. **`normalizacao.py`** — não depende de nada e é o que mais pesa na nota, já
-   que o nível 2 vale o dobro. `uv run pytest tests/test_normalizacao.py` é a
-   especificação.
-2. **`base_canonica.regiao_de_identificacao`** — define o que conta como número
-   próprio de um acórdão. Depois, `make indice`.
-3. **`texto.fim_do_cabecalho`** e **`deteccao.py`** — os spans. Sem eles não há o
-   que classificar, e citação não detectada conta como erro de recall.
-4. **`resolucao.py`** — com as três anteriores prontas, é quase só a regra de
-   cardinalidade.
-5. `make rodar && make avaliar` para ver o primeiro número.
+1. **Parser hierárquico dos 996 acórdãos**, no método já validado em
+   `parsing-tests`. `base_canonica.regiao_de_identificacao` é uma costura
+   trocável de propósito, e `scripts/medir_regiao.py` compara implementações por
+   número — hoje a baseline marca recall 77/77 e zero falso positivo.
+2. **Robustez da detecção**: cada regra nova em `deteccao.py` deve vir com o
+   caso que a motivou nos testes.
 
-Registre as decisões de projeto em [docs/decisoes/](docs/decisoes/) conforme
-forem tomadas — o modelo está lá.
+As decisões de projeto estão em [docs/decisoes/](docs/decisoes/).
 
 ## Documentação
 
@@ -134,7 +137,8 @@ publicados; além disso, a base canônica tem 94 MB. Ver
 
 ```
 src/verificador/     o pipeline (ver a tabela em "Arquitetura")
-scripts/             preparar_dados · construir_indice · avaliar
+scripts/             preparar_dados · baixar_dados · construir_indice · avaliar
+                     construir_solution · medir_regiao
 tests/               a especificação executável de cada etapa
 docs/                desafio · dados · investigacao · contrato · avaliacao · decisoes/
 Dockerfile           imagem de submissão, sem pesos e sem dados dentro
@@ -148,16 +152,15 @@ data/                gitignored — ver docs/dados.md
    <https://www.kaggle.com/t/b175ca36f02ce8d3a0422d3f7b339664>. Cada integrante
    entra na competição, e um integrante forma a equipe (até 4 pessoas) na aba
    *Team*. Ver [docs/desafio.md § A competição no Kaggle](docs/desafio.md#a-competição-no-kaggle).
-2. **Feito (15/09/2026)** — baixada a distribuição final: 192 citações, base
-   canônica com 1.014 registros e três `.txt` corrigidos. Ver
+2. **Feito (15/09/2026)** — dados da distribuição de 15/09 em `data/dev/`. Ela
+   mudou a base canônica, os 26 `.txt` e o gabarito (192 citações); ver
    [docs/dados.md § Atualização final](docs/dados.md#atualização-final-15092026).
-   Vieram também o conversor `json_to_submission.py` e o script oficial da métrica.
-   Substituir [scripts/avaliar.py](scripts/avaliar.py) pelo oficial e comparar
-   os dois: divergência indica que interpretamos alguma regra errado. Conferir
-   também se `id_canonico` sai como string ou inteiro
-   ([docs/contrato.md](docs/contrato.md)).
-3. Implementar o pipeline na ordem sugerida em *Por onde começar*.
-4. Gerar `submission.csv` com `json_to_submission.py` e submeter cedo e com
+   O script oficial da métrica está em `data/dev/ferramentas/kaggle_metric.py`.
+3. **Feito (15/09/2026)** — `make avaliar` usa a métrica oficial, carregada de
+   `data/dev/ferramentas/`. Ver [docs/avaliacao.md](docs/avaliacao.md), que
+   documenta as três regras onde a nossa leitura anterior divergia.
+4. **Feito (15/09/2026)** — pipeline completo, 47 testes passando.
+5. Gerar `submission.csv` com `make submissao` e submeter cedo e com
    frequência — o leaderboard do Kaggle nesta fase roda sobre a amostra de
    desenvolvimento (gabarito aberto) e é referencial, para validar o pipeline
    de ponta a ponta; o limite é 5 submissões/dia por **equipe**.
