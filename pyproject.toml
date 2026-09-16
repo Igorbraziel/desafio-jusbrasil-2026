@@ -13,9 +13,14 @@ dependencies = []
 verificador = "verificador.cli:main"
 
 [dependency-groups]
+# Só ferramental de desenvolvimento. numpy e pandas entram porque o
+# kaggle_metric.py da organização depende dos dois — nada disso vai para o
+# runtime, que segue usando apenas a biblioteca padrão (ver MANIFESTO_MODELO.md).
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "numpy>=2.0",
+    "pandas>=2.2",
 ]
 
 [build-system]
