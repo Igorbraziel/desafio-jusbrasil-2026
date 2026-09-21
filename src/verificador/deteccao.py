@@ -75,6 +75,19 @@ _NUMERO = r"(?:n\s*[.ºo°]{0,2}|N\s*[.ºO°]{0,2})"
 # citação, duas são fim de parágrafo.
 _DENTRO = r"(?:[ \t\xa0.\-–—/]|\n(?![ \t]*\n))"
 
+# A classe de "digitoide": dígito ou letra que o OCR põe no lugar de um dígito.
+#
+# **Derivada de `OCR_PARA_DIGITO`, não escrita à mão.** A versão literal
+# (`[\dOolISsgGbBZz]`) omitia `i` e `q`, que a tabela de reparo conhece, e a
+# divergência custava a citação inteira: `REsp 1737i8/SP` não casava o núcleo e
+# o span sumia, mesmo com `digitos_do_identificador` sabendo devolver `173718`.
+# A normalização consertava, mas a detecção nunca lhe entregava o trecho.
+#
+# `_ANO_TOLERANTE` já derivava a classe da mesma tabela; era a assimetria entre
+# as duas construções que deixava a divergência passar. Derivar aqui também
+# elimina a classe inteira de defeito, em vez de acrescentar `i` e `q` à mão.
+_DIGITOIDE = rf"[\d{re.escape(''.join(sorted(set(OCR_PARA_DIGITO))))}]"
+
 # O núcleo numérico: começa em dígito e admite letra de OCR no lugar de um
 # dígito, para não cortar a citação ao meio (`21737l8`).
 #
@@ -82,7 +95,7 @@ _DENTRO = r"(?:[ \t\xa0.\-–—/]|\n(?![ \t]*\n))"
 # sem outras", o `s` de "sem" — que é digitoide — entrava no número, a forma
 # canônica virava `2024s` e o filtro de ano solto deixava passar: o ano virava
 # citação `processo`.
-_NUCLEO = rf"\d(?:{_DENTRO}*[\dOolISsgGbBZz]){{3,}}(?![A-Za-zÀ-ÿ])"
+_NUCLEO = rf"\d(?:{_DENTRO}*{_DIGITOIDE}){{3,}}(?![A-Za-zÀ-ÿ])"
 
 # Sufixo de UF: /RJ, - PR, (SC), – MA.
 #

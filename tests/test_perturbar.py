@@ -44,7 +44,27 @@ def test_digito_nunca_vira_digito():
     A organização garante que isso não acontece nos dados do desafio; um arnês
     que o violasse mediria um problema que a tarefa não tem.
     """
-    assert all(not v.isdigit() for v in _OCR_DIGITO.values())
+    assert all(not letra.isdigit() for letras in _OCR_DIGITO.values() for letra in letras)
+
+
+def test_o_reparo_cobre_tudo_que_o_gerador_produz():
+    """O contrato entre o arnês e o normalizador, verificado nos dois sentidos.
+
+    O gerador é escrito à parte de `OCR_PARA_DIGITO` de propósito — derivá-lo do
+    reparo tornaria a medição circular. O preço dessa independência é que as duas
+    tabelas podem divergir em silêncio, e foi o que aconteceu: `i` e `q` estavam
+    no reparo e fora do gerador, e nenhuma medição de robustez exercitou esses
+    caminhos. Este teste é o que torna a divergência barulhenta.
+    """
+    from verificador.normalizacao import OCR_PARA_DIGITO
+
+    for digito, letras in _OCR_DIGITO.items():
+        for letra in letras:
+            assert letra in OCR_PARA_DIGITO, f"o gerador produz {letra!r}, que o reparo não desfaz"
+            assert OCR_PARA_DIGITO[letra] == digito, (
+                f"o gerador troca {digito!r} por {letra!r}, "
+                f"mas o reparo devolve {OCR_PARA_DIGITO[letra]!r}"
+            )
 
 
 def test_ruido_de_prosa_nunca_cria_digito():

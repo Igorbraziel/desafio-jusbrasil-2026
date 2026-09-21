@@ -41,7 +41,30 @@ from pathlib import Path
 
 # Dígito -> letra confundível. Só nesta direção: o inverso trocaria a identidade
 # da citação. Ver a invariante 1 no topo.
-_OCR_DIGITO = {"0": "O", "1": "l", "5": "S", "9": "g", "6": "G", "8": "B", "2": "Z"}
+#
+# Cada dígito pode cair em **mais de uma** letra, e o gerador sorteia entre elas.
+# Antes era uma letra por dígito, e isso deixava o arnês cego para metade da
+# tabela de reparo: `1` só virava `l`, nunca `I` ou `i`, então nenhuma medição
+# de robustez jamais exercitou esses caminhos. Foi assim que a divergência entre
+# `OCR_PARA_DIGITO` (14 letras) e a classe do núcleo da detecção (12, faltavam
+# `i` e `q`) sobreviveu a todos os checkpoints: o instrumento tinha exatamente o
+# mesmo ponto cego que o código.
+#
+# A tabela **não** é importada de `normalizacao.OCR_PARA_DIGITO` de propósito.
+# Derivar o gerador do reparo tornaria a medição circular por construção — o
+# arnês só produziria o ruído que o normalizador já sabe desfazer, e um buraco
+# novo na tabela ficaria de novo invisível. Aqui as confusões são escritas à
+# parte, e o teste em `tests/test_perturbar.py` confere que o reparo cobre o que
+# o gerador produz. Quando as duas listas divergirem, é o teste que avisa.
+_OCR_DIGITO = {
+    "0": ("O", "o"),
+    "1": ("l", "I", "i"),
+    "5": ("S", "s"),
+    "9": ("g", "q"),
+    "6": ("G", "b"),
+    "8": ("B",),
+    "2": ("Z", "z"),
+}
 
 # Letra -> letra, para a prosa. `m -> rn` muda o tamanho, e é justamente o caso
 # que exercita o mapa de offsets.
@@ -134,7 +157,7 @@ def _ocr_numero(texto: str, spans, rng: random.Random, taxa: float) -> list[tupl
     for inicio, fim, _ in spans:
         for i in range(inicio, fim):
             if texto[i] in _OCR_DIGITO and rng.random() < taxa:
-                trocas.append((i, i + 1, _OCR_DIGITO[texto[i]]))
+                trocas.append((i, i + 1, rng.choice(_OCR_DIGITO[texto[i]])))
     return trocas
 
 
