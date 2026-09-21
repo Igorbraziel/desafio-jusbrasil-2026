@@ -252,6 +252,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--goldenset", type=Path, default=Path("data/dev/goldenset.csv"))
     p.add_argument("--ferramentas", type=Path, default=FERRAMENTAS)
     p.add_argument("--json", action="store_true", help="imprime o resultado em JSON")
+    p.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help="grava o score limpo neste arquivo, para servir de referência ao arnês",
+    )
     args = p.parse_args(argv)
 
     if not args.goldenset.exists():
@@ -264,6 +270,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(enxuto, ensure_ascii=False, indent=2, default=float))
     else:
         imprimir(resultado, resultado["diagnostico"], resultado["ausentes"])
+
+    if args.baseline:
+        args.baseline.write_text(
+            json.dumps({"score_final": float(resultado["score_final"])}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"\nlinha de base gravada em {args.baseline}")
     return 0
 
 

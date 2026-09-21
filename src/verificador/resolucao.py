@@ -46,18 +46,36 @@ from .base_canonica import BaseCanonica
 from .deteccao import Achado
 from .normalizacao import chave_textual, digitos_do_identificador
 
-# Confiança por caminho de decisão. Os valores saem da taxa medida em
-# scripts/medir_regiao.py e da detecção no conjunto de desenvolvimento, com
-# desconto deliberado: um caminho que acertou tudo em 26 documentos ainda não
-# merece 1,0, porque o conjunto cego tem formas que a amostra não tem.
+# Confiança por caminho de decisão, **medida** por
+# ``scripts/medir_confianca.py``: acurácia do caminho sobre o corpus limpo mais
+# três sementes de perturbação a taxa 0,15, com predição sem par contando como
+# erro. Antes eram palpite, e o comentário aqui dizia isso.
+#
+# Medir importa porque o bônus da métrica é ``b = 0,10·(1 − Brier)`` e o Brier é
+# minimizado exatamente em ``p = acurácia``. Emitir 0,93 num caminho que acerta
+# 0,996 joga bônus fora; emitir 0,80 num que acerta 0,67 é pior, porque a
+# punição é quadrática. Os dois casos existiam.
+#
+# Os valores passam por Laplace — ``(acertos + 1) / (total + 2)`` — e não pela
+# taxa bruta. É o que impede um caminho com quatro observações de reivindicar
+# 1,0: `real_desempate` acertou 4 de 4, e a ADR 0003 registra que o critério de
+# desempate está refutado. Laplace encolhe esse caminho para 0,83 em vez de 1,0,
+# que é a humildade que a evidência comporta.
+#
+# Medido sob perturbação, e não no conjunto limpo, de propósito: no limpo todo
+# caminho acerta 100% e a calibração mandaria emitir 1,0 em tudo. O conjunto
+# cego tem formas que a amostra não tem, e o arnês é a única aproximação dessa
+# diferença que temos.
 CONFIANCA = {
-    "real_unico": 0.93,
-    "real_desempate": 0.55,
-    "real_tabela": 0.95,
-    "inventada_processo": 0.85,
-    "inventada_tabela": 0.88,
-    "inventada_tema": 0.80,
-    "incompleta_vaga": 0.90,
+    "real_unico": 0.99,  # 273/274
+    "real_desempate": 0.83,  # 4/4, encolhido pelo suporte baixo
+    "real_tabela": 0.98,  # 61/61
+    "inventada_processo": 0.83,  # 158/190 — o caminho mais errático
+    "inventada_tabela": 0.95,  # 60/62
+    "inventada_tema": 0.60,  # 2/3, encolhido pelo suporte baixo
+    "incompleta_vaga": 0.99,  # 114/114
+    # Não exercido pelo arnês nem pelo conjunto de desenvolvimento: sem medição,
+    # fica o valor conservador. É o único palpite que sobrou, e está declarado.
     "incompleta_sem_numero": 0.70,
 }
 
