@@ -33,10 +33,12 @@ interna do acervo; ``id`` é o doc_id do Jusbrasil, e é ele que vai em
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from .estrutura import zonas_de_identificacao
 from .normalizacao import numeros_do_texto
 
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
@@ -90,17 +92,114 @@ class Registro:
     texto_len: int
 
 
-def regiao_de_identificacao(texto: str) -> str:
+# O cabeçalho basta para STF, STJ, TSE e STM: medindo as 82 citações reais do
+# gabarito, a primeira ocorrência do número próprio cai entre os caracteres 19 e
+# 123 nesses quatro. A folga até 400 cobre o número inteiro e os casos longos.
+LIMITE_CABECALHO = 400
+
+# O TST é a exceção: o número não está no cabeçalho, e sim na fórmula de
+# abertura do voto, por volta do caractere 1.000. A âncora é a frase, não o
+# prefixo "TST-" — "estes autos" quer dizer *estes*, o que separa o processo
+# próprio dos que o acórdão apenas cita. Ancorar em "TST-" pegaria os dois e
+# reintroduziria a armadilha 5.
+_ANCORAS = re.compile(r"(?:est[eo]s\s+autos|Vistos,?\s+relatados)", re.IGNORECASE)
+
+# A partir da âncora até passar do número. No exemplo medido, a distância entre
+# "estes autos de" e o número é de ~110 caracteres; 360 cobre classes
+# processuais mais longas sem alcançar a lista de partes.
+JANELA_ANCORA = 360
+
+# Referência a lei, não a processo. Medindo, era a origem de *todos* os falsos
+# positivos caros: Lei 13.467/2017 entrava no índice como `134672017` e fazia 42
+# registros responderem por ela, o que transforma uma citação `inventada` em
+# `real` — o erro que a métrica pune com τ.
+#
+# Exige a palavra-chave antes do número. Casar só pelo sufixo de ano parece
+# tentador e quebra tudo: em `7000380- 08.2023.7.00.0000` o trecho `08.2023`
+# tem exatamente essa forma, e removê-lo parte o número CNJ ao meio — medido,
+# derruba o recall de 77/77 para 46/77.
+# O abreviador de "número" aparece como nº, n°, n., No e n — este último porque
+# o próprio texto da base tem ruído de OCR, e `Nº` aparece como `No` nele.
+_NUMERO_ABREVIADO = r"(?:\s*n[.ºo°]?)?"
+
+_REFERENCIA_A_LEI = re.compile(
+    r"(?:lei|lc|decreto(?:[-\s]lei)?|medida\s+provis[óo]ria|mp|emenda\s+constitucional|ec)"
+    rf"(?:\s+complementar)?{_NUMERO_ABREVIADO}\s*\d{{1,3}}(?:\.\d{{3}})*\s*[/.]\s*(?:19|20)\d{{2}}",
+    re.IGNORECASE,
+)
+
+# Um número que muitos registros reivindicam como próprio não é identificador —
+# é texto de fórmula. Os pares de duplicata conhecidos da base compartilham um
+# número entre *dois* registros; acima disso é vazamento da região, e deixar
+# entrar custa τ. Este corte é independente de reconhecer sintaxe de lei, então
+# pega também o que a regex acima não descreve.
+MAXIMO_REGISTROS_POR_NUMERO = 2
+
+
+# Método padrão de extração da região. Trocável por `--metodo` em
+# `scripts/medir_regiao.py`, que mede os dois lado a lado.
+#
+# O estrutural é o padrão desde 16/09: com o mesmo recall (77/77) e o mesmo zero
+# de falso positivo, entrega 25 órfãos contra 26 e 239 números ambíguos contra
+# 282. A baseline fica no código porque comparação exige os dois — ver
+# docs/checkpoints/01-parser-de-zonas.md.
+METODOS = ("baseline", "estrutural")
+METODO_PADRAO = "estrutural"
+
+
+def _regiao_baseline(texto: str) -> str:
+    """Janela de offset fixo mais a primeira âncora da fórmula de abertura.
+
+    Não conhece a estrutura do documento: aposta que o número próprio está nos
+    primeiros caracteres e, para o TST, na fórmula ``estes autos``.
+    """
+    pedacos = [texto[:LIMITE_CABECALHO]]
+    for casamento in _ANCORAS.finditer(texto):
+        inicio = casamento.start()
+        if inicio < LIMITE_CABECALHO:
+            continue  # já coberto pelo cabeçalho
+        pedacos.append(texto[inicio : inicio + JANELA_ANCORA])
+        # Só a primeira ocorrência. A fórmula de abertura do voto aparece uma
+        # vez; as repetições seguintes são o acórdão citando outras decisões, e
+        # indexar os números delas é exatamente a armadilha 5.
+        break
+    return "\n".join(pedacos)
+
+
+def _regiao_estrutural(texto: str, tribunal: str | None) -> str:
+    """As zonas identificadoras da segmentação, por espécie de tribunal.
+
+    Em vez de supor onde o número está, segmenta o documento e pega as zonas em
+    que ele *pode* estar — ver :mod:`verificador.estrutura`.
+    """
+    zonas = zonas_de_identificacao(texto, tribunal)
+    return "\n".join(z.texto for z in zonas)
+
+
+def regiao_de_identificacao(
+    texto: str,
+    tribunal: str | None = None,
+    metodo: str = METODO_PADRAO,
+) -> str:
     """Os pedaços do documento onde o número do *próprio* processo aparece.
 
-    **A IMPLEMENTAR.** Recebe o inteiro teor de um acórdão e devolve só os
-    trechos que identificam o processo — não os que citam outros. Cada tribunal
-    põe essa informação num lugar; ver ``docs/investigacao.md``.
+    Recebe o inteiro teor de um acórdão e devolve só os trechos que identificam
+    o processo — não os que citam outros. Cada tribunal põe essa informação num
+    lugar; ver ``docs/investigacao.md``.
+
+    Os trechos são separados por ``\\n`` para não colar o fim de um número no
+    começo de outro. A remoção de referência a lei vale para os dois métodos:
+    é ortogonal à segmentação e cada uma das duas resolve um problema diferente.
     """
-    raise NotImplementedError
+    if metodo not in METODOS:
+        raise ValueError(f"método desconhecido: {metodo!r} (use um de {METODOS})")
+    bruto = (
+        _regiao_estrutural(texto, tribunal) if metodo == "estrutural" else _regiao_baseline(texto)
+    )
+    return _REFERENCIA_A_LEI.sub(" ", bruto)
 
 
-def construir_indice(caminho_db: Path) -> dict:
+def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
     """Varre a base uma vez e devolve o índice de números próprios.
 
     Feito offline: em runtime só carregamos o JSON. O material do desafio
@@ -120,11 +219,20 @@ def construir_indice(caminho_db: Path) -> dict:
             "tribunal": tribunal,
             "texto_len": texto_len,
         }
-        for numero in numeros_do_texto(regiao_de_identificacao(texto)):
+        regiao = regiao_de_identificacao(texto, tribunal, metodo)
+        for numero in numeros_do_texto(regiao):
             if len(numero) >= MINIMO_DIGITOS:
                 numeros.setdefault(numero, []).append(documento_id)
 
     conexao.close()
+
+    # Descarta o que muitos registros reivindicam: é fórmula, não identificador.
+    # Ver MAXIMO_REGISTROS_POR_NUMERO.
+    numeros = {
+        numero: documentos
+        for numero, documentos in numeros.items()
+        if len(documentos) <= MAXIMO_REGISTROS_POR_NUMERO
+    }
     return {"numeros": numeros, "registros": registros}
 
 

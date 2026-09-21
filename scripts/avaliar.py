@@ -1,254 +1,269 @@
-"""Métrica local — APROXIMAÇÃO, a ser substituída pelo script oficial.
+"""Avaliação local pela métrica **oficial** do Kaggle.
 
-    ⚠ O script de avaliação oficial da organização sai em 01/09/2026. Este aqui
-      é a nossa leitura da métrica descrita no material do desafio, escrito para
-      termos um número antes disso. Quando o oficial chegar, troque este arquivo
-      e compare os dois: divergência é sinal de que interpretamos alguma regra
-      errado, e é melhor descobrir isso em setembro do que em outubro.
+Este script não implementa a métrica. Ele carrega o ``kaggle_metric.py`` da
+organização e delega o score a ele — o número que sai aqui é o número do
+leaderboard. O que acrescentamos é o diagnóstico que o oficial não imprime:
+matriz de confusão, τ e F1 por classe.
 
-O que está descrito e implementamos aqui:
+Por que não reimplementar: a versão anterior deste arquivo era a nossa leitura
+da métrica escrita antes de o oficial sair, e **divergia** em três pontos — o
+mais caro sendo a penalidade do erro grave, que no oficial é
+``s = macroF1 × (1 − 0,5·τ)``, multiplicativa sobre o score do nível, e não peso
+2 nas contagens. Ver docs/avaliacao.md.
 
-* alinhamento entre predição e gabarito por sobreposição de spans, IoU ≥ 0,5;
-* F1 macro sobre as três classes, calculado por nível;
-* penalidade dupla para classificar como ``real`` uma citação ``inventada``;
-* ``real`` só conta com o ``id_canonico`` correto;
-* bônus de calibração de até 10% para confiança bem calibrada (Brier baixo);
-* score final: média ponderada dos níveis, peso 1× no nível 1 e 2× no nível 2.
+O diagnóstico reusa ``_casar`` e os parsers do próprio oficial, e confere o
+``macro_f1`` que acumula contra o que o oficial devolve — se divergir, avisa em
+vez de mentir em silêncio.
 
-O que **não** está especificado publicamente e escolhemos por conta própria:
-
-* a forma exata do bônus de calibração — usamos ``f1 * (1 + 0,10 * (1 - Brier))``;
-* o alinhamento guloso por maior IoU quando vários spans concorrem;
-* contar a penalidade dupla como peso 2 no FP de ``real`` e no FN de ``inventada``.
+Os arquivos da organização vivem em ``data/dev/ferramentas/``, que é gitignored:
+num clone limpo é preciso rodar ``make dados-kaggle`` antes.
 
 Uso:
-    python scripts/avaliar.py --predicoes data/out --goldenset data/dev/goldenset.csv
+    python scripts/avaliar.py --predicoes data/out
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
+import importlib.util
 import json
+import sys
 from collections import Counter
-from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
+RAIZ = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from construir_solution import linhas_solution  # noqa: E402
+
+FERRAMENTAS = RAIZ / "data" / "dev" / "ferramentas"
 CLASSES = ("real", "inventada", "incompleta")
-LIMIAR_IOU = 0.5
-PESOS = {1: 1.0, 2: 2.0}
-PENALIDADE_DUPLA = 2.0
-BONUS_MAXIMO = 0.10
+VAZIO = "-"
 
 
-@dataclass
-class Item:
-    inicio: int
-    fim: int
-    classificacao: str
-    id_canonico: str | None
-    confianca: float | None = None
-
-
-def iou(a: Item, b: Item) -> float:
-    intersecao = max(0, min(a.fim, b.fim) - max(a.inicio, b.inicio))
-    uniao = (a.fim - a.inicio) + (b.fim - b.inicio) - intersecao
-    return intersecao / uniao if uniao else 0.0
-
-
-def alinhar(gabarito: list[Item], predicoes: list[Item]) -> list[tuple[int | None, int | None]]:
-    """Casa predição com gabarito pelo maior IoU, acima do limiar."""
-    pares = sorted(
-        (
-            (iou(g, p), i, j)
-            for i, g in enumerate(gabarito)
-            for j, p in enumerate(predicoes)
-            if iou(g, p) >= LIMIAR_IOU
-        ),
-        key=lambda t: (-t[0], t[1], t[2]),
-    )
-    usados_g: set[int] = set()
-    usados_p: set[int] = set()
-    alinhamento: list[tuple[int | None, int | None]] = []
-    for _, i, j in pares:
-        if i in usados_g or j in usados_p:
-            continue
-        usados_g.add(i)
-        usados_p.add(j)
-        alinhamento.append((i, j))
-    alinhamento += [(i, None) for i in range(len(gabarito)) if i not in usados_g]
-    alinhamento += [(None, j) for j in range(len(predicoes)) if j not in usados_p]
-    return alinhamento
-
-
-def carregar_gabarito(caminho: Path) -> dict[str, tuple[int, list[Item]]]:
-    docs: dict[str, tuple[int, list[Item]]] = {}
-    for linha in csv.DictReader(caminho.open(encoding="utf-8-sig")):
-        doc = linha["documento_id"]
-        nivel = int(linha["nivel"])
-        item = Item(
-            inicio=int(linha["inicio"]),
-            fim=int(linha["fim"]),
-            classificacao=linha["classificacao"],
-            id_canonico=linha["id_canonico"].strip() or None,
-        )
-        docs.setdefault(doc, (nivel, []))[1].append(item)
-    return docs
-
-
-def carregar_predicoes(pasta: Path, documento_id: str) -> list[Item]:
-    caminho = pasta / f"{documento_id}.json"
+def carregar_modulo(caminho: Path, nome: str) -> ModuleType:
+    """Importa um .py solto pelo caminho (os oficiais não são um pacote)."""
     if not caminho.exists():
-        return []
-    dados = json.loads(caminho.read_text(encoding="utf-8"))
-    itens: list[Item] = []
-    for c in dados.get("citacoes", []):
-        resolucao = c.get("resolucao") or {}
-        itens.append(
-            Item(
-                inicio=int(c["inicio"]),
-                fim=int(c["fim"]),
-                classificacao=c["classificacao"],
-                id_canonico=(
-                    str(resolucao["id_canonico"]) if resolucao.get("id_canonico") else None
-                ),
-                confianca=c.get("confianca"),
-            )
+        raise SystemExit(
+            f"{caminho.name} não encontrado em {caminho.parent}.\n"
+            "Rode `make dados-kaggle` para baixar as ferramentas da organização."
         )
-    return itens
+    spec = importlib.util.spec_from_file_location(nome, caminho)
+    if spec is None or spec.loader is None:  # pragma: no cover - caminho inválido
+        raise SystemExit(f"não consegui carregar {caminho}")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
 
 
-def f1_macro(tp: Counter, fp: Counter, fn: Counter) -> tuple[float, dict[str, float]]:
-    por_classe: dict[str, float] = {}
-    for classe in CLASSES:
-        precisao = tp[classe] / (tp[classe] + fp[classe]) if tp[classe] + fp[classe] else 0.0
-        recall = tp[classe] / (tp[classe] + fn[classe]) if tp[classe] + fn[classe] else 0.0
-        por_classe[classe] = (
-            2 * precisao * recall / (precisao + recall) if precisao + recall else 0.0
+def montar_submission(
+    pasta: Path, documentos: list[str], encode
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Empacota os JSONs de ``pasta`` no formato de submissão do Kaggle.
+
+    Usa o ``encode`` do conversor oficial, para o CSV local ser exatamente o que
+    seria submetido. Documento sem JSON entra com célula vazia e é reportado:
+    localmente isso vira score baixo, mas o Kaggle **rejeita** a submissão
+    inteira nesse caso.
+    """
+    linhas: list[dict[str, str]] = []
+    ausentes: list[str] = []
+    for documento in documentos:
+        caminho = pasta / f"{documento}.json"
+        if not caminho.exists():
+            ausentes.append(documento)
+            linhas.append({"documento_id": documento, "citacoes": VAZIO})
+            continue
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+        linhas.append({"documento_id": documento, "citacoes": encode(dados)})
+    return linhas, ausentes
+
+
+def diagnosticar(km: ModuleType, solucao: list[dict], submissao: list[dict]) -> dict[int, dict]:
+    """Matriz de confusão e contagens por nível, pela mesma lógica do oficial."""
+    por_nivel: dict[int, dict] = {}
+    submissao_por_doc = {linha["documento_id"]: linha["citacoes"] for linha in submissao}
+
+    for linha in solucao:
+        documento = linha["documento_id"]
+        nivel = int(linha["nivel"])
+        acumulado = por_nivel.setdefault(
+            nivel,
+            {
+                "tp": Counter(),
+                "fp": Counter(),
+                "fn": Counter(),
+                "suporte": Counter(),
+                "confusao": Counter(),
+                "tau_num": 0,
+                "tau_den": 0,
+                "extra_ignoradas": 0,
+            },
         )
-    return sum(por_classe.values()) / len(CLASSES), por_classe
+        golds = km._parse_solution_cell(linha["citacoes"], documento)
+        preds = km._parse_submission_cell(submissao_por_doc.get(documento, VAZIO), documento)
+        pares, golds_sem_par, preds_sem_par = km._casar(golds, preds)
 
+        for g in golds:
+            acumulado["suporte"][g["classe"]] += 1
+            if g["classe"] == "inventada":
+                acumulado["tau_den"] += 1
 
-def avaliar(pasta_predicoes: Path, caminho_gabarito: Path) -> dict:
-    gabarito = carregar_gabarito(caminho_gabarito)
-    por_nivel: dict[int, dict] = {
-        n: {
-            "tp": Counter(),
-            "fp": Counter(),
-            "fn": Counter(),
-            "brier": [],
-            "confusao": Counter(),
-            "criticos": 0,
-        }
-        for n in PESOS
-    }
+        for gi, pi in pares:
+            g, p = golds[gi], preds[pi]
+            esperada, predita = g["classe"], p["classe"]
+            acumulado["confusao"][(esperada, predita)] += 1
+            if esperada == predita:
+                if esperada == "real" and p["id_canonico"] not in g["doc_ids"]:
+                    # link errado: custa precisão, não recall (§5.1)
+                    acumulado["fp"]["real"] += 1
+                    acumulado["confusao"][("real", "real (link errado)")] += 1
+                    acumulado["confusao"][(esperada, predita)] -= 1
+                else:
+                    acumulado["tp"][esperada] += 1
+            else:
+                acumulado["fn"][esperada] += 1
+                acumulado["fp"][predita] += 1
+                if esperada == "inventada" and predita == "real":
+                    acumulado["tau_num"] += 1
 
-    for documento_id, (nivel, itens_gabarito) in sorted(gabarito.items()):
-        acumulado = por_nivel[nivel]
-        predicoes = carregar_predicoes(pasta_predicoes, documento_id)
-        for i, j in alinhar(itens_gabarito, predicoes):
-            esperado = itens_gabarito[i] if i is not None else None
-            obtido = predicoes[j] if j is not None else None
+        for gi in golds_sem_par:
+            acumulado["fn"][golds[gi]["classe"]] += 1
+            acumulado["confusao"][(golds[gi]["classe"], "(não detectada)")] += 1
 
-            if esperado is None:  # predição sem par: falso positivo
-                acumulado["fp"][obtido.classificacao] += 1
-                acumulado["confusao"][("(nada)", obtido.classificacao)] += 1
-                acumulado["brier"].append((obtido.confianca, False))
+        casados = [golds[gi] for gi, _ in pares]
+        for pi in preds_sem_par:
+            p = preds[pi]
+            if any(km._contida(p, g) for g in casados):
+                acumulado["extra_ignoradas"] += 1  # regra EXTRA §6
                 continue
-            if obtido is None:  # citação não detectada: erro de recall
-                acumulado["fn"][esperado.classificacao] += 1
-                acumulado["confusao"][(esperado.classificacao, "(nada)")] += 1
-                continue
+            acumulado["fp"][p["classe"]] += 1
+            acumulado["confusao"][("(espúria)", p["classe"])] += 1
 
-            acumulado["confusao"][(esperado.classificacao, obtido.classificacao)] += 1
-            certo = esperado.classificacao == obtido.classificacao
-            if certo and esperado.classificacao == "real":
-                certo = esperado.id_canonico == obtido.id_canonico
-            acumulado["brier"].append((obtido.confianca, certo))
+    return por_nivel
 
-            if certo:
-                acumulado["tp"][esperado.classificacao] += 1
-                continue
-            # Chamar de real o que é inventada é o erro que um sistema em
-            # produção precisa evitar: pesa dobrado.
-            peso = (
-                PENALIDADE_DUPLA
-                if esperado.classificacao == "inventada" and obtido.classificacao == "real"
-                else 1.0
-            )
-            if peso > 1:
-                acumulado["criticos"] += 1
-            acumulado["fn"][esperado.classificacao] += peso
-            acumulado["fp"][obtido.classificacao] += peso
 
-    resultado: dict = {"niveis": {}}
-    soma_pesos = total = 0.0
-    for nivel, acumulado in por_nivel.items():
-        macro, por_classe = f1_macro(acumulado["tp"], acumulado["fp"], acumulado["fn"])
-        com_confianca = [(c, ok) for c, ok in acumulado["brier"] if c is not None]
-        brier = (
-            sum((c - (1.0 if ok else 0.0)) ** 2 for c, ok in com_confianca) / len(com_confianca)
-            if com_confianca
-            else None
+def _f1(tp: int, fp: int, fn: int) -> float:
+    denominador = 2 * tp + fp + fn
+    return (2 * tp / denominador) if denominador else 0.0
+
+
+def imprimir(oficial: dict, diagnostico: dict[int, dict], ausentes: list[str]) -> None:
+    if ausentes:
+        print(
+            f"\n⚠ {len(ausentes)} documento(s) sem JSON em data/out/ "
+            f"(ex.: {', '.join(ausentes[:3])}).\n"
+            "  Localmente entram como 'sem citações'; o Kaggle REJEITA a submissão."
         )
-        bonus = BONUS_MAXIMO * (1 - brier) if brier is not None else 0.0
-        # O bônus é multiplicativo e o score fica limitado a 1: sem o teto, um
-        # sistema bem calibrado pontuaria acima do máximo da métrica.
-        score = min(1.0, macro * (1 + bonus))
-        resultado["niveis"][nivel] = {
-            "f1_macro": macro,
-            "f1_por_classe": por_classe,
-            "brier": brier,
-            "score": score,
-            "criticos": acumulado["criticos"],
-            "confusao": acumulado["confusao"],
-        }
-        total += score * PESOS[nivel]
-        soma_pesos += PESOS[nivel]
-    resultado["score_final"] = total / soma_pesos if soma_pesos else 0.0
-    return resultado
 
-
-def imprimir(resultado: dict) -> None:
-    for nivel, dados in sorted(resultado["niveis"].items()):
-        print(f"\n─── Nível {nivel} (peso {PESOS[nivel]:.0f}×)")
+    for nivel, dados in sorted(oficial["niveis"].items()):
+        acumulado = diagnostico.get(nivel, {})
+        print(f"\n─── Nível {nivel} (peso {km_peso(nivel):.0f}×)")
         for classe in CLASSES:
-            print(f"    F1 {classe:<11} {dados['f1_por_classe'][classe]:.4f}")
-        print(f"    F1 macro       {dados['f1_macro']:.4f}")
-        brier = dados["brier"]
-        print(f"    Brier          {brier:.4f}" if brier is not None else "    Brier          —")
-        print(f"    score          {dados['score']:.4f}")
-        print(f"    inventada→real {dados['criticos']}  (erro crítico, pesa dobrado)")
-        erros = {k: v for k, v in dados["confusao"].items() if k[0] != k[1]}
+            f1_oficial = dados["f1_por_classe"].get(classe)
+            suporte = acumulado.get("suporte", Counter())[classe]
+            if f1_oficial is None:
+                print(f"    F1 {classe:<11} —        (sem ocorrência)")
+                continue
+            print(f"    F1 {classe:<11} {f1_oficial:.4f}   (suporte {suporte})")
+        print(f"    F1 macro       {dados['macro_f1']:.4f}")
+        print(
+            f"    τ              {dados['tau']:.4f}   ({acumulado.get('tau_num', 0)}"
+            f"/{acumulado.get('tau_den', 0)} inventada→real)"
+        )
+        print(f"    penalidade     ×{1 - 0.5 * dados['tau']:.4f}  →  s = {dados['s']:.4f}")
+        print(f"    bônus Brier    ×{1 + dados['b']:.4f}  →  score = {dados['score']:.4f}")
+        if acumulado.get("extra_ignoradas"):
+            print(f"    extras §6      {acumulado['extra_ignoradas']} ignoradas (não contam FP)")
+
+        confusao = acumulado.get("confusao", Counter())
+        erros = {k: v for k, v in confusao.items() if k[0] != k[1] and v}
         if erros:
-            print("    confusões:")
-            for (esperado, obtido), n in sorted(erros.items(), key=lambda kv: -kv[1]):
-                print(f"      {esperado:<11} → {obtido:<11} {n}")
-    print(f"\n═══ SCORE FINAL (média ponderada 1×/2×): {resultado['score_final']:.4f}\n")
+            print("    erros:")
+            for (esperada, predita), n in sorted(erros.items(), key=lambda kv: -kv[1]):
+                print(f"      {esperada:<16} → {predita:<20} {n}")
+
+        conferido = _conferir_macro(dados, acumulado)
+        if conferido is not None:
+            print(
+                f"    ⚠ divergência no diagnóstico: acumulei {conferido:.4f}, "
+                f"oficial {dados['macro_f1']:.4f}"
+            )
+
+    print(f"\n═══ SCORE FINAL (1×N1 + 2×N2)/3: {oficial['score_final']:.4f}\n")
+
+
+def _conferir_macro(dados: dict, acumulado: dict) -> float | None:
+    """Recalcula o macro-F1 pelo que acumulamos; devolve o valor se divergir."""
+    if not acumulado:
+        return None
+    f1s = [
+        _f1(acumulado["tp"][c], acumulado["fp"][c], acumulado["fn"][c])
+        for c in CLASSES
+        if acumulado["suporte"][c]
+    ]
+    if not f1s:
+        return None
+    nosso = sum(f1s) / len(f1s)
+    return None if abs(nosso - dados["macro_f1"]) < 1e-9 else nosso
+
+
+def km_peso(nivel: int) -> float:
+    return {1: 1.0, 2: 2.0}.get(nivel, 1.0)
+
+
+def avaliar(
+    pasta_predicoes: Path,
+    caminho_goldenset: Path,
+    ferramentas: Path = FERRAMENTAS,
+) -> dict:
+    """Score oficial mais o diagnóstico, num dicionário só.
+
+    ``niveis`` vem do ``kaggle_metric`` sem alteração — as chaves são as dele
+    (``macro_f1``, ``tau``, ``s``, ``b``, ``score``). ``diagnostico`` traz as
+    contagens e a matriz de confusão, e ``ausentes`` os documentos sem JSON.
+    """
+    import pandas as pd
+
+    km = carregar_modulo(ferramentas / "kaggle_metric.py", "kaggle_metric")
+    conversor = carregar_modulo(ferramentas / "json_to_submission.py", "json_to_submission")
+
+    solucao = linhas_solution(caminho_goldenset)
+    submissao, ausentes = montar_submission(
+        pasta_predicoes, [linha["documento_id"] for linha in solucao], conversor.encode
+    )
+
+    try:
+        oficial = km.avaliar(pd.DataFrame(solucao), pd.DataFrame(submissao))
+    except km.ParticipantVisibleError as erro:
+        raise SystemExit(f"a submissão seria rejeitada pelo Kaggle:\n  {erro}") from None
+
+    return {
+        **oficial,
+        "diagnostico": diagnosticar(km, solucao, submissao),
+        "ausentes": ausentes,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--predicoes", type=Path, default=Path("data/out"))
     p.add_argument("--goldenset", type=Path, default=Path("data/dev/goldenset.csv"))
+    p.add_argument("--ferramentas", type=Path, default=FERRAMENTAS)
     p.add_argument("--json", action="store_true", help="imprime o resultado em JSON")
     args = p.parse_args(argv)
 
     if not args.goldenset.exists():
-        raise SystemExit(f"gabarito não encontrado: {args.goldenset} (rode `make dados`)")
+        raise SystemExit(f"gabarito não encontrado: {args.goldenset} (rode `make dados-kaggle`)")
 
-    resultado = avaliar(args.predicoes, args.goldenset)
+    resultado = avaliar(args.predicoes, args.goldenset, args.ferramentas)
+
     if args.json:
-        limpo = {
-            "score_final": resultado["score_final"],
-            "niveis": {
-                n: {k: v for k, v in d.items() if k != "confusao"}
-                for n, d in resultado["niveis"].items()
-            },
-        }
-        print(json.dumps(limpo, ensure_ascii=False, indent=2))
+        enxuto = {"score_final": resultado["score_final"], "niveis": resultado["niveis"]}
+        print(json.dumps(enxuto, ensure_ascii=False, indent=2, default=float))
     else:
-        imprimir(resultado)
+        imprimir(resultado, resultado["diagnostico"], resultado["ausentes"])
     return 0
 
 

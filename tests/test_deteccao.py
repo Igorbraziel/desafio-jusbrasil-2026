@@ -10,13 +10,6 @@ import pytest
 from verificador.deteccao import detectar
 from verificador.texto import fim_do_cabecalho
 
-# Estes testes são a **especificação** da etapa: descrevem o comportamento
-# esperado antes de ele existir. Enquanto o módulo for um stub, ficam marcados
-# como falha esperada para que `make testar` continue verde. Vá removendo o
-# marcador conforme implementar.
-pytestmark = pytest.mark.xfail(raises=NotImplementedError, reason="a implementar", strict=False)
-
-
 CABECALHO = (
     "EXCELENTÍSSIMO SENHOR MINISTRO RELATOR\n"
     "SUPERIOR TRIBUNAL DE JUSTIÇA\n"
@@ -66,24 +59,25 @@ def test_familias(corpo, familia, trecho):
     assert achados[0].trecho == trecho
 
 
-def test_citacao_vaga_sem_identificador():
-    """⚠ Revisar: o gabarito não anota mais frase genérica.
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Invoca-se a jurisprudência pacífica desta Corte sobre o tema.",
+        "Aplicam-se as normas de regência da matéria ao caso concreto.",
+        "Há entendirnento sumulado sobre a matéria.",
+        "Observa-se o artigo correspondente do diploma de regência.",
+    ],
+)
+def test_frase_generica_nao_e_citacao(corpo):
+    """Frase difusa deixou de ser citação — detectá-la hoje é falso positivo.
 
-    Desde a revisão de 01/09/2026 as frases difusas saíram do gabarito, e desde
-    15/09 a classe `incompleta` é 100% tribunal + ano + relator. Detectar uma
-    frase como a de baixo hoje produz **falso positivo**, que custa precisão.
-    Este caso continua aqui como registro do comportamento antigo; decida se a
-    família `vaga` deve mesmo disparar nele. Ver docs/investigacao.md.
+    As revisões de 01/09 e 15/09 tiraram do gabarito as frases sem identificador,
+    e hoje a classe `incompleta` é só o padrão tribunal + ano + relator. Extrair
+    uma frase como as de baixo custa precisão sem ganhar recall. O terceiro caso
+    mantém o ruído rn→m de propósito: o que mudou foi o alvo, não a tolerância a
+    OCR. Ver docs/investigacao.md.
     """
-    achados = _detectar("Invoca-se a jurisprudência pacífica desta Corte sobre o tema.")
-    assert [a.familia for a in achados] == ["vaga"]
-    assert achados[0].trecho == "jurisprudência pacífica desta Corte"
-
-
-def test_citacao_vaga_com_ruido_de_ocr():
-    """ "entendirnento" é "entendimento" com rn→m: o casamento tolera a troca."""
-    achados = _detectar("Há entendirnento sumulado sobre a matéria.")
-    assert [a.familia for a in achados] == ["vaga"]
+    assert _detectar(corpo) == []
 
 
 def test_tribunal_ano_relator_e_vaga_nao_processo():
@@ -108,3 +102,53 @@ def test_sigla_composta_e_recuperada():
 def test_fim_do_cabecalho_para_na_primeira_prosa():
     corte = fim_do_cabecalho(CABECALHO + "A defesa do paciente vem interpor o presente agravo.")
     assert corte == len(CABECALHO)
+
+
+# ── Robustez a ruído fora das posições vistas na amostra ───────────────────────
+#
+# Os três casos abaixo vêm do arnês de perturbação, não de leitura do gabarito.
+# Cada um custava score medido antes de virar teste.
+
+
+# As confusões testadas são as documentadas em docs/investigacao.md
+# (0<->O, 1<->l, 5<->S, 9<->g, 6<->G). Inventar outras aqui aumentaria a
+# superfície de falso positivo sem nenhuma medição que a justifique.
+@pytest.mark.parametrize("ano", ["2024", "20\n24", "2O24", "2o24", "l995"])
+def test_incompleta_sobrevive_a_ano_ruidoso(ano):
+    """O ano é o único número da família `vaga`: corrompê-lo apagava a citação.
+
+    Antes desta tolerância, `20\\n24` virava família `processo` — classe errada e
+    span espúrio — e `2O24` não era detectado. Media-se a perda de 25 das 32
+    `incompleta` sob ruído de OCR em número.
+    """
+    corpo = f"Cita-se o julgado do STF proferido em {ano} pela relatoria de Fulano de Tal."
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == ["vaga"]
+
+
+@pytest.mark.parametrize("distrator", ["de 20\n24", "em 2O25", "fls. 76\n2/872"])
+def test_distrator_ruidoso_continua_sendo_distrator(distrator):
+    """Ano e página seguem não sendo citação quando o ruído os parte.
+
+    Os filtros comparavam a forma bruta, então uma quebra de linha no meio do
+    ano bastava para ele escapar e virar `processo`.
+    """
+    achados = _detectar(f"O feito tramitou {distrator} sem outras intercorrências.")
+    assert achados == []
+
+
+@pytest.mark.parametrize("rotulo", ["Autos", "Aiitos", "Proccsso", "Prot0colo"])
+def test_numero_do_proprio_processo_nao_vaza_com_rotulo_corrompido(rotulo):
+    """O distrator canônico do desafio, com o rótulo corrompido em uma letra.
+
+    A fronteira do cabeçalho era achada por lista de rótulos exatos: uma letra
+    trocada derrubava o corte e o número dos próprios autos virava citação.
+    Agora a linha é reconhecida pela estrutura `<rótulo> nº <número>`.
+    """
+    cabecalho = (
+        "MINISTÉRIO PÚBLICO MILITAR\n\n"
+        f"{rotulo} nº 9293337-24.2018.7.15.8725\n"
+        "Apelante: FULANO DE TAL\n\nPARECER\n\n"
+    )
+    achados = detectar(cabecalho + "Trata-se de apelação interposta contra sentença.")
+    assert achados == []

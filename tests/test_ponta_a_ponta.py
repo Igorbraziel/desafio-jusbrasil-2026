@@ -17,16 +17,12 @@ from verificador.texto import carregar
 
 sys.path.insert(0, str(RAIZ / "scripts"))
 
-import pytest
 
-# Ver a nota em tests/test_normalizacao.py: enquanto o pipeline for um stub,
-# estes testes descrevem o alvo em vez de verificarem o presente.
-pytestmark = [
-    sem_dados,
-    sem_indice,
-    pytest.mark.xfail(raises=NotImplementedError, reason="a implementar", strict=False),
-]
+pytestmark = [sem_dados, sem_indice]
 
+# Guarda de regressão, não meta: o pipeline mede 1,0000 de F1 macro nos dois
+# níveis do conjunto de desenvolvimento. O limiar fica abaixo de propósito, para
+# pegar quebra sem travar o número num valor que só vale nesta amostra.
 LIMIAR_F1 = 0.95
 
 
@@ -47,11 +43,13 @@ def test_score_no_conjunto_de_desenvolvimento(base_canonica, tmp_path):
     resultado = avaliar(tmp_path, GOLDENSET)
 
     for nivel, dados in resultado["niveis"].items():
-        assert dados["f1_macro"] >= LIMIAR_F1, f"nível {nivel}: {dados['f1_macro']:.4f}"
-        assert dados["criticos"] == 0, "nenhuma inventada pode ser classificada como real"
+        assert dados["macro_f1"] >= LIMIAR_F1, f"nível {nivel}: {dados['macro_f1']:.4f}"
+        # τ é a fração das `inventada` preditas como `real`. É o único erro que a
+        # métrica oficial pune multiplicativamente, sobre o score do nível todo.
+        assert dados["tau"] == 0.0, "nenhuma inventada pode ser classificada como real"
     assert resultado["score_final"] >= LIMIAR_F1
 
 
 def test_indice_cobre_toda_a_base(base_canonica):
     assert INDICE.exists()
-    assert len(base_canonica._registros) == 998
+    assert len(base_canonica._registros) == 996
