@@ -119,3 +119,102 @@ def test_citacao_com_numero_nao_cai_na_familia_vaga():
     corpo = "Ver o REsp 1.234.567/SP, de 2019, Rel. Min. Carlos Alberto, no ponto."
     achados = _detectar(corpo)
     assert [a.familia for a in achados] == ["processo"]
+
+
+# ── Ruído de OCR que a tabela de reparo conhece mas o núcleo não atravessava ───
+#
+# `OCR_PARA_DIGITO` mapeia 14 letras; a classe do núcleo era literal e listava 12,
+# faltando `i` e `q`. O span sumia inteiro — recall, que não se recupera — mesmo
+# com a normalização sabendo devolver o número certo. O gerador de perturbação
+# tinha o mesmo buraco, então nenhuma medição de robustez via o defeito.
+
+
+@pytest.mark.parametrize("corrompido", ["1737l8", "1737i8", "1737q8", "1737o8", "1737I8"])
+def test_nucleo_atravessa_toda_confusao_que_o_reparo_desfaz(corrompido):
+    """Se a tabela de reparo conhece a letra, a detecção tem de atravessá-la."""
+    achados = _detectar(f"Ampara a pretensão o REsp {corrompido}/SP, citado nos autos.")
+    assert [a.familia for a in achados] == ["processo"]
+
+
+def test_numero_corrompido_resolve_para_os_digitos_certos():
+    """Detectar não basta: o número recuperado tem de ser o mesmo das variantes."""
+    from verificador.normalizacao import digitos_do_identificador
+
+    recuperados = {
+        digitos_do_identificador(_detectar(f"Ampara o REsp {c}/SP, citado.")[0].trecho)
+        for c in ("173718", "1737l8", "1737i8", "1737I8")
+    }
+    assert recuperados == {"173718"}
+
+
+@pytest.mark.parametrize("primeiro", ["1", "l", "I", "i"])
+def test_primeiro_digito_corrompido_nao_muda_o_numero(primeiro):
+    """A falha silenciosa: span válido, IoU bom, número errado.
+
+    O núcleo abria com `\\d` literal, então `REsp l.599.910/PR` começava no `5` e
+    devolvia `599910` — um número diferente, que não resolve na base e vira
+    `inventada` com confiança alta. Medido, 79% das falhas de `ocr_numero`
+    tinham o primeiro dígito corrompido.
+    """
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(f"Ampara o REsp {primeiro}.599.910/PR, citado nos autos.")
+    assert len(achados) == 1
+    assert digitos_do_identificador(achados[0].trecho) == "1599910"
+
+
+@pytest.mark.parametrize(
+    "prosa",
+    [
+        "Os Gols marcados no campeonato não interessam ao feito em análise.",
+        "Isso posto, a defesa requer a improcedência total da demanda ali.",
+        "O pedido de SOS foi registrado pela autoridade policial competente.",
+        "As Obras do imóvel foram embargadas pela municipalidade no local.",
+    ],
+)
+def test_palavra_digitoide_na_prosa_nao_vira_numero(prosa):
+    """O contrapeso do núcleo tolerante, que foi o motivo da rejeição no cp 02.
+
+    Palavras feitas só de letras confundíveis casam a forma do núcleo. Quem as
+    barra são o lookbehind (letra antes de letra) e `_MINIMO_DIGITOS`, que exige
+    quatro dígitos **reais** no casamento.
+    """
+    assert _detectar(prosa) == []
+
+
+# ── A fronteira do cabeçalho não pode engolir a primeira linha do corpo ───────
+#
+# `_ROTULOS` era testado com `startswith`, então "Recurso especial interposto…"
+# era classificado como cabeçalho. Como `fim_do_cabecalho` para na primeira linha
+# que não é cabeçalho, uma dessas abrindo o corpo empurrava a fronteira para
+# depois dela e a citação naquela linha era perdida.
+
+_CABECALHO_CURTO = "PARECER Nº 10\nAutos nº 0801234-56.2021.8.19.0001\n\n"
+
+
+@pytest.mark.parametrize(
+    "primeira_linha",
+    [
+        "Recurso especial conhecido, cita-se o REsp 1.234.567/SP no ponto.",
+        "Refere-se ao REsp 1.234.567/SP que a parte invoca nos autos.",
+        "Processo eletrônico analisado conforme o REsp 1.234.567/SP citado.",
+        "Autos conclusos, invoca-se o REsp 1.234.567/SP quanto à matéria.",
+        "Origem da controvérsia é o REsp 1.234.567/SP, conforme a defesa.",
+        "Classe recursal definida pelo REsp 1.234.567/SP, segundo a parte.",
+    ],
+)
+def test_citacao_na_primeira_linha_do_corpo_nao_e_perdida(primeira_linha):
+    """Prosa que apenas começa com um rótulo de metadado é prosa, não cabeçalho."""
+    achados = detectar(_CABECALHO_CURTO + primeira_linha + "\nSegue a fundamentação.\n")
+    assert [a.trecho for a in achados] == ["REsp 1.234.567/SP"]
+
+
+@pytest.mark.parametrize(
+    "linha",
+    ["Autos", "Origem", "Classe", "Protocolo", "Autos 123456", "Valor da causa"],
+)
+def test_rotulo_sozinho_na_linha_continua_sendo_cabecalho(linha):
+    """O contrapeso: a regra fica, para o rótulo que de fato é só rótulo."""
+    from verificador.texto import _e_linha_de_cabecalho
+
+    assert _e_linha_de_cabecalho(linha)

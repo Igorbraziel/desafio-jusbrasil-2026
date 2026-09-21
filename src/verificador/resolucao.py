@@ -74,8 +74,16 @@ CONFIANCA = {
     "inventada_tabela": 0.95,  # 60/62
     "inventada_tema": 0.60,  # 2/3, encolhido pelo suporte baixo
     "incompleta_vaga": 0.99,  # 114/114
-    # Não exercido pelo arnês nem pelo conjunto de desenvolvimento: sem medição,
-    # fica o valor conservador. É o único palpite que sobrou, e está declarado.
+    # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
+    # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
+    # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
+    # `_DISPOSITIVO` exige `(?P<artigo>\d+…)`, e a família `processo` só nasce
+    # depois de `_digitos(m.group()) >= _MINIMO_DIGITOS` — quatro dígitos que a
+    # normalização nunca remove, porque só troca letra por dígito.
+    #
+    # Fica como defesa em profundidade: se a detecção um dia afrouxar um desses
+    # grupos, o guarda já está no lugar. O valor não é medido porque não há o que
+    # medir; não é palpite pendente de calibração.
     "incompleta_sem_numero": 0.70,
 }
 

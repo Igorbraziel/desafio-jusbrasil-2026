@@ -40,6 +40,23 @@ _ROTULOS = (
     "fls",
 )
 
+# A linha precisa **ser** o rótulo, não apenas começar com ele.
+#
+# O teste anterior era `startswith`, e isso classificava prosa como cabeçalho:
+# "Recurso especial interposto contra o REsp…", "Refere-se à decisão…",
+# "autos em referência. O consulente informa…". Como `fim_do_cabecalho` para na
+# primeira linha que **não** é cabeçalho, uma dessas abrindo o corpo empurra a
+# fronteira para depois dela e **a citação naquela linha é perdida** — erro de
+# recall, que é o que não se recupera depois.
+#
+# Medido nos 26 documentos: o `startswith` classificava 7 linhas do corpo como
+# cabeçalho, todas prosa, e nenhum cabeçalho real dependia dele — remover a regra
+# por completo não mudava nenhum corte nem nenhum dos 192 spans. Mas um rótulo
+# sozinho na linha ("Autos", "Origem") é cabeçalho legítimo e pode aparecer no
+# conjunto cego, então a regra fica, exigindo que a linha termine logo depois:
+# o rótulo, com no máximo um complemento curto e sem pontuação de prosa.
+_APOS_ROTULO = re.compile(r"^[\s:\-–—]*(?:[\wÀ-ÿ.ºo°/\-]+\s*){0,2}$")
+
 # "Rótulo: valor" — o rótulo é curto e a linha tem dois-pontos cedo.
 _LINHA_ROTULADA = re.compile(r"^[^\s:][^:]{0,40}:\s")
 
@@ -67,7 +84,10 @@ def _e_linha_de_cabecalho(linha: str) -> bool:
     if _LINHA_ROTULADA.match(despida) or _LINHA_NUMERADA.match(despida):
         return True
     minusculo = despida.lower()
-    if any(minusculo.startswith(rotulo) for rotulo in _ROTULOS):
+    if any(
+        minusculo.startswith(rotulo) and _APOS_ROTULO.match(despida[len(rotulo) :])
+        for rotulo in _ROTULOS
+    ):
         return True
     # Título: sem minúsculas próprias (ignorando conectivos curtos como "de").
     letras = [c for c in despida if c.isalpha()]

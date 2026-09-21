@@ -80,6 +80,11 @@ duas. Número de processo não termina em barra mais letra; isso é UF truncada.
 
 ## Correção rejeitada: detecção tolerante a dígito inicial corrompido
 
+> ⚠ **Revertida em 21/09/2026.** Esta rejeição não vale mais: a mudança entrou no
+> [checkpoint 06](06-recall.md), depois de remedida sob as condições de hoje. O
+> que segue é o registro de como estava quando foi recusada — e a razão pela qual
+> continuava certa **naquele** código. Ver o checkpoint 06 para os números novos.
+
 O núcleo exigia começar em dígito real. Sob ruído o primeiro caractere é
 corrompido como qualquer outro, e o número inteiro se perdia. A tentativa foi
 deixar o núcleo começar em "digitoide" (dígito ou letra que o OCR põe no lugar).
@@ -98,6 +103,13 @@ adicionar um lookbehind que rejeita letra precedida de letra.
 
 Fica registrada porque a medição tem valor: se algum dia o ruído do conjunto cego
 se mostrar mais forte que o da amostra, a mudança está desenhada e medida.
+
+**E foi o que aconteceu** — por outro caminho. O que destravou não foi ruído mais
+forte, e sim o lookbehind que este próprio parágrafo aponta como a correção
+faltante, mais três filtros de distrator que vieram depois. Com eles, a mudança
+passou a ganhar no ponto de operação em vez de perder. Lição de método: uma
+rejeição é válida para o código que foi medido, não para sempre. Vale remedir
+quando as premissas mudam.
 
 ## O que ficou aberto
 

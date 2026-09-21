@@ -42,6 +42,27 @@ ano e relator, mas sem número, é incompleta por construção, não por casar c
 uma lista de expressões. Isso é exatamente o que a distribuição de 15/09 tornou
 regra — ver [investigacao.md](investigacao.md#as-incompleta-são-hoje-uma-forma-só).
 
+> **Corrigido em 21/09/2026, depois de ler o artigo.** O resumo acima descreve o
+> trabalho anterior dos mesmos autores, não este. O artigo de 2020 é sobre um
+> **pipeline de duas etapas**: segmentar o documento em partes (cabeçalho,
+> história, argumentação…) e só então reconhecer referências **dentro do segmento
+> de argumentação**. O achado que nos serve é a tabela 1:
+>
+> | modelo | F1 (estrito) | F1 (sobreposição) |
+> |---|---|---|
+> | reconhecimento sozinho | 0,652 | 0,709 |
+> | pipeline (segmentação → reconhecimento) | **0,724** | **0,815** |
+>
+> Sete pontos de F1 vindos da segmentação — que aqui é
+> [`texto.fim_do_cabecalho`](../src/verificador/texto.py), e era onde estávamos
+> errando. Ver [checkpoint 06](checkpoints/06-recall.md). Eles usam CRF porque o
+> corpus é de estilo real e heterogêneo; e registram que precisaram de "controle
+> e reparo manual de identificadores incompletamente identificados" — nem com CRF
+> o reconhecimento fecha sozinho.
+>
+> A ideia de contar constituintes continua valendo e está implementada em
+> `deteccao._vagas_por_constituinte`; ela só não vem deste artigo.
+
 ### Predição de NIL: não decidir por limiar
 
 [Reveal the Unknown: Out-of-Knowledge-Base Mention Discovery with Entity Linking](https://www.cs.ox.ac.uk/people/ian.horrocks/Publications/download/2023/DongC0L023.pdf)
@@ -65,6 +86,22 @@ O segundo artigo separa NIL em duas naturezas, entidade ausente e expressão que
 não é entidade. Essa separação espelha a evolução do gabarito: o que era
 "expressão que não é entidade" saiu nas duas revisões, e sobrou só entidade
 ausente.
+
+> **Medido em 21/09/2026, e descartado.** O mecanismo de Zhu et al. é
+> similaridade semântica **mais similaridade de tipo**, com limiar ε = 0,5: o
+> ganho vem de comparar o tipo da menção com o do candidato. O análogo aqui seria
+> conferir o **tribunal** — a citação diz "REsp … do STJ", o registro é do TST,
+> logo não casa.
+>
+> | medição | resultado |
+> |---|---|
+> | citações `inventada` cujo número está no índice | **0 de 64** |
+> | citações `real` que nomeiam tribunal e divergem do registro | **0 de 11** |
+>
+> A base **nunca** contém o número de uma citação inventada, então o lookup exato
+> por número já é perfeitamente discriminativo e a verificação de tipo não teria
+> o que corrigir — só somaria superfície de erro. Não implementada. Fica aqui
+> porque é a sugestão natural de quem lê o artigo, e a medição é a resposta.
 
 ### Medir a resposta enganosa
 
