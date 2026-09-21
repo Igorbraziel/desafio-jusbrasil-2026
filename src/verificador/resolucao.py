@@ -223,8 +223,15 @@ def _resolver_processo(achado: Achado, base: BaseCanonica) -> tuple[str, int | N
     if len(candidatos) == 1:
         return "real", candidatos[0].id_canonico, CONFIANCA["real_unico"]
 
-    # Empate: `candidatos_por_numero` já ordena por maior texto_len. Ver a nota
-    # sobre desempate no topo do módulo — chutar domina desistir na métrica.
+    # Empate. Pegamos o primeiro da ordenação de `candidatos_por_numero`, que é
+    # determinística mas **arbitrária**: ela ordena por maior `texto_len`, e a
+    # ADR 0003 registra que esse critério foi refutado pela distribuição de
+    # 15/09 — o único par ambíguo que sobrou resolve para o candidato mais curto.
+    # A ordem serve para estabilidade, não como preferência.
+    #
+    # O que continua valendo é a aritmética: chutar domina desistir. Link errado
+    # num par `real`×`real` custa só `fp[real]`; rebaixar para `incompleta`
+    # custaria o `fn[real]` **e** o `fp[incompleta]`. Ver a nota no topo do módulo.
     return "real", candidatos[0].id_canonico, CONFIANCA["real_desempate"]
 
 
