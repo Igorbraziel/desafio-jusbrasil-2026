@@ -6,7 +6,8 @@ DEV  ?= data/dev
 OUT  ?= data/out
 RUN  := uv run
 
-.PHONY: ajuda dados dados-zip indice testar lint rodar avaliar solution submissao requirements docker limpar
+.PHONY: ajuda dados dados-zip indice testar lint rodar avaliar solution submissao \
+        baseline robustez confianca requirements docker limpar
 
 ajuda:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -34,6 +35,15 @@ avaliar: ## Pontua data/out/ pela métrica OFICIAL do Kaggle
 
 solution: ## Converte o goldenset no solution.csv da métrica oficial
 	$(RUN) python scripts/construir_solution.py --goldenset $(DEV)/goldenset.csv --saida $(DEV)/solution.csv
+
+baseline: rodar ## Grava o score limpo em data/dev/baseline.json (referência do arnês)
+	$(RUN) python scripts/avaliar.py --predicoes $(OUT) --goldenset $(DEV)/goldenset.csv --baseline $(DEV)/baseline.json
+
+robustez: ## Mede a degradação por classe de ruído (exige `make baseline`)
+	$(RUN) python scripts/medir_robustez.py --taxa 0.15 --sementes 3
+
+confianca: ## Mede a acurácia por caminho de decisão, para calibrar CONFIANCA
+	$(RUN) python scripts/medir_confianca.py --taxa 0.15 --sementes 3
 
 submissao: rodar ## Gera data/submission.csv para enviar no Kaggle
 	$(RUN) python $(DEV)/ferramentas/json_to_submission.py $(OUT) data/submission.csv

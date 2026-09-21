@@ -37,14 +37,20 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 47 deles, todos passando.
+cada etapa — 134 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
-níveis, τ = 0, score 1,0988.** Leia esse número com a desconfiança que ele
+níveis, τ = 0, score 1,0992.** Leia esse número com a desconfiança que ele
 merece: são os mesmos 26 documentos usados para construir a solução, e
 [docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
 essa amostra não consegue medir. O leaderboard sobre o conjunto final é a
 primeira medida honesta.
+
+Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Duas
+suítes existem para isso e são as que importam para o conjunto cego:
+[tests/test_generalizacao.py](tests/test_generalizacao.py), com as formas que a
+amostra não tem, e `make robustez`, que degrada o corpus e repontua. Ver o
+[checkpoint 05](docs/checkpoints/05-generalizacao.md).
 
 ## Instalação
 
@@ -70,6 +76,10 @@ make testar     # pytest
 make rodar      # um JSON por documento em data/out/
 make avaliar    # métrica OFICIAL do Kaggle, por nível + score ponderado
 make submissao  # gera data/submission.csv para enviar no Kaggle
+
+make baseline   # grava o score limpo como referência do arnês
+make robustez   # degrada o corpus por classe de ruído e repontua
+make confianca  # mede a acurácia por caminho, para calibrar CONFIANCA
 ```
 
 `make ajuda` lista todos os alvos. `make solution` e
@@ -101,14 +111,27 @@ Antes de mexer no código, leia **[docs/dados.md](docs/dados.md)** e
 
 O ponto mais frágil é o que **não** dá para medir aqui: o conjunto cego pode
 trazer classes processuais, formas de `incompleta` e ruídos de OCR que a amostra
-não tem. Duas frentes abertas, nessa ordem de valor:
+não tem. Com o F1 saturado em 1,0, **medir acerto no dev set não informa mais
+nada** — o que informa é o arnês e a suíte de generalização.
 
-1. **Parser hierárquico dos 996 acórdãos**, no método já validado em
+Frentes abertas, nessa ordem de valor:
+
+1. **`ocr_numero` é o ponto fraco que sobrou**: 1,0285 contra 1,0992 limpo. Os
+   erros são de recall (`real→não detectada`), não de classe — o ruído destrói o
+   número além do que a normalização recupera. Se ele não ceder por regra, é o
+   gatilho que a [ADR 0001](docs/decisoes/0001-baseline-deterministica.md) define
+   para considerar um NER de pesos abertos **na detecção**, nunca na resolução.
+2. **Duas classes de ruído que o arnês ainda não gera**: corrupção da sigla do
+   tribunal e do rótulo de cabeçalho.
+3. **Parser hierárquico dos 996 acórdãos**, no método já validado em
    `parsing-tests`. `base_canonica.regiao_de_identificacao` é uma costura
    trocável de propósito, e `scripts/medir_regiao.py` compara implementações por
    número — hoje a baseline marca recall 77/77 e zero falso positivo.
-2. **Robustez da detecção**: cada regra nova em `deteccao.py` deve vir com o
-   caso que a motivou nos testes.
+
+Regra que vale para qualquer mudança: **o portão é o score limpo e as
+propriedades imunes.** Nada entra se derrubar 1,0992 ou quebrar uma classe que
+hoje marca Δ = 0 no arnês. Toda regra nova em `deteccao.py` vem com o caso que a
+motivou nos testes.
 
 As decisões de projeto estão em [docs/decisoes/](docs/decisoes/).
 
@@ -123,6 +146,7 @@ As decisões de projeto estão em [docs/decisoes/](docs/decisoes/).
 | [docs/avaliacao.md](docs/avaliacao.md) | métrica: IoU ≥ 0,5, F1 macro, penalidade dupla, calibração |
 | [docs/referencias.md](docs/referencias.md) | literatura que ajuda, e o que dá para usar agora |
 | [docs/decisoes/](docs/decisoes/) | registro das decisões de projeto e seus porquês |
+| [docs/checkpoints/](docs/checkpoints/) | o que cada etapa mediu, em ordem cronológica |
 | [MANIFESTO_MODELO.md](MANIFESTO_MODELO.md) | declaração de pesos usados (hoje: nenhum) |
 
 ## Dados

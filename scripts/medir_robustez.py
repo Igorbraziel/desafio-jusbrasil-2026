@@ -150,10 +150,16 @@ def main(argv: list[str] | None = None) -> int:
     if not args.indice.exists():
         raise SystemExit(f"índice não encontrado: {args.indice} (rode `make indice`)")
 
-    referencia = 0.0
+    # Sem referência a coluna Δ vira o score absoluto, e uma tabela de deltas
+    # que na verdade são scores passa despercebida — aconteceu. Falhar alto é o
+    # comportamento certo: a medição inteira depende deste número.
     caminho_base = RAIZ / "data/dev/baseline.json"
-    if caminho_base.exists():
-        referencia = json.loads(caminho_base.read_text(encoding="utf-8"))["score_final"]
+    if not caminho_base.exists():
+        raise SystemExit(
+            f"linha de base ausente: {caminho_base}\n"
+            "Rode `make baseline` (ou `make rodar && make avaliar`) antes de medir robustez."
+        )
+    referencia = json.loads(caminho_base.read_text(encoding="utf-8"))["score_final"]
 
     base = BaseCanonica.de_arquivo(args.indice)
     # Cada classe sozinha, mais a combinação de todas — que é o cenário pessimista.

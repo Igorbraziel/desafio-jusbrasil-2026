@@ -21,3 +21,4 @@ Cada checkpoint traz:
 | [02](02-arnes-de-perturbacao.md) | Arnês de perturbação | `ocr_numero` é o ponto fraco (−0,259) · `sigla_nao_vista` imune |
 | [03](03-integracao.md) | Integração com a `main` | política de não redistribuir o gabarito · ADR 0003 refutada |
 | [04](04-robustez.md) | Endurecimento contra ruído | pior caso 0,8022 → 0,9537 · score limpo preservado |
+| [05](05-generalizacao.md) | Endurecimento para o conjunto cego | IoU mínimo 0,519 → 0,8125 · `ordem_incompleta` vira imune · score 1,0988 → 1,0992 |
