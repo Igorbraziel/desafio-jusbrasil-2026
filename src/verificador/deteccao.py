@@ -88,14 +88,37 @@ _DENTRO = r"(?:[ \t\xa0.\-–—/]|\n(?![ \t]*\n))"
 # elimina a classe inteira de defeito, em vez de acrescentar `i` e `q` à mão.
 _DIGITOIDE = rf"[\d{re.escape(''.join(sorted(set(OCR_PARA_DIGITO))))}]"
 
-# O núcleo numérico: começa em dígito e admite letra de OCR no lugar de um
-# dígito, para não cortar a citação ao meio (`21737l8`).
+# O núcleo numérico: admite letra de OCR no lugar de um dígito, para não cortar
+# a citação ao meio (`21737l8`).
+#
+# **O primeiro caractere também pode ser digitoide.** Ele era `\d` literal, e o
+# OCR corrompe a primeira posição como qualquer outra: em `REsp l.599.910/PR` o
+# núcleo começava no `5` e devolvia `599910`, um número *diferente*, que não
+# resolve na base. Essa é a pior forma de erro — silenciosa: o span existe, o IoU
+# passa, e a citação vira `inventada` com confiança alta. Medindo 4.000
+# perturbações de um identificador sintético a taxa 0,4, **79% de todas as
+# falhas de `ocr_numero` tinham o primeiro dígito corrompido**.
+#
+# Esta mudança foi **rejeitada** no checkpoint 02 por produzir 31 falsos
+# positivos na base limpa, todos em `fls. <n>/<n>`, e por perder no ponto de
+# operação (0,8908 -> 0,8802 a taxa 0,15). O que mudou desde então: o lookbehind
+# que rejeita letra precedida de letra — que o próprio checkpoint indicava como
+# a correção faltante —, o filtro `_DATA`, a janela de rótulo de 40 caracteres e
+# `_PAGINAS` comparando a forma canônica. Remedido agora com 5 sementes:
+#
+#     ocr_numero    1,0266 -> 1,0455   (+0,019)
+#     todas (7)     0,9917 -> 1,0093   (+0,018), pior semente +0,030
+#     ocr_palavra   1,0384 -> 1,0384   (0,000 — sem espúrias na prosa corrompida)
+#
+# O `_MINIMO_DIGITOS` em `_candidatos` é o que barra a palavra que casa por
+# acidente: `Gols` e `Isso` casam o núcleo, mas têm zero dígitos reais e morrem
+# no filtro. O lookbehind cobre `SOS` e `Obras`.
 #
 # O lookahead impede que ele termine dentro de uma palavra. Sem ele, em "de 2024
 # sem outras", o `s` de "sem" — que é digitoide — entrava no número, a forma
 # canônica virava `2024s` e o filtro de ano solto deixava passar: o ano virava
 # citação `processo`.
-_NUCLEO = rf"\d(?:{_DENTRO}*{_DIGITOIDE}){{3,}}(?![A-Za-zÀ-ÿ])"
+_NUCLEO = rf"(?<![A-Za-zÀ-ÿ]){_DIGITOIDE}(?:{_DENTRO}*{_DIGITOIDE}){{3,}}(?![A-Za-zÀ-ÿ])"
 
 # Sufixo de UF: /RJ, - PR, (SC), – MA.
 #

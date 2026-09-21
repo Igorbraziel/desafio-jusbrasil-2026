@@ -147,6 +147,41 @@ def test_numero_corrompido_resolve_para_os_digitos_certos():
     assert recuperados == {"173718"}
 
 
+@pytest.mark.parametrize("primeiro", ["1", "l", "I", "i"])
+def test_primeiro_digito_corrompido_nao_muda_o_numero(primeiro):
+    """A falha silenciosa: span válido, IoU bom, número errado.
+
+    O núcleo abria com `\\d` literal, então `REsp l.599.910/PR` começava no `5` e
+    devolvia `599910` — um número diferente, que não resolve na base e vira
+    `inventada` com confiança alta. Medido, 79% das falhas de `ocr_numero`
+    tinham o primeiro dígito corrompido.
+    """
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(f"Ampara o REsp {primeiro}.599.910/PR, citado nos autos.")
+    assert len(achados) == 1
+    assert digitos_do_identificador(achados[0].trecho) == "1599910"
+
+
+@pytest.mark.parametrize(
+    "prosa",
+    [
+        "Os Gols marcados no campeonato não interessam ao feito em análise.",
+        "Isso posto, a defesa requer a improcedência total da demanda ali.",
+        "O pedido de SOS foi registrado pela autoridade policial competente.",
+        "As Obras do imóvel foram embargadas pela municipalidade no local.",
+    ],
+)
+def test_palavra_digitoide_na_prosa_nao_vira_numero(prosa):
+    """O contrapeso do núcleo tolerante, que foi o motivo da rejeição no cp 02.
+
+    Palavras feitas só de letras confundíveis casam a forma do núcleo. Quem as
+    barra são o lookbehind (letra antes de letra) e `_MINIMO_DIGITOS`, que exige
+    quatro dígitos **reais** no casamento.
+    """
+    assert _detectar(prosa) == []
+
+
 # ── A fronteira do cabeçalho não pode engolir a primeira linha do corpo ───────
 #
 # `_ROTULOS` era testado com `startswith`, então "Recurso especial interposto…"
