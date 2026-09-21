@@ -40,6 +40,8 @@ score. Por isso emitimos sempre, com um valor por caminho de decisão.
 
 from __future__ import annotations
 
+import re
+
 from .base_canonica import BaseCanonica
 from .deteccao import Achado
 from .normalizacao import chave_textual, digitos_do_identificador
@@ -61,33 +63,93 @@ CONFIANCA = {
 
 # Diploma legal citado -> chave da tabela DISPOSITIVOS. A ordem importa: a
 # entrada mais específica precisa ser testada antes da que a contém, senão
-# "Código de Processo Civil" casaria em "civil" e viraria Código Civil.
+# "Código de Processo Civil" casaria em "civil" e viraria Código Civil. Por isso
+# "processo penal militar" vem antes de "processo penal", que vem antes de
+# "penal militar": o CPPM não está na cobertura, e sem essa ordem ele casava o
+# CPP e o artigo 312 do CPPM resolvia para o 312 do CPP.
 #
 # O casamento é por conteúdo e não por igualdade porque o nível 2 corrompe uma
 # letra por palavra: a amostra traz "Constituição Fedcral", que precisa resolver
 # para CF do mesmo jeito que "Constituição da República".
-DIPLOMAS: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("processo civil", "13.105", "13105", "cpc"), "CPC"),
-    (("processo penal", "3.689", "3689", "cpp"), "CPP"),
-    (("penal militar", "1.001", "1001", "cpm"), "CPM"),
-    (("defesa do consumidor", "8.078", "8078", "cdc"), "CDC"),
-    (("consolidacao das leis", "clt"), "CLT"),
-    (("constituic", "carta magna", "cf/88", "cf"), "CF"),
-    (("lei complementar", "lc 64", "64/1990"), "LC64"),
-    (("eleitoral", "4.737", "4737"), "ELEITORAL"),
-    (("civil", "cc"), "CC"),
+#
+# ``excluir`` é o que impede o marcador genérico de capturar um diploma de fora
+# da cobertura. Um marcador como "constituic" casa a Constituição Estadual tanto
+# quanto a Federal, e "lei complementar" casa qualquer LC — os dois produziam
+# `inventada` -> `real`, que é o erro grave da métrica (``s = macroF1·(1−0,5·τ)``,
+# ~7x mais caro que um falso positivo comum). A cobertura é congelada: fora dela,
+# a resposta certa é `inventada`, não um link plausível.
+DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
+    (("processo penal militar", "processo penal militar"), (), "CPPM_FORA"),
+    (("processo civil", "13.105", "13105", "cpc"), (), "CPC"),
+    (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
+    (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
+    (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
+    (("consolidacao das leis", "clt"), (), "CLT"),
+    (
+        ("constituic", "carta magna", "cf/88", "cf"),
+        ("estadual", "do estado", "estado de"),
+        "CF",
+    ),
+    (("lei complementar", "lc 64", "64/1990"), (), "LC64"),
+    (("eleitoral", "4.737", "4737"), (), "ELEITORAL"),
+    (("civil", "cc"), (), "CC"),
 )
+
+# Número da lei que cada chave da tabela curada aceita. Quando a citação nomeia o
+# número — "Lei Complementar nº 123/2006" —, ele é conferido contra esta tabela em
+# vez de se confiar só no nome do diploma. Os números saem da primeira linha
+# autodeclarada dos 13 registros de natureza `dispositivo`, desde 15/09/2026.
+NUMERO_DA_LEI: dict[str, str] = {
+    "CPC": "13105",
+    "CPP": "3689",
+    "CPM": "1001",
+    "CDC": "8078",
+    "CLT": "5452",
+    "LC64": "64",
+    "ELEITORAL": "4737",
+    "CC": "10406",
+}
+
+# O número que acompanha o nome do diploma: "Lei nº 13.105", "LC 64/1990".
+_NUMERO_CITADO = re.compile(r"(\d[\d.]*)(?:\s*/\s*(\d{2,4}))?")
 
 
 def _codigo_do_diploma(diploma: str | None) -> str | None:
-    """Reduz o nome citado do diploma à chave da tabela curada."""
+    """Reduz o nome citado do diploma à chave da tabela curada.
+
+    Devolve ``None`` quando o diploma está nomeado mas fora da cobertura — o que
+    o chamador traduz em `inventada`, não em falta de informação.
+    """
     if not diploma:
         return None
     chave = chave_textual(diploma)
-    for marcadores, codigo in DIPLOMAS:
-        if any(marcador in chave for marcador in marcadores):
-            return codigo
+    for marcadores, exclusoes, codigo in DIPLOMAS:
+        if not any(marcador in chave for marcador in marcadores):
+            continue
+        if any(exclusao in chave for exclusao in exclusoes):
+            return None
+        if codigo.endswith("_FORA"):
+            # Diploma reconhecido e sabidamente fora da cobertura. Existe como
+            # entrada para vencer o marcador mais genérico que o capturaria.
+            return None
+        return codigo if _numero_confere(chave, codigo) else None
     return None
+
+
+def _numero_confere(chave: str, codigo: str) -> bool:
+    """O número citado, quando houver, é o do diploma que a chave resolve?
+
+    Sem isto, "Lei Complementar nº 123/2006" resolvia para a LC 64/1990 só por
+    conter "lei complementar". Um diploma citado **sem** número continua valendo
+    pelo nome — é assim que "art. 373 do CPC" resolve.
+    """
+    esperado = NUMERO_DA_LEI.get(codigo)
+    if esperado is None:
+        return True
+    achado = _NUMERO_CITADO.search(chave)
+    if achado is None:
+        return True
+    return achado.group(1).replace(".", "") == esperado
 
 
 def _inteiro(valor: str | None) -> int | None:

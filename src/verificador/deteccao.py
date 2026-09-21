@@ -51,7 +51,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .normalizacao import OCR_PARA_DIGITO, _corrigir_ocr
+from .normalizacao import OCR_PARA_DIGITO, UFS, _corrigir_ocr, chave_textual
 from .texto import fim_do_cabecalho
 
 TRIBUNAIS = ("STF", "STJ", "TSE", "TST", "STM")
@@ -66,7 +66,14 @@ _NUMERO = r"(?:n\s*[.ºo°]{0,2}|N\s*[.ºO°]{0,2})"
 
 # Pontuação que pode aparecer dentro de um número de processo, incluindo a
 # quebra de linha e o espaço não-quebrável (`533-80. 2012` vem com \xa0).
-_DENTRO = r"[\s.\-–—/]"
+#
+# **No máximo uma quebra de linha.** Com `\s` solto o núcleo atravessava o fim do
+# parágrafo e engolia o título da seção seguinte: em
+# `Ag. Int. No 7001184-1520197000000.\n\nI — DA COMPETÊNCIA` o span ia até o `I`
+# do título, e o IoU contra o gabarito caía a 0,73. É a mesma política que
+# `_expandir_prefixo` já aplica do outro lado — uma quebra é continuação da
+# citação, duas são fim de parágrafo.
+_DENTRO = r"(?:[ \t\xa0.\-–—/]|\n(?![ \t]*\n))"
 
 # O núcleo numérico: começa em dígito e admite letra de OCR no lugar de um
 # dígito, para não cortar a citação ao meio (`21737l8`).
@@ -78,9 +85,32 @@ _DENTRO = r"[\s.\-–—/]"
 _NUCLEO = rf"\d(?:{_DENTRO}*[\dOolISsgGbBZz]){{3,}}(?![A-Za-zÀ-ÿ])"
 
 # Sufixo de UF: /RJ, - PR, (SC), – MA.
-_UF = re.compile(r"\s*[/(\-–—]\s*[A-Z]{2}\s*\)?")
+#
+# O conjunto é fechado, e não `[A-Z]{2}`, porque qualquer bigrama maiúsculo
+# entrava no span: em "…REsp 1.234.567 - DE acordo com…", o `- DE` era anexado.
+# `normalizacao.UFS` já é a lista validada; usá-la aqui alinha as duas camadas,
+# que antes discordavam.
+_UF = re.compile(rf"\s*[/(\-–—]\s*(?:{'|'.join(sorted(UFS))})\s*\)?")
 
 _NUMERO_PROCESSO = re.compile(_NUCLEO)
+
+# Palavras de prosa que abrem a frase antes de uma citação. Capitalizadas, elas
+# casavam o ramo de sigla e o span começava dez caracteres cedo demais — medido
+# em cinco casos do gabarito, com IoU entre 0,565 e 0,714 ("Também na Rcl
+# 33.132/AC" onde o gabarito anota só "Rcl 33.132/AC").
+#
+# A lista é de exclusão e não de inclusão de propósito: enumerar as siglas
+# processuais é o que a ADR 0002 refuta. Aqui enumeramos o advérbio de prosa, que
+# é vocabulário fechado do português, não do domínio jurídico.
+_PALAVRA_DE_PROSA = frozenset(
+    """
+    tambem também ademais igualmente outrossim ainda assim ja já entao então
+    porem porém contudo todavia entretanto alias aliás inclusive ali aqui
+    confira confiram veja vejam vejase veja-se vide cita cita-se citese citamos
+    conforme segundo consoante nesse neste nessa nesta naquele naquela
+    destarte portanto logo pois tal tais este esta esse essa aquele aquela
+    """.split()
+)
 
 # Um elo da cadeia de prefixo, testado com fullmatch token a token. Três formas:
 # sigla iniciada em maiúscula (REsp, AgR-REspe, H.C., TST-ED-E-ED-RR-), marca de
@@ -89,15 +119,33 @@ _NUMERO_PROCESSO = re.compile(_NUCLEO)
 # A restrição às minúsculas é o que impede o prefixo de engolir a prosa: em
 # "Ampara a pretensão o RSE nº 700…", o "o" não é conector conhecido e a cadeia
 # para ali. Sem isso o span começaria em "Ampara".
+#
+# O ponto **dentro** da sigla é obrigatório no primeiro ramo: sem ele `H.C.`,
+# `AG.REG`, `A.REsp` e `R.Esp.` falhavam o fullmatch e o prefixo era truncado —
+# era a causa dos dois piores IoU do gabarito (0,519 em "AgRg no H.C. Nº 891369"
+# e 0,543 em "Terceiro AG.REG na Rcl").
 _ELO = re.compile(
     r"(?:"
-    r"[A-ZÀ-Ú][\wÀ-ú]*\.?(?:[-‐][A-Za-zÀ-Ú0-9][\wÀ-ú]*\.?)*[-‐]?"
+    r"[A-ZÀ-Ú][\wÀ-ú.]*(?:[-‐][A-Za-zÀ-Ú0-9][\wÀ-ú.]*)*[-‐]?"
     r"|[nN]\s*[.ºo°O]{1,2}"
     r"|n[oa]s?|d[oae]s?|em|e|processo|autos"
     r"|[-‐]"
     r")",
     re.UNICODE,
 )
+
+
+def _e_elo(token: str) -> bool:
+    """O token continua a cadeia de prefixo da citação?
+
+    Separa duas perguntas que o `_ELO` sozinho confundia: *tem forma de elo* e
+    *é palavra de prosa*. Qualquer palavra capitalizada tem forma de sigla, então
+    a forma precisa ser filtrada pelo léxico — ver `_PALAVRA_DE_PROSA`.
+    """
+    if not token or _ELO.fullmatch(token) is None:
+        return False
+    return chave_textual(token.strip(".,;:")) not in _PALAVRA_DE_PROSA
+
 
 # O maior prefixo do gabarito tem 11 palavras ("Embargos de Declaração no
 # Agravo Interno no Agravo em Recurso Especial nº").
@@ -126,7 +174,15 @@ _DIPLOMA = (
     rf"|Lei{_NUMERO_DE_LEI}"
     r"|Consolida[çc][ãa]o\s+das\s+Leis\s+d[oe]\s+Trabalho"
     rf"|{_NOME_DE_CODIGO}"
-    r"|Constitui[çc][ãa]o(?:\s+Federal)?"
+    # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
+    # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
+    # ("Constituição da República", "Constituição Fedcral"), e parar em
+    # "Constituição" derrubava o IoU a 0,68; (2) é o qualificador que distingue
+    # a Federal — a única na cobertura — da Estadual, e sem ele
+    # `art. 5º da Constituição Estadual` resolvia para o art. 5º da CF, que é o
+    # erro grave da métrica. Aceita "Federal", "Fedcral" (OCR), "da República"
+    # e "do Estado".
+    r"|Constitui[çc][ãa]o(?:\s+d[aeo]\s+)?(?:\s*[A-ZÀ-Ú][\wÀ-ú]+)?"
     r"|Carta\s+Magna"
     r"|CPC|CPP|CPM|CLT|CDC|CF(?:\s*/\s*88)?|CC"
     r")"
@@ -191,6 +247,66 @@ _VAGA = re.compile(
     rf"{_RELATOR}\s*{_NOME_PROPRIO}",
 )
 
+# ---------------------------------------------------------------------------
+# `vaga` por contagem de constituintes
+#
+# `_VAGA` acima exige cabeça -> tribunal -> ano -> relator **nessa ordem**, que é
+# a forma única das 32 `incompleta` do gabarito. Medindo oito reordenações
+# plausíveis, sete não eram detectadas — e o próprio `docs/investigacao.md`
+# ressalva que "nada garante que o cego use as mesmas frases". A classe de
+# perturbação `ordem_incompleta` do arnês mede exatamente isso.
+#
+# O caminho abaixo é o que `docs/referencias.md` lista como usável agora sem
+# custo de envelope (Harašta et al., 2020): reconhecer **constituintes** em vez
+# da referência inteira. O critério deixa de ser o casamento de uma frase e vira
+# uma contagem — relator e ano presentes, nenhum número de processo —, o que
+# vale em qualquer ordem.
+#
+# Roda **depois** de `_VAGA` e só onde ela não casou: a ordem canônica continua
+# produzindo o span que o gabarito anota, e esta é a rede para as demais.
+# ---------------------------------------------------------------------------
+
+# A sentença é a janela. `incompleta` é uma referência dentro de uma frase, e o
+# ponto final é a fronteira natural — usá-la evita juntar duas citações vizinhas.
+#
+# O ponto de abreviação **não** encerra a sentença: `[^.!?]+` partia
+# "Rel. Min. Carlos Alberto" em três pedaços e nenhum tinha relator e ano juntos.
+# Fim de sentença é ponto seguido de espaço e maiúscula, ou de quebra de linha —
+# não o ponto colado a uma abreviação curta ("Rel.", "Min.", "n.").
+_FIM_DE_SENTENCA = re.compile(r"(?<!\b[A-Z])(?<!\b[A-Za-z]{2})(?<!\b[A-Za-z]{3})[.!?](?=\s|$)")
+
+# O relator, em formas que `_RELATOR` não cobre porque `_VAGA` não precisava
+# delas: "relatado por X", "da lavra do Ministro X", e o "Ministro X" sem o
+# "Rel." na frente. É a âncora da família — sem relator nomeado não há citação
+# `incompleta` — então vale reconhecê-la em qualquer das grafias correntes.
+_RELATOR_NOMEADO = re.compile(
+    r"(?:"
+    rf"{_RELATOR}"
+    r"|relatad[oa]\s+(?:por|pel[oa])"
+    r"|lavra\s+d[eoa]s?"
+    r"|Min\.?|Ministr[ao]s?|Des(?:embargador)?[ao]?\.?"
+    r")"
+    rf"\s*(?:d[eoa]s?\s+)?(?:Min\.?|Ministr[ao])?\.?\s*{_NOME_PROPRIO}"
+)
+
+# "no ano de 2019", "em 2019", "de 2019", ou o ano solto na enumeração
+# "STF, 2019, Rel. Min. X".
+#
+# O `.` do lookahead precisa ser só o que **estrutura um número** (`2019.7.00`),
+# nunca o ponto final da frase: `(?![\d./-])` rejeitava "de 2019." e a citação
+# desaparecia quando o ano fechava a sentença.
+_ANO_ISOLADO = re.compile(rf"(?<![\d./-]){_ANO_TOLERANTE}(?![-/]|\.?\d)")
+
+_MENCAO_TRIBUNAL = re.compile(rf"\b(?:{'|'.join(TRIBUNAIS)})\b")
+
+# A cabeça que abre a referência, quando presente. Só serve para estender o span
+# à esquerda até o substantivo que nomeia a decisão — não é exigida.
+_CABECA_ISOLADA = re.compile(
+    r"\b(?:julgad[oa]|ac[óo]rd[ãa]o|ac[óo]rdao|precedente|decis[ãa]o|aresto"
+    r"|voto|jurisprud[êe]ncia|entendimento|prec)[\wÀ-ú]*",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class Achado:
@@ -225,10 +341,27 @@ _PAGINAS = re.compile(r"^\d{1,4}\s*/\s*\d{1,4}$")
 # em ano: no padrão CNJ o ano fica no meio, e no número único do STJ, na frente.
 _TERMINA_EM_ANO = re.compile(r"^\d{1,5}(?:\.\d{3})*\s*/\s*(?:19|20)\d{2}$")
 
-# Rótulos que marcam o número seguinte como distrator, não como citação.
+# Data em `dd/mm/aaaa`. `_TERMINA_EM_ANO` exige que o número **inteiro** seja
+# `<n>/<ano>`, então a data tem uma barra a mais e escapava dele: medido,
+# "O período de 01/01/2020 a 31/12/2021" produzia dois spans `processo`.
+#
+# A amostra de desenvolvimento não tem nenhuma data nesse formato — contei zero
+# nos 26 documentos —, mas 200 de 200 acórdãos reais da base têm, num total de
+# 5.635 ocorrências. A ausência é artefato do gerador sintético, não propriedade
+# do domínio, e "publicado em <data>" é frase corrente em peça jurídica.
+_DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})$")
+
+# Rótulos que marcam o número seguinte como distrator, não como citação. Os seis
+# primeiros são os distratores que o material do desafio nomeia; os demais são
+# identificadores civis que aparecem em qualquer peça e que o gerador sintético
+# da amostra não produziu.
 _ROTULO_DISTRATOR = re.compile(
     r"(?:fls?|folhas?|protocolo|CPF|CNPJ|valor\s+da\s+causa|R\$"
-    r"|OAB\s*/?\s*[A-Z]{0,2})\s*\.?\s*$",
+    r"|telefone|tel|fone|celular|RG|CEP|PIS|PASEP|CNH|NIT"
+    r"|matr[íi]cula|guia|precat[óo]rio|ag[êe]ncia|conta"
+    # O DDD entre parênteses separa o rótulo do número e quebrava a adjacência:
+    # "Telefone (11) 98765-4321" escapava do filtro.
+    r"|OAB\s*/?\s*[A-Z]{0,2})\s*[.:]?\s*(?:\(\s*\d{2}\s*\)\s*)?$",
     re.IGNORECASE,
 )
 
@@ -248,14 +381,20 @@ def _forma_canonica(numero: str) -> str:
     return re.sub(r"[\s]+", "", _corrigir_ocr(numero))
 
 
+# A janela de rótulo precisa caber o rótulo mais longo com folga para o ruído do
+# nível 2: "valor da causa" já tem 14 caracteres, e uma corrupção que insira
+# caractere (`m` -> `rn`) estoura os 24 originais.
+_JANELA_ROTULO = 40
+
+
 def _e_numero_de_processo(numero: str, antes: str) -> bool:
     """Filtra o que tem forma de número mas não identifica processo."""
     compacto = _forma_canonica(numero)
     if _ANO_SOLTO.match(compacto) or _PAGINAS.match(compacto):
         return False
-    if _TERMINA_EM_ANO.match(compacto):
+    if _TERMINA_EM_ANO.match(compacto) or _DATA.match(compacto):
         return False
-    return not _ROTULO_DISTRATOR.search(antes[-24:])
+    return not _ROTULO_DISTRATOR.search(antes[-_JANELA_ROTULO:])
 
 
 def _aparar(texto: str, inicio: int, fim: int) -> tuple[int, int]:
@@ -294,10 +433,81 @@ def _expandir_prefixo(corpo: str, inicio: int) -> int:
         while recuo > 0 and not corpo[recuo - 1].isspace():
             recuo -= 1
         token = corpo[recuo:fim_token]
-        if not token or not _ELO.fullmatch(token):
+        if not _e_elo(token):
             break
         posicao = recuo
     return posicao
+
+
+def _sentencas(corpo: str) -> list[tuple[int, int]]:
+    """Fronteiras de sentença, tolerantes ao ponto de abreviação."""
+    limites = [0]
+    for fim in _FIM_DE_SENTENCA.finditer(corpo):
+        limites.append(fim.end())
+    limites.append(len(corpo))
+    return [(a, b) for a, b in zip(limites, limites[1:], strict=False) if b > a]
+
+
+def _tem_numero_de_processo(trecho: str) -> bool:
+    """Há na janela um número que a base consegue resolver?
+
+    É o que tira uma citação da família `vaga`: com número, ela é `real` ou
+    `inventada`, e quem decide é a cardinalidade da consulta. Sem número, não há
+    o que consultar — é `incompleta` por construção.
+    """
+    return any(
+        _digitos(m.group()) >= _MINIMO_DIGITOS
+        and _e_numero_de_processo(m.group(), trecho[: m.start()])
+        for m in _NUMERO_PROCESSO.finditer(trecho)
+    )
+
+
+def _vagas_por_constituinte(corpo: str) -> list[tuple[int, int]]:
+    """Spans de `vaga` achados por contagem de constituintes, em qualquer ordem.
+
+    O critério, por sentença: há **relator nomeado** e **ano**, e **não** há
+    número de processo. Os dois primeiros são o que identifica uma decisão
+    concreta; o terceiro é o que a torna inverificável — com número, a citação é
+    `real` ou `inventada`, e quem decide é a base.
+
+    O span vai do primeiro ao último constituinte, estendido à esquerda até a
+    cabeça ("julgado", "acórdão", "precedente") quando ela abre a referência.
+    """
+    spans: list[tuple[int, int]] = []
+    for inicio_sent, fim_sent in _sentencas(corpo):
+        trecho = corpo[inicio_sent:fim_sent]
+        if len(trecho.strip()) < 12:
+            continue
+
+        relator = _RELATOR_NOMEADO.search(trecho)
+        if relator is None:
+            continue
+        anos = list(_ANO_ISOLADO.finditer(trecho))
+        if not anos:
+            continue
+
+        # Número de processo na sentença tira a citação desta família: ela passa
+        # a ser resolvível contra a base, e quem decide a classe é a cardinalidade.
+        if _tem_numero_de_processo(trecho):
+            continue
+
+        inicio = min(relator.start(), anos[0].start())
+        fim = max(relator.end(), anos[-1].end())
+
+        # O tribunal, quando nomeado, faz parte da referência.
+        tribunal = _MENCAO_TRIBUNAL.search(trecho)
+        if tribunal is not None:
+            inicio = min(inicio, tribunal.start())
+            fim = max(fim, tribunal.end())
+
+        # Estende à esquerda até a cabeça, se ela abrir a referência de perto.
+        for cabeca in _CABECA_ISOLADA.finditer(trecho):
+            if cabeca.start() < inicio and inicio - cabeca.end() <= 40:
+                inicio = cabeca.start()
+                break
+
+        spans.append((inicio_sent + inicio, inicio_sent + fim))
+    return spans
 
 
 def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
@@ -321,8 +531,34 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
         registrar(m, "tema", "jurisprudencia")
     for m in _DISPOSITIVO.finditer(corpo):
         registrar(m, "dispositivo", "lei")
+    vagas: list[tuple[int, int]] = []
     for m in _VAGA.finditer(corpo):
+        # Um número de processo **imediatamente à esquerda** do casamento torna a
+        # citação resolvível, e `vaga` tem precedência sobre `processo`: em
+        # "REsp 1.234.567/SP, de 2019, Rel. Min. Fulano" a expressão casa a partir
+        # do `SP` — o número fica fora do próprio casamento — e roubaria o span da
+        # família que sabe resolvê-lo. Classe errada custa duas vezes na métrica.
+        #
+        # A janela é curta de propósito. Olhar a sentença inteira derrubava cinco
+        # `incompleta` do gabarito que apenas dividem a frase com outra citação
+        # numerada: medido, o score caía de 1,0988 para 1,0518. O que desqualifica
+        # a família é o número **desta** citação, não o de uma vizinha.
+        if _tem_numero_de_processo(corpo[max(0, m.start() - 24) : m.start()]):
+            continue
         registrar(m, "vaga", "jurisprudencia")
+        vagas.append((m.start(), m.end()))
+
+    # A contagem de constituintes é a rede para as ordens que `_VAGA` não prevê.
+    # Só entra onde a forma canônica não casou — assim o span que o gabarito
+    # anota continua vindo da expressão, que é mais justa na borda.
+    for inicio_vaga, fim_vaga in _vagas_por_constituinte(corpo):
+        if any(not (fim_vaga <= i or inicio_vaga >= f) for i, f in vagas):
+            continue
+        inicio, fim = _aparar(texto, inicio_corpo + inicio_vaga, inicio_corpo + fim_vaga)
+        if fim > inicio:
+            achados.append(Achado(inicio, fim, texto[inicio:fim], "vaga", "jurisprudencia"))
+            vagas.append((inicio_vaga, fim_vaga))
+
     for m in _NUMERO_PROCESSO.finditer(corpo):
         if _digitos(m.group()) < _MINIMO_DIGITOS:
             continue
