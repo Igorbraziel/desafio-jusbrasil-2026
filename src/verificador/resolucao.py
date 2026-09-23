@@ -235,7 +235,11 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
     """
     if not diploma:
         return None
-    chave = chave_textual(diploma)
+    # O reparo de OCR vem antes: o número da lei também chega corrompido
+    # (`Lei Complementar nº b4/1990`), e sem ele não confere com a cobertura.
+    # `_corrigir_ocr` só converte letra colada a dígito, então o nome do diploma
+    # passa intacto.
+    chave = chave_textual(_corrigir_ocr(diploma))
     for marcadores, exclusoes, codigo in DIPLOMAS:
         if not any(marcador in chave for marcador in marcadores):
             continue

@@ -383,3 +383,95 @@ def test_rotulo_dentro_de_palavra_nao_apaga_a_citacao():
     corpo = "Na suspensão de tutela nº 4037431-74.2019.4.01.0000 decidiu-se o contrário."
     achados = _detectar(corpo)
     assert [a.familia for a in achados] == ["processo"]
+
+
+# ── Número de processo com poucos dígitos reais depois do ruído ───────────────
+#
+# `_MINIMO_DIGITOS` conta só dígitos **reais**. Sob `ocr_numero` um número de
+# cinco dígitos fica com três — `Rcl 4B.71B/RS` — e a citação sumia, embora o
+# reparo devolva `48718`. Era o maior bloco das perdas restantes no arnês.
+#
+# A regra afrouxada tem dois freios, e cada um barra uma forma de falso
+# positivo: o número **reparado** precisa ter quatro dígitos (só letra colada a
+# dígito é reparada, então `BO 12` não passa), e com menos de quatro reais o
+# prefixo precisa nomear uma classe processual.
+
+
+@pytest.mark.parametrize(
+    ("citacao", "esperado"),
+    [
+        ("Rcl 4B.71B/RS", "48718"),
+        ("AgInt na Rcl 24.b3O/SP", "24630"),
+        ("AgREsp Nº 72Gq4 - MG", "72694"),
+        ("Reclamação nº 7l.3z4/SP", "71324"),
+        ("AgRg no Rec. Esp. n. 3.sz4.zo7 (SC)", "3524207"),
+        ("Recl. n° 7G.84B/ BA", "76848"),
+    ],
+)
+def test_processo_com_poucos_digitos_reais_e_detectado(citacao, esperado):
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(f"Ampara a pretensão o {citacao}, citado nos autos.")
+    assert [a.familia for a in achados] == ["processo"]
+    assert digitos_do_identificador(achados[0].trecho) == esperado
+
+
+@pytest.mark.parametrize(
+    "prosa",
+    [
+        "O boletim BO 12 foi lavrado pela autoridade policial no local.",
+        "Foram ouvidas 12 Os testemunhas arroladas pela defesa técnica.",
+        "a quantia de 4B.71B não consta de nenhum documento dos autos.",
+    ],
+)
+def test_poucos_digitos_reais_sem_classe_nao_vira_processo(prosa):
+    """Os dois freios da regra afrouxada."""
+    assert _detectar(prosa) == []
+
+
+@pytest.mark.parametrize(
+    ("corpo", "familia"),
+    [
+        ("Incide o Temã 3.b40 da repercussão geral, como se vê.", "tema"),
+        ("Violou o acórdão o art. 896, § Iº-A, da CLT, segundo a parte.", "dispositivo"),
+        ("Violou o acórdão o art. 1.021, §§ 4º e 5º, do CPC no ponto.", "dispositivo"),
+        ("Cita-se o art b0 da Lei nº l7.463/z0I4 quanto à matéria.", "dispositivo"),
+        ("Cita-se o art. 4S da Lei Complementar nº b4/1990 no ponto.", "dispositivo"),
+    ],
+)
+def test_digitoide_no_tema_no_paragrafo_e_no_numero_da_lei(corpo, familia):
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == [familia]
+
+
+def test_lei_seguida_de_palavra_nao_vira_numero_de_lei():
+    """`O` é digitoide: sem o freio, "Lei Orgânica" casaria "Lei O"."""
+    assert _detectar("Aplica-se o art. 5º da Lei Orgânica do Município ao caso.") == []
+
+
+@pytest.mark.parametrize(
+    "prosa",
+    [
+        "Os temas debatidos no recurso já foram enfrentados pela Corte.",
+        "O tema o qual se discute foi afetado ao rito dos repetitivos.",
+    ],
+)
+def test_palavra_tema_sem_numero_nao_vira_citacao(prosa):
+    """O número do tema atravessa o digitoide, e por isso precisa de dígito real.
+
+    Apareceu nos 996 acórdãos reais ao afrouxar o número: `temas` casava como
+    Tema `s`, 119 spans espúrios.
+    """
+    assert _detectar(prosa) == []
+
+
+@pytest.mark.parametrize(
+    "prosa",
+    [
+        "III. RAZÕES DE DECIDIR III.1. O acórdão recorrido não merece reparo.",
+        "Assinado eletronicamente por MINISTRO FULANO DE TAL 05/08/2021 14:30.",
+    ],
+)
+def test_numeracao_de_secao_e_carimbo_de_data_nao_viram_processo(prosa):
+    """Os falsos positivos que o afrouxamento abriu nos 996 acórdãos reais."""
+    assert _detectar(prosa) == []

@@ -240,7 +240,10 @@ _SUMULA = re.compile(
 )
 
 _TEMA = re.compile(
-    rf"\b{_tolerante('Tema')}\s*(?P<numero>[\d][\d.]*)"
+    # O número atravessa o digitoide, mas não pode começar colado à palavra nem
+    # terminar dentro de outra: sem os freios, `temas` casava como Tema `s`.
+    rf"\b{_tolerante('Tema')}\s+(?:{_NUMERO}\s*)?"
+    rf"(?P<numero>{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*)(?![A-Za-zÀ-ÿ])"
     rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?",
     re.IGNORECASE,
 )
@@ -258,7 +261,14 @@ _TEMA = re.compile(
 _ANO_DE_VERSAO = r"(?:\s*/\s*\d{2,4}|\s+de\s+(?:19|20)\d{2})?"
 _PALAVRA_DO_NOME = r"(?:\s+(?:d[aeo]\s+)?(?!d[aeo]\b)[A-ZÀ-Úa-zà-ú][\wÀ-ú]*)"
 _NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,3}}{_ANO_DE_VERSAO}"
-_NUMERO_DE_LEI = r"(?:\s*n[.ºo°]{0,2})?\s*[\d][\d.]*(?:\s*/\s*\d{2,4})?"
+# O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
+# lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
+# e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
+# em `registrar`, como no número do artigo.
+_NUMERO_DE_LEI = (
+    rf"(?:\s*n[.ºo°]{{0,2}})?\s*{_DIGITOIDE}(?:[.]?{_DIGITOIDE})*"
+    rf"(?:\s*/\s*{_DIGITOIDE}{{2,4}})?(?![A-Za-zÀ-ÿ])"
+)
 
 _DIPLOMA = (
     r"(?:"
@@ -308,7 +318,7 @@ _DIPLOMA = (
 # amostra sintética é que não as produziu.
 _ROMANO = r"[IVXLC]{1,8}"
 _QUALIFICADORES = (
-    r"(?:\s*,\s*(?:§+\s*\d+[ºo°]?(?:\s*-\s*[A-Z])?"
+    rf"(?:\s*,\s*(?:§+\s*{_DIGITOIDE}+[ºo°]?(?:\s*-\s*[A-Z])?(?:\s+e\s+\d+[ºo°]?)?"
     rf"|incisos?\s+{_ROMANO}(?:\s+e\s+{_ROMANO})?"
     rf"|al[íi]nea\s+[a-z]\)?|caput|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
     r"|['\"]?[a-z]['\"]?\)?))"
@@ -475,6 +485,60 @@ def _digitos(texto: str) -> int:
     return sum(c.isdigit() for c in texto)
 
 
+def _digitos_suficientes(numero: str, corpo: str, inicio: int) -> bool:
+    """O núcleo tem dígitos bastantes para ser número de processo?
+
+    Com quatro dígitos **reais**, sim — é a regra de `_MINIMO_DIGITOS`. Abaixo
+    disso, o ruído de OCR pode ter comido os demais: sob `ocr_numero`, um número
+    de cinco dígitos fica com três (`Rcl 4B.71B/RS`) e a citação sumia, embora o
+    reparo devolva `48718`. Era o maior bloco das perdas restantes no arnês.
+
+    A regra afrouxada tem dois freios, e cada um barra uma forma de falso
+    positivo que o afrouxamento abriria:
+
+    * o número **reparado** precisa ter quatro dígitos, e ao menos um real — o
+      reparo só converte letra colada a dígito, então `BO 12` não chega lá;
+    * o prefixo precisa nomear uma **classe processual**: um elo com letra
+      maiúscula imediatamente antes do número, que é o que `_expandir_prefixo`
+      já reconhece. Sem classe, `a quantia de 4B.71B` não é citação.
+    """
+    if _digitos(numero) >= _MINIMO_DIGITOS:
+        return True
+    # Três reais, e não um: medido nos 996 acórdãos reais, com um só dígito o
+    # afrouxamento pegava numeração de seção (`III.3`) e nome em caixa alta
+    # (`3SSIL`). Os casos do arnês que motivam a regra têm todos três.
+    if _digitos(numero) < _MINIMO_DIGITOS - 1:
+        return False
+    if sum(c.isdigit() for c in _corrigir_ocr(numero)) < _MINIMO_DIGITOS:
+        return False
+    return _prefixo_nomeia_classe(corpo, inicio)
+
+
+def _prefixo_nomeia_classe(corpo: str, inicio: int) -> bool:
+    """Há uma sigla ou classe processual no prefixo que `_expandir_prefixo` aceita?"""
+    comeco = _expandir_prefixo(corpo, inicio)
+    tokens = corpo[comeco:inicio].split()
+    return any(
+        t[0].isupper() and _ELO.fullmatch(t) and not _NUMERO_MARCA.fullmatch(t) for t in tokens
+    )
+
+
+# A marca de número sozinha ("Nº", "No") tem forma de elo, mas não nomeia classe.
+_NUMERO_MARCA = re.compile(r"[nN]\s*[.ºo°O]{0,2}")
+
+
+def _numero_de_lei_plausivel(diploma: str) -> bool:
+    """O número da lei, quando o diploma é citado por número, tem dígito real?
+
+    `_NUMERO_DE_LEI` aceita digitoide pelo mesmo motivo que o número do artigo, e
+    precisa do mesmo contrapeso: sem ele "Lei Os" seria "Lei 05".
+    """
+    numero = re.search(rf"{_DIGITOIDE}[{_DIGITOIDE[1:-1]}./]*$", diploma or "")
+    if numero is None or not re.match(r"(?i)\s*(?:lei|lc|decreto)", diploma):
+        return True
+    return _digitos(numero.group()) >= 1
+
+
 def _tem_digito_real(numero: str | None) -> bool:
     """O número tem ao menos um dígito que não veio de digitoide?
 
@@ -515,7 +579,13 @@ _CENTAVOS = re.compile(r"^,\d{2}(?!\d)")
 # nos 26 documentos —, mas 200 de 200 acórdãos reais da base têm, num total de
 # 5.635 ocorrências. A ausência é artefato do gerador sintético, não propriedade
 # do domínio, e "publicado em <data>" é frase corrente em peça jurídica.
-_DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})$")
+#
+# O `$` final fica de fora de propósito: o núcleo atravessa espaço e engole a
+# hora que vem depois da data ("05/08/2021 14:30" chega aqui como
+# `05/08/2021 14`). Número de processo nunca começa por `dd/mm/aaaa`, então
+# casar só o começo é seguro. Medido nos acórdãos reais, na linha de assinatura
+# eletrônica.
+_DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})(?!\d)")
 
 # Rótulos que marcam o número seguinte como distrator, não como citação. Os seis
 # primeiros são os distratores que o material do desafio nomeia; os demais são
@@ -574,6 +644,10 @@ def _e_numero_de_processo(numero: str, antes: str, depois: str = "") -> bool:
     if _ANO_SOLTO.match(compacto) or _PAGINAS.match(compacto):
         return False
     if _TERMINA_EM_ANO.match(compacto) or _DATA.match(compacto):
+        return False
+    # A data com a hora colada: a forma canônica tira o espaço, e `05/08/2021 14`
+    # vira `05/08/202114`, que já não é data. O começo cru do casamento ainda é.
+    if _DATA.match(numero.lstrip()):
         return False
     if _CENTAVOS.match(depois):
         return False
@@ -723,9 +797,13 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
             continue
         registrar(m, "sumula", "jurisprudencia")
     for m in _TEMA.finditer(corpo):
+        if not _tem_digito_real(m.group("numero")):
+            continue
         registrar(m, "tema", "jurisprudencia")
     for m in _DISPOSITIVO.finditer(corpo):
         if not _tem_digito_real(m.group("artigo")):
+            continue
+        if not _numero_de_lei_plausivel(m.group("diploma")):
             continue
         registrar(m, "dispositivo", "lei")
     vagas: list[tuple[int, int]] = []
@@ -757,7 +835,7 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
             vagas.append((inicio_vaga, fim_vaga))
 
     for m in _NUMERO_PROCESSO.finditer(corpo):
-        if _digitos(m.group()) < _MINIMO_DIGITOS:
+        if not _digitos_suficientes(m.group(), corpo, m.start()):
             continue
         if not _e_numero_de_processo(m.group(), corpo[: m.start()], corpo[m.end() :]):
             continue

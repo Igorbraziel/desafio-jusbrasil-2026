@@ -224,3 +224,16 @@ def test_toda_confianca_emitida_esta_no_intervalo(base_canonica):
     confiancas = [resolver(a, base_canonica)[2] for a in detectar(texto)]
     assert len(confiancas) == 4
     assert all(0.0 <= c <= 1.0 for c in confiancas)
+
+
+@pytest.mark.parametrize(
+    ("citacao", "esperado"),
+    [
+        # o número da lei também passa pelo reparo antes de ser conferido
+        ("art. 1º da Lei Complementar nº b4/1990", [("real", DISPOSITIVOS[("LC64", 1)])]),
+        ("art. 4S da Lei Complementar nº b4/1990", [("inventada", None)]),
+        ("art b0 da Lei nº l7.463/z0I4", [("inventada", None)]),
+    ],
+)
+def test_numero_da_lei_com_ruido(base_canonica, citacao, esperado):
+    assert _classificar(base_canonica, citacao) == esperado
