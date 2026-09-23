@@ -526,3 +526,31 @@ def test_minuscula_de_prosa_continua_parando_o_prefixo():
 def test_dispositivo_sob_quebra_e_marca_partida(corpo):
     """As duas perdas que sobravam nas classes estruturais do arnês."""
     assert [a.familia for a in _detectar(corpo)] == ["dispositivo"]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "esperado"),
+    [
+        # dois dígitos reais sobreviventes — os casos que só o NER de pesos
+        # abertos achava a taxa 0,30 (ADR 0004)
+        ("Recl. n° 7G.B4B/ BA", "76848"),
+        ("Reclamação nº b7.s4b (RO)", "67546"),
+        ("Reclamação nº Zz.4s3/PE", "22453"),
+        ("RCL nº B4go7-DF", "84907"),
+    ],
+)
+def test_processo_com_dois_digitos_reais_e_detectado(citacao, esperado):
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(f"Ampara a pretensão o {citacao}, citado nos autos.")
+    assert [a.familia for a in achados] == ["processo"]
+    assert digitos_do_identificador(achados[0].trecho) == esperado
+
+
+def test_nome_em_caixa_alta_com_um_digito_nao_vira_processo():
+    """O limite de dois reais existe por este caso, medido nos acórdãos reais.
+
+    O preço é que `RHC nº 7s.soB/RS`, com um dígito real só, continua perdido.
+    Na base real não há como separar os dois pela forma.
+    """
+    assert _detectar("Brasília, 26 de abril de 2016. MSTF 3SSIL - RELATOR do feito.") == []

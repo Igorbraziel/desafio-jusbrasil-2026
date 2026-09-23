@@ -511,10 +511,13 @@ def _digitos_suficientes(numero: str, corpo: str, inicio: int) -> bool:
     """
     if _digitos(numero) >= _MINIMO_DIGITOS:
         return True
-    # Três reais, e não um: medido nos 996 acórdãos reais, com um só dígito o
-    # afrouxamento pegava numeração de seção (`III.3`) e nome em caixa alta
-    # (`3SSIL`). Os casos do arnês que motivam a regra têm todos três.
-    if _digitos(numero) < _MINIMO_DIGITOS - 1:
+    # Dois reais, e não um. Medido nos 996 acórdãos reais: os únicos núcleos que
+    # passam os outros dois freios com menos de três dígitos reais são numeração
+    # de seção (`III.1`, `III.3`) e nome em caixa alta (`3SSIL`) — os três com
+    # **um** dígito real. Com dois, nenhum texto real passa, e o ruído a taxa
+    # 0,30 recupera `RHC nº 7s.soB/RS` e `Recl. n° 7G.B4B/ BA`, que eram as
+    # únicas citações que o NER de pesos abertos achava e a regra não (ADR 0004).
+    if _digitos(numero) < 2:
         return False
     if sum(c.isdigit() for c in _corrigir_ocr(numero)) < _MINIMO_DIGITOS:
         return False
