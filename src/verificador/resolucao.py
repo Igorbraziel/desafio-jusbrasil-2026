@@ -44,7 +44,7 @@ import re
 
 from .base_canonica import BaseCanonica
 from .deteccao import Achado
-from .normalizacao import chave_textual, digitos_do_identificador
+from .normalizacao import OCR_PARA_DIGITO, _corrigir_ocr, chave_textual, digitos_do_identificador
 
 # Confiança por caminho de decisão, **medida** por
 # ``scripts/medir_confianca.py``: acurácia do caminho sobre o corpus limpo mais
@@ -99,26 +99,31 @@ CONFIANCA = {
 # para CF do mesmo jeito que "Constituição da República".
 #
 # ``excluir`` é o que impede o marcador genérico de capturar um diploma de fora
-# da cobertura. Um marcador como "constituic" casa a Constituição Estadual tanto
-# quanto a Federal, e "lei complementar" casa qualquer LC — os dois produziam
-# `inventada` -> `real`, que é o erro grave da métrica (``s = macroF1·(1−0,5·τ)``,
-# ~7x mais caro que um falso positivo comum). A cobertura é congelada: fora dela,
-# a resposta certa é `inventada`, não um link plausível.
+# da cobertura — hoje só o CPP, que não pode casar o CPPM. A cobertura é
+# congelada: fora dela, a resposta certa é `inventada`, não um link plausível.
+#
+# A Constituição **não** usa mais exclusão. A lista era de qualificadores ruins
+# conhecidos ("estadual", "do estado"), e qualquer um que não estivesse nela
+# passava: `art. 5º da Constituição Portuguesa` resolvia para o art. 5º da CF/88.
+# Uma lista de exclusão só fecha os casos que alguém lembrou de sondar; o erro
+# grave (``s = macroF1·(1−0,5·τ)``, ~7x um falso positivo comum) pede o
+# contrário — aceitar só o que identifica a CF/88. Ver `_diploma_confere`.
+#
+# Os números 5.452 (CLT) e 10.406 (CC) são como a primeira linha autodeclarada
+# dos registros nomeia esses dois diplomas. `NUMERO_DA_LEI` já os conhecia; sem
+# eles aqui, `art. 186 da Lei nº 10.406/2002` não achava diploma e virava
+# `inventada`.
 DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
-    (("processo penal militar", "processo penal militar"), (), "CPPM_FORA"),
+    (("processo penal militar",), (), "CPPM_FORA"),
     (("processo civil", "13.105", "13105", "cpc"), (), "CPC"),
     (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
     (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
-    (("consolidacao das leis", "clt"), (), "CLT"),
-    (
-        ("constituic", "carta magna", "cf/88", "cf"),
-        ("estadual", "do estado", "estado de"),
-        "CF",
-    ),
+    (("consolidacao das leis", "clt", "5.452", "5452"), (), "CLT"),
+    (("constituic", "carta magna", "cf"), (), "CF"),
     (("lei complementar", "lc 64", "64/1990"), (), "LC64"),
     (("eleitoral", "4.737", "4737"), (), "ELEITORAL"),
-    (("civil", "cc"), (), "CC"),
+    (("civil", "cc", "10.406", "10406"), (), "CC"),
 )
 
 # Número da lei que cada chave da tabela curada aceita. Quando a citação nomeia o
@@ -136,8 +141,90 @@ NUMERO_DA_LEI: dict[str, str] = {
     "CC": "10406",
 }
 
-# O número que acompanha o nome do diploma: "Lei nº 13.105", "LC 64/1990".
-_NUMERO_CITADO = re.compile(r"(\d[\d.]*)(?:\s*/\s*(\d{2,4}))?")
+# Ano de cada diploma da cobertura, da mesma primeira linha autodeclarada
+# ("Artigo 186 da Lei nº 10.406, de 10 de janeiro de 2002"). Serve para recusar
+# a versão revogada: `Código Civil de 1916` e `CPC/73` têm os mesmos números de
+# artigo da versão vigente, e sem conferir o ano resolviam para ela.
+# `tests/test_base_canonica.py` confere as duas tabelas contra o banco.
+ANO_DA_LEI: dict[str, int] = {
+    "CF": 1988,
+    "CPC": 2015,
+    "CPP": 1941,
+    "CPM": 1969,
+    "CDC": 1990,
+    "CLT": 1943,
+    "LC64": 1990,
+    "ELEITORAL": 1965,
+    "CC": 2002,
+}
+
+# O número de uma lei citada pelo número — "lei no 13.105/2015", "lc 64/90",
+# "decreto-lei no 5.452/1943" —, com o ano opcional depois da barra.
+#
+# A âncora na palavra "lei" é o que separa número de lei de ano. A versão
+# anterior pegava o **primeiro** número da chave, e com o ano de versão agora
+# capturado pela detecção isso quebrava: em "codigo de processo civil de 2015"
+# o primeiro número é 2015, que não é 13.105, e a citação `real` virava
+# `inventada`.
+_LEI_NUMERADA = re.compile(r"\b(?:lei|lc|decreto)\b\D{0,24}?(\d(?:[\d.]*\d)?)(?:\s*/\s*(\d{2,4}))?")
+
+# O ano de versão depois do nome ou da sigla: "de 1916", "cpc/73", "cf/88".
+_ANO_DE_VERSAO = re.compile(r"(?:\bde\s+|/\s*)(\d{2,4})\b")
+
+# O que identifica a CF/88 depois de "Constituição". A lista é de **inclusão**:
+# qualquer outro qualificador — Estadual, Portuguesa, "do Estado" — é outro
+# diploma, fora da cobertura.
+#
+# "do Brasil" entra porque, sem ano, é como a prosa corrente chama a CF/88. A
+# Constituição de 1967 também se chamava "do Brasil", mas quem a cita põe o ano,
+# e o ano é conferido antes contra `ANO_DA_LEI`.
+_QUALIFICADORES_DA_CF = ("federal", "republica", "federativa", "brasileira", "brasil")
+_CONECTORES = frozenset({"da", "do", "de", "das", "dos"})
+
+
+def _ano(texto: str) -> int | None:
+    """Ano com quatro dígitos, ou com dois como em "CPC/73". Outra forma não é ano."""
+    if len(texto) == 4:
+        return int(texto)
+    if len(texto) == 2:
+        ano = int(texto)
+        return ano + (2000 if ano <= 30 else 1900)
+    return None
+
+
+def _distancia(a: str, b: str) -> int:
+    """Distância de edição, para o qualificador corrompido pelo nível 2."""
+    anterior = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        atual = [i]
+        for j, cb in enumerate(b, start=1):
+            atual.append(min(anterior[j] + 1, atual[j - 1] + 1, anterior[j - 1] + (ca != cb)))
+        anterior = atual
+    return anterior[-1]
+
+
+def _qualificador_da_cf_confere(chave: str) -> bool:
+    """A Constituição citada é a de 1988?
+
+    Aceita a forma nua ("Constituição", "CF"), "Carta Magna", e um qualificador
+    que identifique a Federal. O nível 2 corrompe uma letra por palavra
+    ("Constituição Fedcral", no gabarito), então o qualificador é comparado com
+    tolerância de edição. A tolerância é segura porque os qualificadores que
+    levariam ao erro grave — Estadual, Portuguesa, Mineira — estão longe dos
+    três aceitos.
+    """
+    if "carta magna" in chave or re.fullmatch(r"cf(?:\s*/\s*\d{2,4})?", chave):
+        return True
+    resto = re.sub(r"^constitui\w*", "", chave)
+    resto = _ANO_DE_VERSAO.sub(" ", resto)  # o ano já foi conferido
+    palavras = [p for p in resto.split() if p not in _CONECTORES]
+    # **Toda** palavra precisa ser qualificador da CF/88 — "República Federativa
+    # do Brasil" é o nome oficial por extenso. Uma só que não seja, e é outro
+    # diploma.
+    return all(
+        any(_distancia(p, q) <= (2 if len(q) >= 7 else 1) for q in _QUALIFICADORES_DA_CF)
+        for p in palavras
+    )
 
 
 def _codigo_do_diploma(diploma: str | None) -> str | None:
@@ -158,31 +245,66 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
             # Diploma reconhecido e sabidamente fora da cobertura. Existe como
             # entrada para vencer o marcador mais genérico que o capturaria.
             return None
-        return codigo if _numero_confere(chave, codigo) else None
+        return codigo if _diploma_confere(chave, codigo) else None
     return None
 
 
-def _numero_confere(chave: str, codigo: str) -> bool:
-    """O número citado, quando houver, é o do diploma que a chave resolve?
+def _diploma_confere(chave: str, codigo: str) -> bool:
+    """O número e o ano citados, quando houver, são os do diploma da cobertura?
 
-    Sem isto, "Lei Complementar nº 123/2006" resolvia para a LC 64/1990 só por
-    conter "lei complementar". Um diploma citado **sem** número continua valendo
+    Sem o número, "Lei Complementar nº 123/2006" resolvia para a LC 64/1990 só
+    por conter "lei complementar". Sem o ano, "Código Civil de 1916" resolvia
+    para o de 2002. Um diploma citado **sem** número nem ano continua valendo
     pelo nome — é assim que "art. 373 do CPC" resolve.
+
+    Na dúvida, recusa: link errado em par `real`×`real` custa só precisão, mas
+    `inventada` → `real` entra em τ.
     """
-    esperado = NUMERO_DA_LEI.get(codigo)
-    if esperado is None:
-        return True
-    achado = _NUMERO_CITADO.search(chave)
-    if achado is None:
-        return True
-    return achado.group(1).replace(".", "") == esperado
+    ano: str | None = None
+    lei = _LEI_NUMERADA.search(chave)
+    if lei is not None:
+        if lei.group(1).replace(".", "") != NUMERO_DA_LEI.get(codigo):
+            return False
+        ano = lei.group(2)
+    if ano is None:
+        versao = _ANO_DE_VERSAO.search(chave)
+        ano = versao.group(1) if versao else None
+    if ano is not None and _ano(ano) != ANO_DA_LEI.get(codigo):
+        return False
+    if codigo == "CF":
+        return _qualificador_da_cf_confere(chave)
+    return True
 
 
 def _inteiro(valor: str | None) -> int | None:
+    """O número da súmula ou do artigo, com o ruído de OCR desfeito.
+
+    O reparo vem **antes** de extrair os dígitos. Descartar as letras direto
+    encolhia o número: `I86` virava 86, e `3l73` virava 373 — artigo da
+    cobertura, uma `inventada` resolvida como `real`, o erro grave.
+    """
     if not valor:
         return None
-    digitos = "".join(c for c in valor if c.isdigit())
+    digitos = "".join(c for c in _corrigir_ocr(valor) if c.isdigit())
     return int(digitos) if digitos else None
+
+
+# Ordinal de artigo: "art. 5º", "art. 5o", "art. 1°". Pela convenção da técnica
+# legislativa, só os artigos 1 a 9 são ordinais — do 10 em diante é cardinal. O
+# "o" minúsculo depois de um dígito isolado é a grafia do ordinal em texto
+# simples, e não um zero corrompido: sem isto "art. 5o da CF" viraria o art. 50.
+#
+# O "O" maiúsculo fica de fora de propósito. Ele é a confusão de OCR que a
+# amostra documenta (`240073O`), e lê-lo como ordinal troca o erro barato pelo
+# caro: se a citação for do art. 50 da CF, fora da cobertura, o ordinal a
+# resolveria para o art. 5º — `inventada` → `real`.
+_ORDINAL = re.compile(rf"^([1-9])\s*[ºo°ª](?![\d{''.join(sorted(set(OCR_PARA_DIGITO)))}])")
+
+
+def _numero_de_artigo(valor: str | None) -> int | None:
+    if valor and (ordinal := _ORDINAL.match(valor)):
+        return int(ordinal.group(1))
+    return _inteiro(valor)
 
 
 def _resolver_sumula(dados: dict[str, str], base: BaseCanonica) -> tuple[str, int | None, float]:
@@ -200,7 +322,7 @@ def _resolver_sumula(dados: dict[str, str], base: BaseCanonica) -> tuple[str, in
 def _resolver_dispositivo(
     dados: dict[str, str], base: BaseCanonica
 ) -> tuple[str, int | None, float]:
-    artigo = _inteiro(dados.get("artigo"))
+    artigo = _numero_de_artigo(dados.get("artigo"))
     diploma = dados.get("diploma")
     codigo = _codigo_do_diploma(diploma)
 
@@ -210,7 +332,7 @@ def _resolver_dispositivo(
     if codigo is None:
         # O diploma está nomeado, só não pertence à cobertura — e a cobertura é
         # congelada, então isso é `inventada`, não falta de informação. Era o
-        # caso de "art. 172 da Lei nº 9.504/1997": a citação é específica o
+        # caso de "art. 173 da Lei nº 9.504/1997": a citação é específica o
         # bastante para ser refutada.
         return "inventada", None, CONFIANCA["inventada_tabela"]
 

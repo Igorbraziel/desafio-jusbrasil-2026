@@ -218,3 +218,168 @@ def test_rotulo_sozinho_na_linha_continua_sendo_cabecalho(linha):
     from verificador.texto import _e_linha_de_cabecalho
 
     assert _e_linha_de_cabecalho(linha)
+
+
+# ── O mesmo ruído de OCR, nas famílias que não o atravessavam ─────────────────
+#
+# O checkpoint 06 ensinou a família `processo` a atravessar o digitoide — a letra
+# que o OCR põe no lugar de um dígito — e ganhou +0,019 em `ocr_numero`. As
+# famílias `dispositivo` e `sumula` ficaram para trás: `_NUMERO_DE_ARTIGO` e o
+# grupo `numero` de `_SUMULA` exigiam **dígito puro**.
+#
+# Medindo os corpora de `data/perturbado/`, essa assimetria é hoje a maior perda
+# de recall do pipeline — maior que a da família que foi corrigida:
+#
+#     classe de ruído        disp/súm/tema   processo
+#     ocr_numero (5 sem.)         40            22
+#     ocr_palavra (5 sem.)        17            22
+#     todas (7) (5 sem.)          57            43
+#
+# `_corrigir_ocr` já repara todos estes casos (`I86`→`186`, `B96`→`896`). Era a
+# detecção que nunca lhe entregava o trecho — a mesma forma de defeito do cp 06.
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Incide na espécie o artigo I86 do Código Civil, como se vê.", "186"),
+        ("Aplica-se o art z7G do Código Eleitoral ao caso em análise.", "276"),
+        ("Invoca-se o art 3I2 do Código de Processo Penal na hipótese.", "312"),
+        ("Violou o acórdão o art. B96, § 1º-A, da CLT, segundo a parte.", "896"),
+        ("Cita-se o art. l.307 da Lei nº 13.105/2015 quanto à matéria.", "1307"),
+        ("Aplica-se o artigo 5º da Constituição Federal, sem divergência.", "5"),
+    ],
+)
+def test_artigo_atravessa_o_ruido_que_o_reparo_desfaz(corpo, esperado):
+    """Se a tabela de reparo conhece a letra, a detecção tem de atravessá-la.
+
+    Vale para o número do artigo tanto quanto para o número de processo: a
+    citação sumia inteira, que é erro de recall e não se recupera depois.
+    """
+    from verificador.normalizacao import _corrigir_ocr
+
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == ["dispositivo"]
+    artigo = dict(achados[0].dados)["artigo"]
+    assert "".join(c for c in _corrigir_ocr(artigo) if c.isdigit()) == esperado
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Aplica-se a Súmula B3 do STJ, de resto pacífica no tribunal.", "83"),
+        ("Incide a 5úmula 2ll do STJ quanto ao ponto ora controvertido.", "211"),
+        ("Invoca-se a Súmula 33l do TST, que trata de caso equivalente.", "331"),
+    ],
+)
+def test_sumula_atravessa_o_ruido_que_o_reparo_desfaz(corpo, esperado):
+    """Mesma assimetria, na família `sumula`."""
+    from verificador.normalizacao import _corrigir_ocr
+
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == ["sumula"]
+    numero = dict(achados[0].dados)["numero"]
+    assert "".join(c for c in _corrigir_ocr(numero) if c.isdigit()) == esperado
+
+
+@pytest.mark.parametrize(
+    "prosa",
+    [
+        "A arte do Código de Processo Civil é matéria de doutrina apenas.",
+        "O art. do Código Civil não foi indicado pela parte recorrente.",
+    ],
+)
+def test_artigo_sem_digito_real_nao_vira_dispositivo(prosa):
+    """O contrapeso do artigo tolerante, na lógica de `_MINIMO_DIGITOS`.
+
+    Sem exigir **um dígito real**, `art Iss` casaria: `I` e `s` são digitoides, e
+    o número resultante sairia do nada.
+    """
+    assert _detectar(prosa) == []
+
+
+# ── Formas de súmula e dispositivo que a amostra não traz ─────────────────────
+#
+# Súmulas e dispositivos são 22% do gabarito (14 + 28 de 192). As formas abaixo
+# são correntes em peça jurídica e nenhuma era detectada. A frequência foi medida
+# nos 996 acórdãos reais da base: `caput` em 424, `inciso(s)` em 497, `art. N, I
+# e II` em 109, romano com 6+ caracteres em 49.
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # a marca de número entre a palavra e o dígito — e é a forma que a
+        # própria base canônica usa na primeira linha dos 5 registros de súmula
+        "Aplica-se a Súmula nº 83 do STJ ao caso ora em julgamento.",
+        "Aplica-se a Súmula n. 83 do STJ ao caso ora em julgamento.",
+        "Aplica-se a Súmula No 83 do STJ ao caso ora em julgamento.",
+        "Aplica-se a Súm. nº 83 do STJ ao caso ora em julgamento.",
+    ],
+)
+def test_sumula_com_marca_de_numero(corpo):
+    """`Súmula nº 83` é a grafia da base canônica, e não era detectada."""
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == ["sumula"]
+    assert dict(achados[0].dados)["numero"] == "83"
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # romano com mais de 5 caracteres — o limite antigo era {1,5}
+        "Invoca-se o art. 5º, LXXVIII, da Constituição Federal no ponto.",
+        "Invoca-se o art. 5º, LXXVII, da Constituição Federal no ponto.",
+        # o `caput`, presente em 424 dos 996 acórdãos reais
+        "Invoca-se o art. 5º, caput, da Constituição Federal no ponto.",
+        # inciso no plural e a conjunção entre dois romanos
+        "Invoca-se o art. 373, incisos I e II, do CPC quanto ao ônus.",
+        "Invoca-se o art. 373, I e II, do CPC quanto ao ônus da prova.",
+        # a sigla LC e o Decreto-Lei, que é como a base nomeia a CLT
+        "Invoca-se o art. 1º da LC 64/1990 quanto à inelegibilidade.",
+        "Invoca-se o art. 818 do Decreto-Lei nº 5.452/1943 no ponto.",
+    ],
+)
+def test_dispositivo_em_formas_correntes_fora_da_amostra(corpo):
+    """Cada uma destas formas perdia a citação inteira."""
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == ["dispositivo"]
+
+
+# ── Falsos positivos que o texto jurídico real produz ─────────────────────────
+
+
+def test_prosa_com_ministro_nao_vira_incompleta():
+    """`_ANO_ISOLADO` aceitava digitoide em toda posição, então `logo` era "ano".
+
+    Como a contagem de constituintes não exigia nenhum dígito **real**, prosa com
+    "Ministro <Nome>" virava `incompleta`. Medido: 4 spans espúrios em 80
+    acórdãos reais da base.
+    """
+    assert (
+        _detectar("O recurso é intempestivo e, logo, o Ministro Carlos Alberto o inadmitiu.") == []
+    )
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Inscrito na OAB sob o nº 123.456/SP, o advogado subscreve a peça.",
+        "A causa vale 1.500.000,00 segundo a inicial protocolada nos autos.",
+    ],
+)
+def test_distrator_com_rotulo_afastado_nao_vira_citacao(corpo):
+    """`_ROTULO_DISTRATOR` exigia o rótulo colado ao número e escapava."""
+    assert _detectar(corpo) == []
+
+
+def test_rotulo_dentro_de_palavra_nao_apaga_a_citacao():
+    """`tel` casava dentro de "tutela nº", e a referência a outro processo sumia.
+
+    Apareceu ao aceitar a marca de número depois do rótulo: a fronteira de
+    palavra na frente é o que separa o rótulo `tel` da palavra "tutela". Medido
+    nos 996 acórdãos reais da base.
+    """
+    corpo = "Na suspensão de tutela nº 4037431-74.2019.4.01.0000 decidiu-se o contrário."
+    achados = _detectar(corpo)
+    assert [a.familia for a in achados] == ["processo"]

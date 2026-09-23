@@ -59,6 +59,28 @@ OCR_PARA_DIGITO = {
     "z": "2",
 }
 
+# Confusões de OCR que trocam letra por letra, na prosa e nas palavras-chave.
+# Medidas no nível 2 da amostra, contra o vocabulário do nível 1:
+#
+#     e→c  33   (`dcstacar`, `acolhimcnto`)      c→e  15   (`eausa`, `conelusão`)
+#     a→ã  31   (`apelãdo`, `citãção`)           i→l  11   (`dellto`, `honorárlos`)
+#     m→rn 11   (`entendirnento`, `assirn`)      o→0   1   (`c0ntrovérsia`)
+#
+# `u→ii` e `n→ri` não aparecem na amostra, mas são a mesma confusão de ligadura
+# que `m→rn` — que o material do desafio documenta —, e o arnês as gera. Entram
+# porque só se aplicam às palavras-chave fixas das expressões, onde o custo em
+# falso positivo é nulo; ficar sem elas é perder a citação inteira.
+CONFUSOES_DE_LETRA = {
+    "a": "ã",
+    "e": "c",
+    "c": "e",
+    "i": "l",
+    "o": "0",
+    "m": "rn",
+    "u": "ii",
+    "n": "ri",
+}
+
 # Um pedaço sem espaço, feito só de alfanuméricos e pontuação de número. É o
 # candidato a "isto é um número com letras dentro".
 _TOKEN = re.compile(r"[0-9A-Za-z][0-9A-Za-z.\-–—/]*[0-9A-Za-z]|[0-9A-Za-z]")
@@ -156,7 +178,7 @@ def _corrigir_ocr(trecho: str) -> str:
     A primeira passada olha o **token inteiro**: se ele é feito só de dígitos e
     letras confundíveis, é um número, e todas as letras convertem de uma vez. A
     segunda mantém a adjacência para o que sobrou, que é o caso de uma letra
-    isolada colada ao número (``21737l8``, ``170076O``).
+    isolada colada ao número (``21737l8``, ``240073O``).
     """
     caracteres = list(trecho)
 
