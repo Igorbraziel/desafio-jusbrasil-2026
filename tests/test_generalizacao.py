@@ -475,3 +475,40 @@ def test_palavra_tema_sem_numero_nao_vira_citacao(prosa):
 def test_numeracao_de_secao_e_carimbo_de_data_nao_viram_processo(prosa):
     """Os falsos positivos que o afrouxamento abriu nos 996 acórdãos reais."""
     assert _detectar(prosa) == []
+
+
+# ── O prefixo não pode parar no ruído ─────────────────────────────────────────
+#
+# Um prefixo truncado deixa o span com só o número. O IoU cai abaixo de 0,5, o
+# gold fica sem par (FN) e a predição vira espúria (FP) — e, quando o número
+# resolve, é um `real` espúrio, que é a forma que chega mais perto de τ.
+# Medido no arnês: os cinco `(espúria) → real` restantes tinham esta causa.
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a marca de número com espaço, que `marca_numero` produz
+        (
+            "Ampara a pretensão o Recurso em Habeas Corpus n º 43974 - SC, citado.",
+            "Recurso em Habeas Corpus n º 43974 - SC",
+        ),
+        # a maiúscula corrompida em minúscula pelo OCR (`E`→`c`, `C`→`e`)
+        (
+            "Ampara a pretensão o AgInt no Recurso cspecial Nº 240073O (SP), citado.",
+            "AgInt no Recurso cspecial Nº 240073O (SP)",
+        ),
+        (
+            "Ampara a pretensão o Recurso em Habeas eorpus nº 43974 - SC, citado.",
+            "Recurso em Habeas eorpus nº 43974 - SC",
+        ),
+    ],
+)
+def test_prefixo_atravessa_o_ruido(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+def test_minuscula_de_prosa_continua_parando_o_prefixo():
+    """O contrapeso: a palavra corrompida só continua a cadeia se vier entre elos."""
+    achados = _detectar("A parte cita especial REsp 1.234.567/SP no ponto.")
+    assert [a.trecho for a in achados] == ["REsp 1.234.567/SP"]

@@ -690,10 +690,59 @@ def _expandir_prefixo(corpo: str, inicio: int) -> int:
         while recuo > 0 and not corpo[recuo - 1].isspace():
             recuo -= 1
         token = corpo[recuo:fim_token]
-        if not _e_elo(token):
+        if not _e_elo(token) and not _elo_corrompido(corpo, recuo, token):
             break
         posicao = recuo
     return posicao
+
+
+# Os pedaços da marca de número separados por espaço: `n º`, `N °`. O arnês
+# `marca_numero` produz essa grafia, e o `º` sozinho não tinha forma de elo — a
+# cadeia parava nele e o prefixo inteiro ficava de fora.
+#
+# Só os símbolos, nunca `o` ou `O` sozinhos: esses são o artigo "o" da prosa
+# ("Ampara a pretensão o REsp…"), e aceitá-los levava a cadeia para dentro da
+# frase. O `n` sozinho também fica de fora pelo mesmo motivo; ele entra pelo
+# `_ELO`, que já o aceita colado ao símbolo.
+_PEDACO_DE_MARCA = re.compile(r"[º°]")
+
+
+def _elo_corrompido(corpo: str, inicio: int, token: str) -> bool:
+    """O token é um elo que o ruído de OCR desfigurou?
+
+    Duas formas, medidas como causa dos `(espúria) → real` restantes no arnês:
+
+    * a marca de número partida por espaço (`n º`);
+    * a sigla cuja maiúscula o OCR trocou por minúscula — `E`→`c` em
+      `cspecial`, `C`→`e` em `eorpus`. Desfeita a troca, ela volta a ter forma
+      de elo.
+
+    O segundo caso só vale **entre elos**: a palavra à esquerda também precisa
+    ser elo. Uma minúscula de prosa ("cita especial REsp") continua parando a
+    cadeia, porque o que vem antes dela é prosa. É o que mantém a exclusão de
+    `_PALAVRA_DE_PROSA` funcionando.
+    """
+    if _PEDACO_DE_MARCA.fullmatch(token):
+        return True
+    # O `n` da marca partida só vale quando o símbolo vem logo depois.
+    if token in ("n", "N") and _PEDACO_DE_MARCA.match(corpo[inicio + 1 :].lstrip()):
+        return True
+    if not token[:1].islower():
+        return False
+    desfeito = _DESFAZ_MAIUSCULA.get(token[0], "") + token[1:]
+    if not desfeito or not _e_elo(desfeito):
+        return False
+    anterior = corpo[:inicio].rstrip().rsplit(None, 1)
+    return bool(anterior) and _e_elo(anterior[-1])
+
+
+# A inversa de `CONFUSOES_DE_LETRA` para as trocas que tiram a maiúscula: o OCR
+# lê `E` como `c` e `C` como `e`. Só as de uma letra entram.
+_DESFAZ_MAIUSCULA = {
+    confusao: original.upper()
+    for original, confusao in CONFUSOES_DE_LETRA.items()
+    if len(confusao) == 1 and confusao.isalpha() and confusao.islower()
+}
 
 
 def _sentencas(corpo: str) -> list[tuple[int, int]]:
