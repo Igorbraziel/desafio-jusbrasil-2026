@@ -44,7 +44,13 @@ import re
 
 from .base_canonica import BaseCanonica
 from .deteccao import Achado
-from .normalizacao import OCR_PARA_DIGITO, _corrigir_ocr, chave_textual, digitos_do_identificador
+from .normalizacao import (
+    CONFUSOES_DE_LETRA,
+    OCR_PARA_DIGITO,
+    _corrigir_ocr,
+    chave_textual,
+    digitos_do_identificador,
+)
 
 # Confiança por caminho de decisão, **medida** por
 # ``scripts/medir_confianca.py``: acurácia do caminho sobre o corpus limpo mais
@@ -227,6 +233,81 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
     )
 
 
+# As palavras que nomeiam os diplomas da cobertura e os que precisam ser
+# recusados. É contra este vocabulário que o ruído de letra é desfeito: uma
+# palavra do nome que não está aqui mas fica a uma confusão de OCR de uma que
+# está é lida como ela. `militar` e `estadual` estão aqui de propósito — sem
+# eles, `Mllitar` não voltaria a ser `militar` e o CPPM passaria por CPP, que é
+# o erro grave.
+_VOCABULARIO_DE_DIPLOMA = frozenset(
+    """
+    codigo processo civil penal militar defesa consumidor consolidacao leis
+    trabalho constituicao federal republica federativa brasil brasileira
+    estadual estado eleitoral lei complementar decreto carta magna
+    """.split()
+)
+
+# O inverso de `CONFUSOES_DE_LETRA`: cada forma corrompida e as letras que ela
+# pode ter substituído. `c` pode ser `e` corrompido e `e` pode ser `c`.
+_DESFAZER = [(corrompida, original) for original, corrompida in CONFUSOES_DE_LETRA.items()] + [
+    ("ri", "n"),
+    ("ii", "u"),
+    ("rn", "m"),
+]
+
+
+def _variantes(palavra: str) -> set[str]:
+    """Todas as palavras a uma confusão de letra de distância, desfeita."""
+    saida = set()
+    for corrompida, original in _DESFAZER:
+        inicio = palavra.find(corrompida)
+        while inicio != -1:
+            saida.add(palavra[:inicio] + original + palavra[inicio + len(corrompida) :])
+            inicio = palavra.find(corrompida, inicio + 1)
+    return saida
+
+
+def _desfazer_ruido_de_letra(chave: str) -> str:
+    """Devolve a chave com o ruído de letra do nível 2 desfeito no nome do diploma.
+
+    A detecção já atravessa `Códlgo` e `Mllitar`, mas os marcadores de
+    `DIPLOMAS` são literais: `penal militar` não está em `penal mllitar`, e a
+    citação `real` virava `inventada`. Era todo o `real` → `inventada` que
+    sobrava em `ocr_palavra`.
+
+    Só a palavra **fora** do vocabulário é corrigida, e só para uma palavra
+    **dentro** dele — nunca para qualquer coisa. Isso mantém o casamento fechado.
+    """
+    palavras = []
+    for palavra in chave.split():
+        if palavra not in _VOCABULARIO_DE_DIPLOMA:
+            # Até duas confusões na mesma palavra: `Fcdcral` tem duas (`e`→`c`
+            # duas vezes). O vocabulário é pequeno e fechado, então a segunda
+            # rodada não abre casamento novo — só alcança o que já estava perto.
+            vizinhas = _variantes(palavra)
+            candidatas = vizinhas & _VOCABULARIO_DE_DIPLOMA
+            if not candidatas:
+                segundas = {v2 for v in vizinhas for v2 in _variantes(v)}
+                candidatas = segundas & _VOCABULARIO_DE_DIPLOMA
+            if len(candidatas) == 1:
+                palavra = candidatas.pop()
+        palavras.append(palavra)
+    return " ".join(palavras)
+
+
+def _contem_marcador(chave: str, marcador: str) -> bool:
+    """O marcador aparece na chave como palavra, e não dentro de outra?
+
+    Marcadores curtos casavam por substring: `cdc` dentro de `fcdcral` fazia a
+    Constituição Federal corrompida resolver para o Código de Defesa do
+    Consumidor. Os longos ("processo civil") continuam por contenção, porque o
+    nome inteiro já é específico.
+    """
+    if len(marcador) > 4:
+        return marcador in chave
+    return re.search(rf"(?<![a-z0-9]){re.escape(marcador)}(?![a-z0-9])", chave) is not None
+
+
 def _codigo_do_diploma(diploma: str | None) -> str | None:
     """Reduz o nome citado do diploma à chave da tabela curada.
 
@@ -239,9 +320,9 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
     # (`Lei Complementar nº b4/1990`), e sem ele não confere com a cobertura.
     # `_corrigir_ocr` só converte letra colada a dígito, então o nome do diploma
     # passa intacto.
-    chave = chave_textual(_corrigir_ocr(diploma))
+    chave = _desfazer_ruido_de_letra(chave_textual(_corrigir_ocr(diploma)))
     for marcadores, exclusoes, codigo in DIPLOMAS:
-        if not any(marcador in chave for marcador in marcadores):
+        if not any(_contem_marcador(chave, marcador) for marcador in marcadores):
             continue
         if any(exclusao in chave for exclusao in exclusoes):
             return None

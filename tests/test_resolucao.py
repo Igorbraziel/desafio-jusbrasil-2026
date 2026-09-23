@@ -237,3 +237,51 @@ def test_toda_confianca_emitida_esta_no_intervalo(base_canonica):
 )
 def test_numero_da_lei_com_ruido(base_canonica, citacao, esperado):
     assert _classificar(base_canonica, citacao) == esperado
+
+
+# ── O nome do diploma com ruído de letra do nível 2 ───────────────────────────
+#
+# A detecção passou a atravessar `Códlgo` e `Mllitar`, mas a resolução casava o
+# nome do diploma por marcador literal: `penal militar` não está em
+# `penal mllitar`, e a citação `real` virava `inventada`. Medido no arnês, era
+# todo o `real` → `inventada` que sobrava em `ocr_palavra`.
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 14 do Código de Dcfesa do Consumidor", ("CDC", 14)),
+        ("art 312 do Código de Processo Pcnal", ("CPP", 312)),
+        ("art 312 do Código de Processo Perial", ("CPP", 312)),
+        ("art. 5º, LV, da Constltuição Federal", ("CF", 5)),
+        ("artigo 186 do Código Civll", ("CC", 186)),
+        ("artigo 186 do Código eivil", ("CC", 186)),
+        ("artigo 7º, XXIX, da Constituição Fcdcral", ("CF", 7)),
+        ("art. 290 do Código Penal Mllitar", ("CPM", 290)),
+        ("art. 290 do Código Perial Militar", ("CPM", 290)),
+        ("art. 818 da Consolldação das Leis do Trabalho", ("CLT", 818)),
+    ],
+)
+def test_diploma_com_ruido_de_letra(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # o CPPM com ruído continua fora da cobertura — é o erro grave que a
+        # ordem de `DIPLOMAS` existe para impedir, e a tolerância não pode abrir
+        "art. 312 do Código de Processo Pcnal Militar",
+        "art. 312 do Código de Processo Penal Mllitar",
+        "art. 5º da Constltuição Estadual",
+    ],
+)
+def test_diploma_fora_da_cobertura_com_ruido_continua_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+def test_sigla_curta_nao_casa_dentro_de_outra_palavra(base_canonica):
+    """`cdc` dentro de `fcdcral` fazia a CF corrompida resolver para o CDC."""
+    assert _classificar(base_canonica, "art. 7º da Constituição Fcdcral") == [
+        ("real", DISPOSITIVOS[("CF", 7)])
+    ]
