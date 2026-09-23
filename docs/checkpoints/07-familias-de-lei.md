@@ -53,7 +53,7 @@ Cada uma veio com o caso que a motivou nos testes.
    fica com três. Aceito com dois ou mais, quando o número reparado tem quatro e
    o prefixo nomeia uma classe processual. O limite de dois saiu dos acórdãos
    reais: com um, passavam `III.3` e `3SSIL`.
-7. **Grupo inteiro corrompido dentro de número estruturado** (`4736-oS.Z011`):
+7. **Grupo inteiro corrompido dentro de número estruturado** (`4736-oS.Z013`):
    nenhuma letra encosta num dígito, e o número era partido ao meio. Era quase
    todo o `real` → `inventada` restante, concentrado no TST.
 8. **A cadeia de prefixo atravessa o elo desfigurado** (`n º`, `cspecial`).

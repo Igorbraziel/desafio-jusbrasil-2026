@@ -604,7 +604,7 @@ _DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})(?!\d)")
 _ROTULO_DISTRATOR = re.compile(
     # A fronteira de palavra na frente é obrigatória desde que a marca de número
     # passou a ser aceita no fim: sem ela `tel` casava dentro de "tutela nº", e
-    # a referência a outro processo em "suspensão de tutela nº 1035935-55…"
+    # a referência a outro processo em "suspensão de tutela nº <número CNJ>"
     # sumia. Medido nos 996 acórdãos reais. `R$` fica de fora da fronteira
     # porque começa em letra mas termina em símbolo.
     r"(?:\b(?:fls?|folhas?|protocolo|CPF|CNPJ|valor\s+da\s+causa"
