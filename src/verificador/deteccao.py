@@ -266,7 +266,9 @@ _NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,3}}{_ANO_DE_VE
 # e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
 # em `registrar`, como no número do artigo.
 _NUMERO_DE_LEI = (
-    rf"(?:\s*n[.ºo°]{{0,2}})?\s*{_DIGITOIDE}(?:[.]?{_DIGITOIDE})*"
+    # A marca aceita espaço entre o `n` e o símbolo (`n º`), que `marca_numero`
+    # produz; sem isso a citação da Lei Complementar sumia inteira.
+    rf"(?:\s*[nN]\s?[.ºo°]{{0,2}})?\s*{_DIGITOIDE}(?:[.]?{_DIGITOIDE})*"
     rf"(?:\s*/\s*{_DIGITOIDE}{{2,4}})?(?![A-Za-zÀ-ÿ])"
 )
 
@@ -344,7 +346,12 @@ _QUALIFICADORES = (
 # O contrapeso é `_tem_digito_real`, exigido em `registrar`: sem ele `art Iss`
 # casaria, porque `I` e `s` são digitoides e o número sairia do nada. É a mesma
 # política de `_MINIMO_DIGITOS` na família `processo`.
-_NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*(?:[-ºo°][\w]{{0,3}})?"
+#
+# O separador de milhar admite **uma** quebra de linha logo depois do ponto
+# (`art. 1.\n105`): o nível 2 parte identificadores no meio, e o número do
+# artigo não é exceção. Medido: era a citação que `quebra_identificador` perdia
+# na quinta semente, desde o checkpoint 06.
+_NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-ºo°][\w]{{0,3}})?"
 
 _DISPOSITIVO = re.compile(
     rf"\b{_tolerante('art')}(?:{_tolerante('igo')}|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"

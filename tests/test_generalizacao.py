@@ -512,3 +512,17 @@ def test_minuscula_de_prosa_continua_parando_o_prefixo():
     """O contrapeso: a palavra corrompida só continua a cadeia se vier entre elos."""
     achados = _detectar("A parte cita especial REsp 1.234.567/SP no ponto.")
     assert [a.trecho for a in achados] == ["REsp 1.234.567/SP"]
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # quebra de linha no separador de milhar do artigo (`quebra_identificador`)
+        "Violou o acórdão o art. 1.\n307 do Código de Processo Civil no ponto.",
+        # a marca de número partida por espaço (`marca_numero`)
+        "Violou o acórdão o art. 47 da Lei Complementar n º 64/1990 no ponto.",
+    ],
+)
+def test_dispositivo_sob_quebra_e_marca_partida(corpo):
+    """As duas perdas que sobravam nas classes estruturais do arnês."""
+    assert [a.familia for a in _detectar(corpo)] == ["dispositivo"]
