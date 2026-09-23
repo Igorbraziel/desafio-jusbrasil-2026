@@ -35,6 +35,18 @@ CASOS = [
     ("AgRg no RESP 2.639.5S6/ RJ", "2639556"),
     # quebra de linha no meio do identificador
     ("TST-ED-E-ED-ARR-1234-56.2011.5.02.\n0251", "12345620115020251"),
+    # OCR no meio de um número estruturado: a letra está entre separadores, e
+    # não colada a dígito — a regra de adjacência não a alcançava e o núcleo
+    # era partido ali. Os casos são os que sobravam como `real` → `inventada`
+    # no arnês depois do checkpoint 07.
+    ("TST-ED-E-ED-RR-4736-oS.Z013.5.23.0047", "47360520135230047"),
+    ("TST-ED-E-ED-RR-4736-05.2013.S.23.0047", "47360520135230047"),
+    ("RR-4B37-o6.20iO.5.13.0074", "48370620105130074"),
+    ("TST-RR-43700-1G.2007.5.is.o04G", "437001620075150046"),
+    ("ED-E-ED-RR-b7-43.201O.s.04.0073", "674320105040073"),
+    # o primeiro grupo reduzido a uma letra solta, separado do resto por espaço
+    ("Rec. Esp. nº l. 470.s37 – CE", "1470537"),
+    ("EDcl no AgInt no ARESP l 74i 3b7/ SC", "1741367"),
 ]
 
 

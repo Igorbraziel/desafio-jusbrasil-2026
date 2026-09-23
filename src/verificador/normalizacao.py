@@ -59,6 +59,28 @@ OCR_PARA_DIGITO = {
     "z": "2",
 }
 
+# Confusões de OCR que trocam letra por letra, na prosa e nas palavras-chave.
+# Medidas no nível 2 da amostra, contra o vocabulário do nível 1:
+#
+#     e→c  33   (`dcstacar`, `acolhimcnto`)      c→e  15   (`eausa`, `conelusão`)
+#     a→ã  31   (`apelãdo`, `citãção`)           i→l  11   (`dellto`, `honorárlos`)
+#     m→rn 11   (`entendirnento`, `assirn`)      o→0   1   (`c0ntrovérsia`)
+#
+# `u→ii` e `n→ri` não aparecem na amostra, mas são a mesma confusão de ligadura
+# que `m→rn` — que o material do desafio documenta —, e o arnês as gera. Entram
+# porque só se aplicam às palavras-chave fixas das expressões, onde o custo em
+# falso positivo é nulo; ficar sem elas é perder a citação inteira.
+CONFUSOES_DE_LETRA = {
+    "a": "ã",
+    "e": "c",
+    "c": "e",
+    "i": "l",
+    "o": "0",
+    "m": "rn",
+    "u": "ii",
+    "n": "ri",
+}
+
 # Um pedaço sem espaço, feito só de alfanuméricos e pontuação de número. É o
 # candidato a "isto é um número com letras dentro".
 _TOKEN = re.compile(r"[0-9A-Za-z][0-9A-Za-z.\-–—/]*[0-9A-Za-z]|[0-9A-Za-z]")
@@ -121,6 +143,26 @@ def separar_uf(trecho: str) -> tuple[str, str | None]:
     return trecho[: casamento.start()].strip(), uf
 
 
+_LETRAS_OCR = "".join(sorted(OCR_PARA_DIGITO))
+_GRUPO = rf"[\d{_LETRAS_OCR}]"
+
+# Um grupo de dígitos e letras confundíveis que vem **logo depois** de um dígito
+# e um separador de número (`4736-oS`, `2010.s`), e termina num separador ou no
+# fim. É o grupo interior de um número estruturado; a sigla (`TST-ED-`) nunca
+# casa, porque não tem dígito à esquerda.
+_GRUPO_INTERIOR = re.compile(
+    rf"(?<=\d[.{_HIFENS}/])(?P<letras>{_GRUPO}+)(?=[.{_HIFENS}/]|\s*$|\s+[^\w\s]|\s*[/(])"
+)
+
+# O primeiro grupo de milhar reduzido a uma letra solta, separado por espaço do
+# resto: `l. 470.537`, `l 741 367`. Só `l`, `I` e `i`, que são as leituras de
+# `1` — o primeiro dígito de um número de milhar, quando é letra, é quase
+# sempre o 1. Exige dois grupos de três depois, para não pegar "I" de inciso.
+_MILHAR_SOLTO = re.compile(
+    rf"(?<![\w.])(?P<letras>[lIi])(?=\.?\s+{_GRUPO}{{3}}[.\s]\s?{_GRUPO}{{3}}\b)"
+)
+
+
 def _token_e_numero(token: str) -> bool:
     """O token é um número cujas letras são todas confusões de OCR?
 
@@ -156,7 +198,7 @@ def _corrigir_ocr(trecho: str) -> str:
     A primeira passada olha o **token inteiro**: se ele é feito só de dígitos e
     letras confundíveis, é um número, e todas as letras convertem de uma vez. A
     segunda mantém a adjacência para o que sobrou, que é o caso de uma letra
-    isolada colada ao número (``21737l8``, ``170076O``).
+    isolada colada ao número (``21737l8``, ``240073O``).
     """
     caracteres = list(trecho)
 
@@ -176,6 +218,35 @@ def _corrigir_ocr(trecho: str) -> str:
         seguinte = trecho[i + 1] if i + 1 < len(trecho) else ""
         if anterior.isdigit() or seguinte.isdigit():
             caracteres[i] = substituto
+
+    # Terceira passada: a corrida de digitoides **entre separadores de número**.
+    #
+    # Num número estruturado — `4736-oS.Z013.5.23` — a corrupção pode cobrir um
+    # grupo inteiro, e aí nenhuma letra dele encosta num dígito: `oS` fica entre
+    # `-` e `.`. As duas passadas acima não a alcançam, o núcleo é partido ali e
+    # o número recuperado perde a metade. Medido no arnês, era a maior parte do
+    # `real` → `inventada` que sobrava depois do checkpoint 07, quase todo do TST.
+    #
+    # A corrida só converte se estiver **ladeada**: separador de número dos dois
+    # lados, e dígito do outro lado de cada separador (ou o fim, na ponta
+    # direita). Isso a prende ao interior de um número que já existe — prosa
+    # nunca tem `0-oS.2` — e deixa a sigla (`TST-ED-`) intacta, porque ela não
+    # tem dígito à esquerda.
+    #
+    # Repete até estabilizar: converter um grupo cria o dígito que ancora o
+    # seguinte (`201O.s.04` precisa do `0` do `O` para alcançar o `s`).
+    for _ in range(8):
+        corrigido = "".join(caracteres)
+        mudou = False
+        for expressao in (_GRUPO_INTERIOR, _MILHAR_SOLTO):
+            for grupo in expressao.finditer(corrigido):
+                for i in range(grupo.start("letras"), grupo.end("letras")):
+                    substituto = OCR_PARA_DIGITO.get(corrigido[i])
+                    if substituto is not None and caracteres[i] != substituto:
+                        caracteres[i] = substituto
+                        mudou = True
+        if not mudou:
+            break
 
     return "".join(caracteres)
 

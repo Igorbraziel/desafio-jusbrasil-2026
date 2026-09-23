@@ -23,3 +23,4 @@ Cada checkpoint traz:
 | [04](04-robustez.md) | Endurecimento contra ruído | pior caso 0,8022 → 0,9537 · score limpo preservado |
 | [05](05-generalizacao.md) | Endurecimento para o conjunto cego | IoU mínimo 0,519 → 0,8125 · `ordem_incompleta` vira imune · score 1,0988 → 1,0992 |
 | [06](06-recall.md) | As perdas de recall | 1º dígito corrompido eram 79% das falhas de `ocr_numero` · pior semente 0,9461 → 0,9764 · rejeição do cp 02 revertida |
+| [07](07-familias-de-lei.md) | As famílias que o reparo de OCR não alcançava | todas (7) 1,0093 → 1,0969 · seis classes imunes · score limpo 1,1000 · NER descartado (ADR 0004) |

@@ -51,7 +51,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .normalizacao import OCR_PARA_DIGITO, UFS, _corrigir_ocr, chave_textual
+from .normalizacao import (
+    CONFUSOES_DE_LETRA,
+    OCR_PARA_DIGITO,
+    UFS,
+    _corrigir_ocr,
+    chave_textual,
+    sem_acento,
+)
 from .texto import fim_do_cabecalho
 
 TRIBUNAIS = ("STF", "STJ", "TSE", "TST", "STM")
@@ -87,6 +94,36 @@ _DENTRO = r"(?:[ \t\xa0.\-–—/]|\n(?![ \t]*\n))"
 # as duas construções que deixava a divergência passar. Derivar aqui também
 # elimina a classe inteira de defeito, em vez de acrescentar `i` e `q` à mão.
 _DIGITOIDE = rf"[\d{re.escape(''.join(sorted(set(OCR_PARA_DIGITO))))}]"
+
+
+def _tolerante(palavra: str) -> str:
+    """Expressão que casa a palavra-chave com o ruído de OCR de letra do nível 2.
+
+    O nível 2 corrompe uma letra por palavra, inclusive nas palavras que as
+    expressões usam como âncora: `Súrnula`, `Códlgo`, `rclatoria`, `jiilgado`.
+    Com a âncora escrita literal, a citação sumia inteira — medido nos corpora de
+    `ocr_palavra`, era a maior parte das 43 perdas restantes, e em
+    `Código de Processo Penal Mllitar` produzia o erro grave (CPPM lido como CPP).
+
+    Cada letra aceita a própria forma, a forma sem acento e a confusão de
+    `CONFUSOES_DE_LETRA`. A tolerância vale **só** para as palavras-chave fixas,
+    nunca para classes abertas — é o que mantém a superfície de falso positivo
+    onde estava: a âncora continua exigindo a palavra inteira, e o resto da
+    expressão (número, diploma, tribunal) continua exigido.
+    """
+    partes = []
+    for letra in palavra:
+        base = sem_acento(letra)
+        opcoes = {letra, base}
+        confusao = CONFUSOES_DE_LETRA.get(base.lower())
+        if confusao:
+            opcoes.add(confusao)
+        simples = sorted(o for o in opcoes if len(o) == 1)
+        classe = re.escape(simples[0]) if len(simples) == 1 else f"[{''.join(simples)}]"
+        compostas = sorted(o for o in opcoes if len(o) > 1)
+        partes.append(f"(?:{classe}|{'|'.join(compostas)})" if compostas else classe)
+    return "".join(partes)
+
 
 # O núcleo numérico: admite letra de OCR no lugar de um dígito, para não cortar
 # a citação ao meio (`21737l8`).
@@ -187,28 +224,59 @@ def _e_elo(token: str) -> bool:
 # Agravo Interno no Agravo em Recurso Especial nº").
 _MAXIMO_ELOS = 12
 
+# O número da súmula, tolerante ao mesmo ruído que o núcleo de `processo` já
+# atravessa. Ver a nota em `_NUMERO_DE_ARTIGO` — a assimetria era a mesma.
+_NUMERO_DE_SUMULA = rf"{_DIGITOIDE}+"
+
+# A marca de número entre a palavra e o dígito. `_NUMERO` já descreve todas as
+# grafias, e **é a que a própria base canônica usa**: desde 15/09/2026 os cinco
+# registros de natureza `sumula` abrem com `Súmula n. <número> do <tribunal>`.
+# Sem esta alternativa a citação sumia inteira.
 _SUMULA = re.compile(
-    r"\b[S5][úuû]m(?:ula|\.)?\s*(?P<vinculante>Vinculante)?\s*(?P<numero>\d+)"
+    rf"\b[S5](?:{_tolerante('úmula')}|[úuû]m\.)\s*(?P<vinculante>{_tolerante('Vinculante')})?"
+    rf"\s*(?:{_NUMERO}\s*)?(?P<numero>{_NUMERO_DE_SUMULA})"
     rf"(?:\s*,?\s*d[oae]s?\s*(?P<tribunal>{'|'.join(TRIBUNAIS)}))?",
     re.IGNORECASE,
 )
 
 _TEMA = re.compile(
-    r"\bTem[aã]\s*(?P<numero>[\d][\d.]*)(?:\s*d[ae]\s*repercuss[ãa]o\s*geral)?",
+    # O número atravessa o digitoide, mas não pode começar colado à palavra nem
+    # terminar dentro de outra: sem os freios, `temas` casava como Tema `s`.
+    rf"\b{_tolerante('Tema')}\s+(?:{_NUMERO}\s*)?"
+    rf"(?P<numero>{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*)(?![A-Za-zÀ-ÿ])"
+    rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?",
     re.IGNORECASE,
 )
 
 # Diploma legal: um código nomeado, a Constituição, ou "Lei nº X/ANO". Cada
 # alternativa é fechada: nada de `[\w\s]{0,40}` solto, que além de impreciso
 # custa caro quando o casamento falha adiante.
-_NOME_DE_CODIGO = r"C[óo]digo(?:\s+(?:d[aeo]\s+)?[A-ZÀ-Úa-zà-ú][\wÀ-ú]*){0,3}"
-_NUMERO_DE_LEI = r"(?:\s*n[.ºo°]{0,2})?\s*[\d][\d.]*(?:\s*/\s*\d{2,4})?"
+#
+# O ano de versão faz parte do diploma: `Código Civil de 1916` e `CPC/73` são
+# diplomas revogados, fora da cobertura, com os mesmos números de artigo da versão
+# vigente. Sem capturar o ano, `art. 186 do Código Civil de 1916` chegava à
+# resolução como "Código Civil de" e resolvia para o art. 186 do CC/2002 — o
+# erro grave da métrica. Por isso o conector solto não pode ser a última palavra
+# do nome (`(?!d[aeo]\b)`): se fosse, ele engoliria o "de" e o ano ficaria fora.
+_ANO_DE_VERSAO = r"(?:\s*/\s*\d{2,4}|\s+de\s+(?:19|20)\d{2})?"
+_PALAVRA_DO_NOME = r"(?:\s+(?:d[aeo]\s+)?(?!d[aeo]\b)[A-ZÀ-Úa-zà-ú][\wÀ-ú]*)"
+_NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,3}}{_ANO_DE_VERSAO}"
+# O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
+# lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
+# e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
+# em `registrar`, como no número do artigo.
+_NUMERO_DE_LEI = (
+    # A marca aceita espaço entre o `n` e o símbolo (`n º`), que `marca_numero`
+    # produz; sem isso a citação da Lei Complementar sumia inteira.
+    rf"(?:\s*[nN]\s?[.ºo°]{{0,2}})?\s*{_DIGITOIDE}(?:[.]?{_DIGITOIDE})*"
+    rf"(?:\s*/\s*{_DIGITOIDE}{{2,4}})?(?![A-Za-zÀ-ÿ])"
+)
 
 _DIPLOMA = (
     r"(?:"
     rf"Lei\s+Complementar{_NUMERO_DE_LEI}"
     rf"|Lei{_NUMERO_DE_LEI}"
-    r"|Consolida[çc][ãa]o\s+das\s+Leis\s+d[oe]\s+Trabalho"
+    rf"|{_tolerante('Consolidação')}\s+das\s+{_tolerante('Leis')}\s+d[oe]\s+{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
     # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
     # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
@@ -218,27 +286,75 @@ _DIPLOMA = (
     # `art. 5º da Constituição Estadual` resolvia para o art. 5º da CF, que é o
     # erro grave da métrica. Aceita "Federal", "Fedcral" (OCR), "da República"
     # e "do Estado".
-    r"|Constitui[çc][ãa]o(?:\s+d[aeo]\s+)?(?:\s*[A-ZÀ-Ú][\wÀ-ú]+)?"
+    #
+    # O ano entra pelo mesmo motivo que em `_NOME_DE_CODIGO`: `Constituição de
+    # 1967` é outra constituição. A primeira alternativa existe porque o "de" do
+    # conector engoliria o "de" do ano, e o casamento terminaria antes dele.
+    rf"|{_tolerante('Constituição')}(?:\s+de\s+(?:19|20)\d{{2}}"
+    rf"|(?:\s+d[aeo]\s+)?(?:\s*[A-ZÀ-Ú][\wÀ-ú]+)?{_ANO_DE_VERSAO})"
     r"|Carta\s+Magna"
-    r"|CPC|CPP|CPM|CLT|CDC|CF(?:\s*/\s*88)?|CC"
+    # `Decreto-Lei nº 5.452/1943` é **como a base canônica nomeia a CLT** na
+    # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
+    # corrente da Lei Complementar. Sem as duas alternativas a citação sumia — e
+    # os marcadores "lc 64" em `resolucao.DIPLOMAS` eram inalcançáveis.
+    rf"|Decreto[-‐\s]*Lei{_NUMERO_DE_LEI}"
+    rf"|LC{_NUMERO_DE_LEI}"
+    # `CPC/73` e `CC/16` são os códigos revogados; o ano vai junto para a
+    # resolução decidir. `CF/88` é o caso particular que já existia.
+    rf"|(?:CPC|CPP|CPM|CLT|CDC|CF|CC){_ANO_DE_VERSAO}"
     r")"
 )
 
 # Incisos, parágrafos e alíneas entre o número do artigo e o diploma. Cada
 # repetição **precisa** consumir uma vírgula: sem isso o grupo casa o vazio e o
 # motor testa todas as partições da prosa seguinte — era 41 s por documento.
+#
+# O romano vai até **oito** caracteres, e não cinco: `LXXVIII` tem sete, e com o
+# limite antigo `art. 5º, LXXVIII, da Constituição Federal` não casava e a
+# citação sumia. Medido nos 996 acórdãos reais da base, romano com seis ou mais
+# caracteres aparece em 49 deles.
+#
+# `caput` e o inciso no plural entram pelo mesmo motivo — medindo a mesma base,
+# `caput` aparece em **424 de 996** e `inciso(s)` em 497. A conjunção entre dois
+# romanos ("incisos I e II") aparece em 109. Nenhuma das três é forma exótica; a
+# amostra sintética é que não as produziu.
+_ROMANO = r"[IVXLC]{1,8}"
 _QUALIFICADORES = (
-    r"(?:\s*,\s*(?:§+\s*\d+[ºo°]?(?:\s*-\s*[A-Z])?"
-    r"|inciso\s+[IVXLC]+|al[íi]nea\s+[a-z]\)?|[IVXLC]{1,5}|['\"]?[a-z]['\"]?\)?))"
+    rf"(?:\s*,\s*(?:§+\s*{_DIGITOIDE}+[ºo°]?(?:\s*-\s*[A-Z])?(?:\s+e\s+\d+[ºo°]?)?"
+    rf"|incisos?\s+{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+    rf"|al[íi]nea\s+[a-z]\)?|caput|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+    r"|['\"]?[a-z]['\"]?\)?))"
     r"{0,5}"
 )
 
 # O número do artigo pode ter separador de milhar: `art. 1.134`, `art. 1.105`.
 # Ler só `\d+` para no primeiro ponto e o casamento inteiro falha.
-_NUMERO_DE_ARTIGO = r"\d+(?:\.\d{3})*(?:[-ºo°][\w]{0,3})?"
+#
+# **Os dígitos são digitoides**, pela mesma razão que `_NUCLEO` — e esta era a
+# maior perda de recall do pipeline. O checkpoint 06 ensinou a família
+# `processo` a atravessar a letra que o OCR põe no lugar do dígito; as famílias
+# `dispositivo` e `sumula` ficaram exigindo dígito puro. Medindo os corpora de
+# `data/perturbado/`, a assimetria custava mais que o defeito já corrigido:
+#
+#     classe de ruído        disp/súm/tema   processo
+#     ocr_numero (5 sem.)         40            22
+#     ocr_palavra (5 sem.)        17            22
+#
+# `_corrigir_ocr` repara todos esses casos (`I86`→`186`, `B96`→`896`); era a
+# detecção que nunca lhe entregava o trecho.
+#
+# O contrapeso é `_tem_digito_real`, exigido em `registrar`: sem ele `art Iss`
+# casaria, porque `I` e `s` são digitoides e o número sairia do nada. É a mesma
+# política de `_MINIMO_DIGITOS` na família `processo`.
+#
+# O separador de milhar admite **uma** quebra de linha logo depois do ponto
+# (`art. 1.\n105`): o nível 2 parte identificadores no meio, e o número do
+# artigo não é exceção. Medido: era a citação que `quebra_identificador` perdia
+# na quinta semente, desde o checkpoint 06.
+_NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-ºo°][\w]{{0,3}})?"
 
 _DISPOSITIVO = re.compile(
-    rf"\bart(?:igo|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"
+    rf"\b{_tolerante('art')}(?:{_tolerante('igo')}|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"
     rf"{_QUALIFICADORES}"
     rf"\s*,?\s*\n?\s*d[oae]s?\s+(?P<diploma>{_DIPLOMA})",
     re.IGNORECASE,
@@ -248,7 +364,15 @@ _DISPOSITIVO = re.compile(
 # O relator é a âncora — é o que separa este padrão de uma menção solta a ano.
 # `d[eoc]` e não `d[eo]`: o nível 2 corrompe letras isoladas, e a amostra traz
 # o conector "de" aparece corrompido como "dc" (e→c) na amostra.
-_RELATOR = r"(?:[Rr]el(?:at[oa]r[ai]?a?)?\.?\s*(?:Min\.?|Ministr[ao])?\.?|relatoria\s+d[eoc])"
+#
+# A palavra-chave é tolerante ao ruído de letra — `rclatoria`, `relatorla` e
+# `pcla` sumiam sob `ocr_palavra`: era a causa das 20 `incompleta` não detectadas
+# medidas no checkpoint 06, o maior bloco daquela classe. Ver `_tolerante`.
+_RELATOR = (
+    rf"(?:[Rr]{_tolerante('el')}(?:{_tolerante('at')}[0oaã]r[ilaã]?[aã]?)?\.?\s*"
+    rf"(?:Min\.?|{_tolerante('Ministr')}[ao])?\.?"
+    rf"|{_tolerante('relatoria')}\s+d[eoc])"
+)
 
 #
 # A cabeça é a classe ou o genérico ("julgado", "acórdão", "precedente"), com
@@ -256,7 +380,8 @@ _RELATOR = r"(?:[Rr]el(?:at[oa]r[ai]?a?)?\.?\s*(?:Min\.?|Ministr[ao])?\.?|relato
 # Corpus"). Ela precisa ser seguida de perto pelo tribunal ou pelo ano — é o que
 # impede a expressão de começar em "Cita-se" na frase "Cita-se o julgado do STF".
 _CABECA_VAGA = (
-    r"(?:julgad[oa]|ac[óo]rd[ãa]o|precedente|decis[ãa]o"
+    rf"(?:{_tolerante('julgad')}[oaã0]|{_tolerante('acórdão')}|{_tolerante('precedente')}"
+    rf"|{_tolerante('decisão')}"
     r"|[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}(?:\s+(?:em\s+|de\s+|do\s+|da\s+)?[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}){0,3}"
     r")"
 )
@@ -277,7 +402,7 @@ _ANO_TOLERANTE = (
 _VAGA = re.compile(
     rf"{_CABECA_VAGA}"
     rf"(?:\s*,?\s*d[oa]\s+(?:{'|'.join(TRIBUNAIS)}))?"
-    r"\s*,?\s*(?:proferid[oa]|julgad[oa]|profcrid[oa])?\s*(?:de|em)\s*\n?\s*"
+    rf"\s*,?\s*(?:{_tolerante('proferid')}[oaã0]|{_tolerante('julgad')}[oaã0])?\s*(?:d[ec]|[ec]rn|[ec]m)\s*\n?\s*"
     rf"{_ANO_TOLERANTE}"
     r"[^.]{0,30}?"
     rf"{_RELATOR}\s*{_NOME_PROPRIO}",
@@ -318,9 +443,9 @@ _FIM_DE_SENTENCA = re.compile(r"(?<!\b[A-Z])(?<!\b[A-Za-z]{2})(?<!\b[A-Za-z]{3})
 _RELATOR_NOMEADO = re.compile(
     r"(?:"
     rf"{_RELATOR}"
-    r"|relatad[oa]\s+(?:por|pel[oa])"
-    r"|lavra\s+d[eoa]s?"
-    r"|Min\.?|Ministr[ao]s?|Des(?:embargador)?[ao]?\.?"
+    rf"|{_tolerante('relatad')}[oaã0]\s+(?:p[0o]r|p[ec]l[oaã0])"
+    rf"|{_tolerante('lavra')}\s+d[eoac]s?"
+    rf"|Min\.?|{_tolerante('Ministr')}[ao]s?|Des(?:embargador)?[ao]?\.?"
     r")"
     rf"\s*(?:d[eoa]s?\s+)?(?:Min\.?|Ministr[ao])?\.?\s*{_NOME_PROPRIO}"
 )
@@ -338,7 +463,8 @@ _MENCAO_TRIBUNAL = re.compile(rf"\b(?:{'|'.join(TRIBUNAIS)})\b")
 # A cabeça que abre a referência, quando presente. Só serve para estender o span
 # à esquerda até o substantivo que nomeia a decisão — não é exigida.
 _CABECA_ISOLADA = re.compile(
-    r"\b(?:julgad[oa]|ac[óo]rd[ãa]o|ac[óo]rdao|precedente|decis[ãa]o|aresto"
+    rf"\b(?:{_tolerante('julgad')}[oaã0]|{_tolerante('acórdão')}|{_tolerante('precedente')}"
+    rf"|{_tolerante('decisão')}|{_tolerante('aresto')}"
     r"|voto|jurisprud[êe]ncia|entendimento|prec)[\wÀ-ú]*",
     re.IGNORECASE,
 )
@@ -366,6 +492,75 @@ def _digitos(texto: str) -> int:
     return sum(c.isdigit() for c in texto)
 
 
+def _digitos_suficientes(numero: str, corpo: str, inicio: int) -> bool:
+    """O núcleo tem dígitos bastantes para ser número de processo?
+
+    Com quatro dígitos **reais**, sim — é a regra de `_MINIMO_DIGITOS`. Abaixo
+    disso, o ruído de OCR pode ter comido os demais: sob `ocr_numero`, um número
+    de cinco dígitos fica com três (`Rcl 4B.71B/RS`) e a citação sumia, embora o
+    reparo devolva `48718`. Era o maior bloco das perdas restantes no arnês.
+
+    A regra afrouxada tem dois freios, e cada um barra uma forma de falso
+    positivo que o afrouxamento abriria:
+
+    * o número **reparado** precisa ter quatro dígitos, e ao menos um real — o
+      reparo só converte letra colada a dígito, então `BO 12` não chega lá;
+    * o prefixo precisa nomear uma **classe processual**: um elo com letra
+      maiúscula imediatamente antes do número, que é o que `_expandir_prefixo`
+      já reconhece. Sem classe, `a quantia de 4B.71B` não é citação.
+    """
+    if _digitos(numero) >= _MINIMO_DIGITOS:
+        return True
+    # Dois reais, e não um. Medido nos 996 acórdãos reais: os únicos núcleos que
+    # passam os outros dois freios com menos de três dígitos reais são numeração
+    # de seção (`III.1`, `III.3`) e nome em caixa alta (`3SSIL`) — os três com
+    # **um** dígito real. Com dois, nenhum texto real passa, e o ruído a taxa
+    # 0,30 recupera `RHC nº 7s.soB/RS` e `Recl. n° 7G.B4B/ BA`, que eram as
+    # únicas citações que o NER de pesos abertos achava e a regra não (ADR 0004).
+    if _digitos(numero) < 2:
+        return False
+    if sum(c.isdigit() for c in _corrigir_ocr(numero)) < _MINIMO_DIGITOS:
+        return False
+    return _prefixo_nomeia_classe(corpo, inicio)
+
+
+def _prefixo_nomeia_classe(corpo: str, inicio: int) -> bool:
+    """Há uma sigla ou classe processual no prefixo que `_expandir_prefixo` aceita?"""
+    comeco = _expandir_prefixo(corpo, inicio)
+    tokens = corpo[comeco:inicio].split()
+    return any(
+        t[0].isupper() and _ELO.fullmatch(t) and not _NUMERO_MARCA.fullmatch(t) for t in tokens
+    )
+
+
+# A marca de número sozinha ("Nº", "No") tem forma de elo, mas não nomeia classe.
+_NUMERO_MARCA = re.compile(r"[nN]\s*[.ºo°O]{0,2}")
+
+
+def _numero_de_lei_plausivel(diploma: str) -> bool:
+    """O número da lei, quando o diploma é citado por número, tem dígito real?
+
+    `_NUMERO_DE_LEI` aceita digitoide pelo mesmo motivo que o número do artigo, e
+    precisa do mesmo contrapeso: sem ele "Lei Os" seria "Lei 05".
+    """
+    numero = re.search(rf"{_DIGITOIDE}[{_DIGITOIDE[1:-1]}./]*$", diploma or "")
+    if numero is None or not re.match(r"(?i)\s*(?:lei|lc|decreto)", diploma):
+        return True
+    return _digitos(numero.group()) >= 1
+
+
+def _tem_digito_real(numero: str | None) -> bool:
+    """O número tem ao menos um dígito que não veio de digitoide?
+
+    É o contrapeso de `_NUMERO_DE_ARTIGO` e `_NUMERO_DE_SUMULA` aceitarem letra
+    no lugar de dígito: sem ele `art Iss` casaria — `I` e `s` são digitoides — e
+    o artigo sairia do nada. Mesma política de `_MINIMO_DIGITOS` na família
+    `processo`, com o limiar em um porque artigo e súmula têm um dígito só
+    ("art. 5º", "Súmula 7").
+    """
+    return bool(numero) and _digitos(numero) >= 1
+
+
 # Um ano solto não é número de processo. Sem este corte, "de 2025" e "em 2023"
 # viram citação: eram 40% dos falsos positivos medidos.
 _ANO_SOLTO = re.compile(r"^(?:19|20)\d{2}$")
@@ -377,6 +572,15 @@ _PAGINAS = re.compile(r"^\d{1,4}\s*/\s*\d{1,4}$")
 # em ano: no padrão CNJ o ano fica no meio, e no número único do STJ, na frente.
 _TERMINA_EM_ANO = re.compile(r"^\d{1,5}(?:\.\d{3})*\s*/\s*(?:19|20)\d{2}$")
 
+# Centavos logo **depois** do número: `1.500.000,00`.
+#
+# O sinal de quantia não pode ser a forma do número — `1.500.000` é indistinguível
+# de `1.234.567`, que é número de REsp legítimo. O que denuncia a quantia é a
+# vírgula seguida de exatamente dois dígitos, e ela cai fora do casamento porque
+# a vírgula não está em `_DENTRO`. Por isso este filtro olha o texto à direita,
+# não o número.
+_CENTAVOS = re.compile(r"^,\d{2}(?!\d)")
+
 # Data em `dd/mm/aaaa`. `_TERMINA_EM_ANO` exige que o número **inteiro** seja
 # `<n>/<ano>`, então a data tem uma barra a mais e escapava dele: medido,
 # "O período de 01/01/2020 a 31/12/2021" produzia dois spans `processo`.
@@ -385,19 +589,36 @@ _TERMINA_EM_ANO = re.compile(r"^\d{1,5}(?:\.\d{3})*\s*/\s*(?:19|20)\d{2}$")
 # nos 26 documentos —, mas 200 de 200 acórdãos reais da base têm, num total de
 # 5.635 ocorrências. A ausência é artefato do gerador sintético, não propriedade
 # do domínio, e "publicado em <data>" é frase corrente em peça jurídica.
-_DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})$")
+#
+# O `$` final fica de fora de propósito: o núcleo atravessa espaço e engole a
+# hora que vem depois da data ("05/08/2021 14:30" chega aqui como
+# `05/08/2021 14`). Número de processo nunca começa por `dd/mm/aaaa`, então
+# casar só o começo é seguro. Medido nos acórdãos reais, na linha de assinatura
+# eletrônica.
+_DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})(?!\d)")
 
 # Rótulos que marcam o número seguinte como distrator, não como citação. Os seis
 # primeiros são os distratores que o material do desafio nomeia; os demais são
 # identificadores civis que aparecem em qualquer peça e que o gerador sintético
 # da amostra não produziu.
 _ROTULO_DISTRATOR = re.compile(
-    r"(?:fls?|folhas?|protocolo|CPF|CNPJ|valor\s+da\s+causa|R\$"
+    # A fronteira de palavra na frente é obrigatória desde que a marca de número
+    # passou a ser aceita no fim: sem ela `tel` casava dentro de "tutela nº", e
+    # a referência a outro processo em "suspensão de tutela nº <número CNJ>"
+    # sumia. Medido nos 996 acórdãos reais. `R$` fica de fora da fronteira
+    # porque começa em letra mas termina em símbolo.
+    r"(?:\b(?:fls?|folhas?|protocolo|CPF|CNPJ|valor\s+da\s+causa"
     r"|telefone|tel|fone|celular|RG|CEP|PIS|PASEP|CNH|NIT"
     r"|matr[íi]cula|guia|precat[óo]rio|ag[êe]ncia|conta"
     # O DDD entre parênteses separa o rótulo do número e quebrava a adjacência:
     # "Telefone (11) 98765-4321" escapava do filtro.
-    r"|OAB\s*/?\s*[A-Z]{0,2})\s*[.:]?\s*(?:\(\s*\d{2}\s*\)\s*)?$",
+    r"|OAB\s*/?\s*[A-Z]{0,2})|R\$)\s*[.:]?\s*(?:\(\s*\d{2}\s*\)\s*)?"
+    # Palavras curtas de ligação entre o rótulo e o número. A adjacência estrita
+    # deixava passar "Inscrito na OAB sob o nº 123.456/SP", que é a forma
+    # corrente em peça jurídica — o rótulo está lá, só não colado. Duas palavras
+    # bastam para "sob o"; a marca de número vem por último e é opcional.
+    r"(?:\s*(?:sob|sob\s+o|[oa]s?|n[oa]s?|d[oae]s?|em|é)\b){0,2}\s*"
+    rf"(?:{_NUMERO}\s*)?$",
     re.IGNORECASE,
 )
 
@@ -423,12 +644,22 @@ def _forma_canonica(numero: str) -> str:
 _JANELA_ROTULO = 40
 
 
-def _e_numero_de_processo(numero: str, antes: str) -> bool:
-    """Filtra o que tem forma de número mas não identifica processo."""
+def _e_numero_de_processo(numero: str, antes: str, depois: str = "") -> bool:
+    """Filtra o que tem forma de número mas não identifica processo.
+
+    ``depois`` é o texto à direita do casamento, e só serve ao filtro de centavos
+    — o único sinal que não está no número nem no que vem antes dele.
+    """
     compacto = _forma_canonica(numero)
     if _ANO_SOLTO.match(compacto) or _PAGINAS.match(compacto):
         return False
     if _TERMINA_EM_ANO.match(compacto) or _DATA.match(compacto):
+        return False
+    # A data com a hora colada: a forma canônica tira o espaço, e `05/08/2021 14`
+    # vira `05/08/202114`, que já não é data. O começo cru do casamento ainda é.
+    if _DATA.match(numero.lstrip()):
+        return False
+    if _CENTAVOS.match(depois):
         return False
     return not _ROTULO_DISTRATOR.search(antes[-_JANELA_ROTULO:])
 
@@ -469,10 +700,59 @@ def _expandir_prefixo(corpo: str, inicio: int) -> int:
         while recuo > 0 and not corpo[recuo - 1].isspace():
             recuo -= 1
         token = corpo[recuo:fim_token]
-        if not _e_elo(token):
+        if not _e_elo(token) and not _elo_corrompido(corpo, recuo, token):
             break
         posicao = recuo
     return posicao
+
+
+# Os pedaços da marca de número separados por espaço: `n º`, `N °`. O arnês
+# `marca_numero` produz essa grafia, e o `º` sozinho não tinha forma de elo — a
+# cadeia parava nele e o prefixo inteiro ficava de fora.
+#
+# Só os símbolos, nunca `o` ou `O` sozinhos: esses são o artigo "o" da prosa
+# ("Ampara a pretensão o REsp…"), e aceitá-los levava a cadeia para dentro da
+# frase. O `n` sozinho também fica de fora pelo mesmo motivo; ele entra pelo
+# `_ELO`, que já o aceita colado ao símbolo.
+_PEDACO_DE_MARCA = re.compile(r"[º°]")
+
+
+def _elo_corrompido(corpo: str, inicio: int, token: str) -> bool:
+    """O token é um elo que o ruído de OCR desfigurou?
+
+    Duas formas, medidas como causa dos `(espúria) → real` restantes no arnês:
+
+    * a marca de número partida por espaço (`n º`);
+    * a sigla cuja maiúscula o OCR trocou por minúscula — `E`→`c` em
+      `cspecial`, `C`→`e` em `eorpus`. Desfeita a troca, ela volta a ter forma
+      de elo.
+
+    O segundo caso só vale **entre elos**: a palavra à esquerda também precisa
+    ser elo. Uma minúscula de prosa ("cita especial REsp") continua parando a
+    cadeia, porque o que vem antes dela é prosa. É o que mantém a exclusão de
+    `_PALAVRA_DE_PROSA` funcionando.
+    """
+    if _PEDACO_DE_MARCA.fullmatch(token):
+        return True
+    # O `n` da marca partida só vale quando o símbolo vem logo depois.
+    if token in ("n", "N") and _PEDACO_DE_MARCA.match(corpo[inicio + 1 :].lstrip()):
+        return True
+    if not token[:1].islower():
+        return False
+    desfeito = _DESFAZ_MAIUSCULA.get(token[0], "") + token[1:]
+    if not desfeito or not _e_elo(desfeito):
+        return False
+    anterior = corpo[:inicio].rstrip().rsplit(None, 1)
+    return bool(anterior) and _e_elo(anterior[-1])
+
+
+# A inversa de `CONFUSOES_DE_LETRA` para as trocas que tiram a maiúscula: o OCR
+# lê `E` como `c` e `C` como `e`. Só as de uma letra entram.
+_DESFAZ_MAIUSCULA = {
+    confusao: original.upper()
+    for original, confusao in CONFUSOES_DE_LETRA.items()
+    if len(confusao) == 1 and confusao.isalpha() and confusao.islower()
+}
 
 
 def _sentencas(corpo: str) -> list[tuple[int, int]]:
@@ -493,7 +773,7 @@ def _tem_numero_de_processo(trecho: str) -> bool:
     """
     return any(
         _digitos(m.group()) >= _MINIMO_DIGITOS
-        and _e_numero_de_processo(m.group(), trecho[: m.start()])
+        and _e_numero_de_processo(m.group(), trecho[: m.start()], trecho[m.end() :])
         for m in _NUMERO_PROCESSO.finditer(trecho)
     )
 
@@ -518,7 +798,17 @@ def _vagas_por_constituinte(corpo: str) -> list[tuple[int, int]]:
         relator = _RELATOR_NOMEADO.search(trecho)
         if relator is None:
             continue
-        anos = list(_ANO_ISOLADO.finditer(trecho))
+        # O ano precisa de **dois dígitos reais**. `_ANO_TOLERANTE` aceita
+        # digitoide em toda posição — é o que faz a citação sobreviver ao nível 2
+        # —, mas aqui, onde nenhum outro constituinte é numérico, isso deixava
+        # palavras de prosa valerem como ano: `logo`, `lobo` e `zoos` satisfazem
+        # a classe inteira. Com um "Ministro <Nome>" na mesma frase, a prosa
+        # virava `incompleta`. Medido: 4 spans espúrios em 80 acórdãos reais.
+        #
+        # Dois e não quatro porque o ruído corrompe: `2Ol9` tem dois reais e é
+        # ano legítimo. É o mesmo desenho de `_MINIMO_DIGITOS` — exigir dígito
+        # real onde a classe tolerante abriria a porta para a prosa.
+        anos = [m for m in _ANO_ISOLADO.finditer(trecho) if _digitos(m.group()) >= 2]
         if not anos:
             continue
 
@@ -562,10 +852,18 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
         achados.append(Achado(inicio, fim, texto[inicio:fim], familia, tipo, dados))
 
     for m in _SUMULA.finditer(corpo):
+        if not _tem_digito_real(m.group("numero")):
+            continue
         registrar(m, "sumula", "jurisprudencia")
     for m in _TEMA.finditer(corpo):
+        if not _tem_digito_real(m.group("numero")):
+            continue
         registrar(m, "tema", "jurisprudencia")
     for m in _DISPOSITIVO.finditer(corpo):
+        if not _tem_digito_real(m.group("artigo")):
+            continue
+        if not _numero_de_lei_plausivel(m.group("diploma")):
+            continue
         registrar(m, "dispositivo", "lei")
     vagas: list[tuple[int, int]] = []
     for m in _VAGA.finditer(corpo):
@@ -596,9 +894,9 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
             vagas.append((inicio_vaga, fim_vaga))
 
     for m in _NUMERO_PROCESSO.finditer(corpo):
-        if _digitos(m.group()) < _MINIMO_DIGITOS:
+        if not _digitos_suficientes(m.group(), corpo, m.start()):
             continue
-        if not _e_numero_de_processo(m.group(), corpo[: m.start()]):
+        if not _e_numero_de_processo(m.group(), corpo[: m.start()], corpo[m.end() :]):
             continue
         inicio = _expandir_prefixo(corpo, m.start())
         fim = m.end()
