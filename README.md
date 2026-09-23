@@ -37,20 +37,27 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 161 deles, todos passando.
+cada etapa — 310 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
-níveis, τ = 0, score 1,0992.** Leia esse número com a desconfiança que ele
+níveis, τ = 0, score 1,1000.** Leia esse número com a desconfiança que ele
 merece: são os mesmos 26 documentos usados para construir a solução, e
 [docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
 essa amostra não consegue medir. O leaderboard sobre o conjunto final é a
 primeira medida honesta.
 
-Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Duas
-suítes existem para isso e são as que importam para o conjunto cego:
-[tests/test_generalizacao.py](tests/test_generalizacao.py), com as formas que a
-amostra não tem, e `make robustez`, que degrada o corpus e repontua. Ver o
-[checkpoint 06](docs/checkpoints/06-recall.md).
+Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Três
+instrumentos existem para isso e são os que importam para o conjunto cego:
+
+- [tests/test_generalizacao.py](tests/test_generalizacao.py), com as formas que
+  a amostra não tem;
+- `make robustez`, que degrada o corpus e repontua — hoje seis das sete classes
+  de ruído estão imunes nas cinco sementes, e as sete juntas marcam 1,0969;
+- `scripts/medir_espurias.py`, que roda a detecção sobre os 996 acórdãos reais
+  da base e conta spans por família, para pegar falso positivo em texto que o
+  gerador sintético não escreve.
+
+Ver o [checkpoint 07](docs/checkpoints/07-familias-de-lei.md).
 
 ## Instalação
 
@@ -82,10 +89,16 @@ make robustez   # degrada o corpus por classe de ruído e repontua
 make confianca  # mede a acurácia por caminho, para calibrar CONFIANCA
 ```
 
-`make ajuda` lista todos os alvos. `make solution` e
-`uv run python scripts/medir_regiao.py` são diagnósticos: o primeiro monta o
-`solution.csv` da métrica oficial, o segundo mede a qualidade do índice de
-números próprios.
+`make ajuda` lista todos os alvos. `make solution`,
+`uv run python scripts/medir_regiao.py` e `uv run python scripts/medir_espurias.py`
+são diagnósticos: o primeiro monta o `solution.csv` da métrica oficial, o
+segundo mede a qualidade do índice de números próprios, e o terceiro conta os
+spans por família nos acórdãos reais da base — rode antes e depois de mexer em
+`deteccao.py` e compare.
+
+Os checkpoints medem o arnês com **5 sementes**; `make robustez` usa 3 por
+velocidade. Para comparar com um checkpoint, rode
+`uv run python scripts/medir_robustez.py --taxa 0.15 --sementes 5`.
 
 ### No contrato de execução da organização
 
@@ -116,26 +129,22 @@ nada** — o que informa é o arnês e a suíte de generalização.
 
 Frentes abertas, nessa ordem de valor:
 
-1. **`ocr_numero` continua o ponto fraco**: 1,0455 contra 1,0992 limpo, mesmo
-   depois de receber o maior ganho do [checkpoint 06](docs/checkpoints/06-recall.md).
-   Os erros são de recall (`real→não detectada`) — o ruído destrói o número além
-   do que a normalização recupera. Se não ceder por regra, é o gatilho que a
-   [ADR 0001](docs/decisoes/0001-baseline-deterministica.md) define para
-   considerar um NER de pesos abertos **na detecção**, nunca na resolução.
-2. **`quebra_identificador` perde a imunidade numa das cinco sementes** (1,0916).
-   É defeito pré-existente, que só apareceu ao subir de 3 para 5 sementes — o que
-   é, por si, um recado sobre quantas sementes bastam para declarar imunidade.
+1. **Submeter e ler o leaderboard do conjunto final.** O arnês está saturado —
+   `ocr_numero`, a última classe não imune, marca 1,0993 contra 1,1000 limpo. O
+   que falta saber só o conjunto cego diz.
+2. **O número sem nenhum dígito real** (`Rcl BB.gbG/RJ`), resíduo a taxa 0,30.
+   Pela forma é indistinguível de palavra; ver o checkpoint 07.
 3. **Duas classes de ruído que o arnês ainda não gera**: corrupção da sigla do
    tribunal e do rótulo de cabeçalho.
-4. **Parser hierárquico dos 996 acórdãos**, no método já validado em
-   `parsing-tests`. `base_canonica.regiao_de_identificacao` é uma costura
-   trocável de propósito, e `scripts/medir_regiao.py` compara implementações por
-   número — hoje a baseline marca recall 77/77 e zero falso positivo.
+4. **NER de pesos abertos: medido e descartado** — sobre as regras atuais ele
+   baixa o score em todos os corpora. A
+   [ADR 0004](docs/decisoes/0004-ner-de-pesos-abertos.md) diz quando revisitar.
 
-Regra que vale para qualquer mudança: **o portão é o score limpo e as
-propriedades imunes.** Nada entra se derrubar 1,0992 ou quebrar uma classe que
-hoje marca Δ = 0 no arnês. Toda regra nova em `deteccao.py` vem com o caso que a
-motivou nos testes.
+Regra que vale para qualquer mudança: **o portão é o score limpo, as
+propriedades imunes e o volume nos acórdãos reais.** Nada entra se derrubar
+1,1000, quebrar uma classe imune no arnês, ou fizer uma família saltar em
+`medir_espurias.py` sem explicação. Toda regra nova em `deteccao.py` vem com o
+caso que a motivou nos testes.
 
 As decisões de projeto estão em [docs/decisoes/](docs/decisoes/).
 
@@ -167,7 +176,8 @@ publicados; além disso, a base canônica tem 94 MB. Ver
 ```
 src/verificador/     o pipeline (ver a tabela em "Arquitetura")
 scripts/             preparar_dados · baixar_dados · construir_indice · avaliar
-                     construir_solution · medir_regiao
+                     construir_solution · medir_regiao · medir_robustez · medir_confianca
+                     medir_espurias · perturbar
 tests/               a especificação executável de cada etapa
 docs/                desafio · dados · investigacao · contrato · avaliacao · referencias · decisoes/
 Dockerfile           imagem de submissão, sem pesos e sem dados dentro

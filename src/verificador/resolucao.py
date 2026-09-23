@@ -54,32 +54,43 @@ from .normalizacao import (
 
 # Confiança por caminho de decisão, **medida** por
 # ``scripts/medir_confianca.py``: acurácia do caminho sobre o corpus limpo mais
-# três sementes de perturbação a taxa 0,15, com predição sem par contando como
-# erro. Antes eram palpite, e o comentário aqui dizia isso.
+# as sementes de perturbação, com predição sem par contando como erro.
 #
 # Medir importa porque o bônus da métrica é ``b = 0,10·(1 − Brier)`` e o Brier é
-# minimizado exatamente em ``p = acurácia``. Emitir 0,93 num caminho que acerta
-# 0,996 joga bônus fora; emitir 0,80 num que acerta 0,67 é pior, porque a
-# punição é quadrática. Os dois casos existiam.
+# minimizado exatamente em ``p = acurácia``. Emitir 0,83 num caminho que acerta
+# 0,98 joga bônus fora; emitir 0,99 num que acerta 0,67 é pior, porque a punição
+# é quadrática.
 #
-# Os valores passam por Laplace — ``(acertos + 1) / (total + 2)`` — e não pela
-# taxa bruta. É o que impede um caminho com quatro observações de reivindicar
-# 1,0: `real_desempate` acertou 4 de 4, e a ADR 0003 registra que o critério de
-# desempate está refutado. Laplace encolhe esse caminho para 0,83 em vez de 1,0,
-# que é a humildade que a evidência comporta.
+# **Recalibrado no checkpoint 07**, porque as correções daquela etapa mudaram a
+# acurácia dos caminhos. O maior salto foi `inventada_processo`: de 158/190 para
+# 416/421 — era o caminho em que o número mal lido de uma `real` caía, e o
+# reparo de OCR fechou quase todos. Os números abaixo juntam as duas taxas do
+# arnês (0,15 com 5 sementes e 0,30 com 3), para não calibrar só no ponto de
+# operação.
 #
-# Medido sob perturbação, e não no conjunto limpo, de propósito: no limpo todo
-# caminho acerta 100% e a calibração mandaria emitir 1,0 em tudo. O conjunto
-# cego tem formas que a amostra não tem, e o arnês é a única aproximação dessa
-# diferença que temos.
+# Três regras, aplicadas a todos os caminhos:
+#
+# * **Laplace** — ``(acertos + 1) / (total + 2)`` —, arredondado para baixo, para
+#   que um caminho com pouca evidência não reivindique 1,0.
+# * **Teto de 0,99.** O arnês só mede o ruído que sabemos gerar; o conjunto cego
+#   tem formas que ele não tem. O teto custa quase nada se a acurácia for 1,0 e
+#   limita a punição quadrática se não for.
+# * **A medição é conservadora.** O Brier oficial só conta pares **casados**, e
+#   aqui predição sem par conta como erro. A acurácia que o bônus vê é pelo menos
+#   esta.
+#
+# A exceção declarada é `real_desempate`, que mantém 0,83: as 10 observações são
+# a **mesma** citação repetida pelas sementes, e a ADR 0003 registra que o
+# critério de desempate está refutado. Dez repetições de um caso não são dez
+# casos.
 CONFIANCA = {
-    "real_unico": 0.99,  # 273/274
-    "real_desempate": 0.83,  # 4/4, encolhido pelo suporte baixo
-    "real_tabela": 0.98,  # 61/61
-    "inventada_processo": 0.83,  # 158/190 — o caminho mais errático
-    "inventada_tabela": 0.95,  # 60/62
-    "inventada_tema": 0.60,  # 2/3, encolhido pelo suporte baixo
-    "incompleta_vaga": 0.99,  # 114/114
+    "real_unico": 0.99,  # 757/757
+    "real_desempate": 0.83,  # um só caso, repetido — ver acima
+    "real_tabela": 0.99,  # 188/188
+    "inventada_processo": 0.98,  # 416/421
+    "inventada_tabela": 0.99,  # 201/201
+    "inventada_tema": 0.91,  # 10/10, Laplace; a cobertura não tem tema
+    "incompleta_vaga": 0.99,  # 319/319
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
     # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
