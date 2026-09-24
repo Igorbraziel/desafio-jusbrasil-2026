@@ -26,10 +26,11 @@ pytestmark = [sem_dados, sem_indice]
 # se derrubar o score limpo"), então ele precisa ser executável.
 LIMIAR_F1 = 1.0
 
-# O menor IoU entre predição e gabarito no dev é 0,8125. Um span que encolhe não
-# move o F1 até cruzar 0,5 — e aí quebra duas vezes de uma vez (FN e FP). Esta
-# guarda pega o encolhimento antes, com folga para ajuste legítimo de borda.
-LIMIAR_IOU = 0.75
+# O menor IoU entre predição e gabarito no dev é 0,854 (era 0,8125 antes de o
+# conector deixar de abrir o span). Um span que encolhe não move o F1 até cruzar
+# 0,5 — e aí quebra duas vezes de uma vez (FN e FP). Esta guarda pega o
+# encolhimento antes, com folga para ajuste legítimo de borda.
+LIMIAR_IOU = 0.80
 
 
 def test_pipeline_produz_saidas_validas(base_canonica, tmp_path):

@@ -601,3 +601,16 @@ def test_e_dentro_do_nome_da_classe_continua_elo():
 def test_sigla_de_tribunal_colada_continua_elo():
     achados = _detectar("Conforme o processo nº TST-RR-79500-16.2009.5.15.0001, julgado.")
     assert achados[0].trecho.startswith("processo nº TST-RR-")
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Conforme decidido no REsp 1.234.567/SP, o pedido procede.", "REsp 1.234.567/SP"),
+        ("A tese foi fixada na Reclamação nº 22.357/PE, citada.", "Reclamação nº 22.357/PE"),
+        ("A tese foi fixada no AgInt no REsp 1.944.552/RS, citado.", "AgInt no REsp 1.944.552/RS"),
+    ],
+)
+def test_conector_nao_abre_o_span(corpo, esperado):
+    """O conector é elo entre siglas, nunca a borda esquerda da citação."""
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
