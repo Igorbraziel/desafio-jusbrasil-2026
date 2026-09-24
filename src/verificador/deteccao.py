@@ -729,7 +729,13 @@ _CENTAVOS = re.compile(r"^,\d{2}(?!\d)")
 # `05/08/2021 14`). Número de processo nunca começa por `dd/mm/aaaa`, então
 # casar só o começo é seguro. Medido nos acórdãos reais, na linha de assinatura
 # eletrônica.
-_DATA = re.compile(r"^\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})(?!\d)")
+#
+# A data com ponto ("Sessão Virtual de 20.6.2025") passava como processo: o
+# separador de milhar do núcleo aceita o ponto. Com ponto, o ano precisa ter
+# quatro dígitos — "1.23.45" não é data, e grupo de milhar tem sempre três.
+_DATA = re.compile(
+    r"^(?:\d{1,2}/\d{1,2}/(?:\d{2}|(?:19|20)\d{2})|\d{1,2}\.\d{1,2}\.(?:19|20)\d{2})(?!\d)"
+)
 
 # Rótulos que marcam o número seguinte como distrator, não como citação. Os seis
 # primeiros são os distratores que o material do desafio nomeia; os demais são

@@ -43,6 +43,7 @@ def _detectar(corpo: str):
     "corpo",
     [
         "O período de 01/01/2020 a 31/12/2021 foi considerado pelo juízo.",
+        "O acórdão foi julgado na Sessão Virtual de 20.6.2025, por unanimidade.",
         "Publicado no DJe de 12/03/2021, o acórdão transitou em julgado.",
         "A sessão de 05/08/2019 confirmou o entendimento da Corte sobre o tema.",
         "Telefone (11) 98765-4321 consta dos autos do feito em análise.",
