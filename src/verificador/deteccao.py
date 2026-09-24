@@ -329,6 +329,24 @@ _NUMERO_DE_LEI = (
     rf"(?:\s*/\s*{_DIGITOIDE}{{2,4}})?(?![A-Za-zÀ-ÿ])"
 )
 
+# Os qualificadores de constituição que aparecem em minúscula na prosa. Os que
+# identificam a CF/88 e os que a recusam entram juntos: "constituição estadual"
+# precisa continuar capturado inteiro para virar `inventada`. Uma lista de
+# inclusão de palavras minúsculas é segura na direção do τ — a palavra que falta
+# nela fica **fora** do diploma, e aí quem decide é a maiúscula ou o ano.
+_QUALIFICADOR_MINUSCULO = (
+    "(?:"
+    + "|".join(
+        _tolerante(palavra)
+        for palavra in """
+        federal república federativa brasileira brasil estadual estado portuguesa
+        espanhola italiana francesa alemã americana estrangeira imperial mineira
+        paulista fluminense gaúcha baiana catarinense paranaense pernambucana
+        """.split()
+    )
+    + r")(?![\wÀ-ú])"
+)
+
 _DIPLOMA = (
     r"(?:"
     rf"Lei\s+Complementar{_NUMERO_DE_LEI}"
@@ -347,8 +365,16 @@ _DIPLOMA = (
     # O ano entra pelo mesmo motivo que em `_NOME_DE_CODIGO`: `Constituição de
     # 1967` é outra constituição. A primeira alternativa existe porque o "de" do
     # conector engoliria o "de" do ano, e o casamento terminaria antes dele.
+    #
+    # A palavra depois de "Constituição" só entra se tiver **forma de
+    # qualificador**: inicial maiúscula — o `(?-i:…)` desliga o IGNORECASE de
+    # `_DISPOSITIVO`, sem o que `[A-Z]` casava minúscula — ou uma das palavras
+    # minúsculas de `_QUALIFICADOR_MINUSCULO`. Antes, o verbo da frase entrava no
+    # diploma ("art. 5º da Constituição garante") e reprovava o qualificador da
+    # CF: `real` virava `inventada`. Medido nos 996 acórdãos, eram 98 citações.
     rf"|{_tolerante('Constituição')}(?:\s+de\s+(?:19|20)\d{{2}}"
-    rf"|(?:\s+d[aeo]\s+)?(?:\s*[A-ZÀ-Ú][\wÀ-ú]+)?{_ANO_DE_VERSAO})"
+    rf"|(?:\s+d[aeo]\s+)?(?:\s*(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]+|{_QUALIFICADOR_MINUSCULO}))?"
+    rf"{_ANO_DE_VERSAO})"
     r"|Carta\s+Magna"
     # `Decreto-Lei nº 5.452/1943` é **como a base canônica nomeia a CLT** na
     # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla

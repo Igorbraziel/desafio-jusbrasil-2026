@@ -132,6 +132,12 @@ def test_letra_no_meio_do_artigo_nao_encolhe_o_numero(base_canonica):
         ("art. 5º, caput, da Constituição Federal", ("CF", 5)),
         ("art. 5º, LXXVIII, da Constituição Federal", ("CF", 5)),
         ("art. 373, incisos I e II, do CPC", ("CPC", 373)),
+        # o verbo da frase não é qualificador, e a sigla com ano é a CF/88
+        ("art. 5º da Constituição garante a igualdade", ("CF", 5)),
+        ("art. 5º, II, da Constituição consagra a legalidade", ("CF", 5)),
+        ("art. 5º da CF de 1988", ("CF", 5)),
+        ("artigo 5º, inciso XXXVI, da CF de 1988", ("CF", 5)),
+        ("art. 93 da constituição federal", ("CF", 93)),
     ],
 )
 def test_diploma_pela_forma_da_base(base_canonica, citacao, chave):
@@ -157,6 +163,12 @@ def test_diploma_pela_forma_da_base(base_canonica, citacao, chave):
         "art. 5º da Constituição de 1967",
         "art. 5º da Constituição do Brasil de 1967",
         "art. 5º da Constituição Mineira",
+        # o qualificador em minúscula continua capturado, e continua recusado
+        "art. 5º da constituição estadual",
+        "art. 5º da constituição mineira",
+        "art. 5º da constituição portuguesa",
+        "art. 93 da constituição do estado",
+        "art. 5º da CF de 1967",
         # "5O" maiúsculo é a confusão de OCR documentada, não ordinal: lê-lo como
         # 5º levaria o art. 50 da CF, fora da cobertura, ao art. 5º
         "art. 5O da Constituição Federal",

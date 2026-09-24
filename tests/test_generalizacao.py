@@ -614,3 +614,15 @@ def test_sigla_de_tribunal_colada_continua_elo():
 def test_conector_nao_abre_o_span(corpo, esperado):
     """O conector é elo entre siglas, nunca a borda esquerda da citação."""
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("O art. 5º da Constituição garante a igualdade.", "art. 5º da Constituição"),
+        ("O art. 5º, II, da Constituição consagra a legalidade.", "art. 5º, II, da Constituição"),
+        ("Viola o art. 5º da constituição estadual no ponto.", "art. 5º da constituição estadual"),
+    ],
+)
+def test_verbo_depois_da_constituicao_nao_entra_no_diploma(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]

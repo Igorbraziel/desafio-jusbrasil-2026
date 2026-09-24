@@ -232,7 +232,9 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
     """
     if "carta magna" in chave or re.fullmatch(r"cf(?:\s*/\s*\d{2,4})?", chave):
         return True
-    resto = re.sub(r"^constitui\w*", "", chave)
+    # A sigla sai como o nome: "cf de 1988" sobrava como "cf", palavra que não é
+    # qualificador, e a CF com ano virava `inventada`.
+    resto = re.sub(r"^(?:constitui\w*|cf)\b", "", chave)
     resto = _ANO_DE_VERSAO.sub(" ", resto)  # o ano já foi conferido
     palavras = [p for p in resto.split() if p not in _CONECTORES]
     # **Toda** palavra precisa ser qualificador da CF/88 — "República Federativa
