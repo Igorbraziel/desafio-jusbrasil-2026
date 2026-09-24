@@ -37,7 +37,7 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 310 deles, todos passando.
+cada etapa — 361 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
 níveis, τ = 0, score 1,1000.** Leia esse número com a desconfiança que ele
@@ -57,7 +57,8 @@ instrumentos existem para isso e são os que importam para o conjunto cego:
   da base e conta spans por família, para pegar falso positivo em texto que o
   gerador sintético não escreve.
 
-Ver o [checkpoint 07](docs/checkpoints/07-familias-de-lei.md).
+Ver o [checkpoint 08](docs/checkpoints/08-pente-fino.md), que também registra o que as
+sondas fora da amostra acharam e o que ficou aberto.
 
 ## Instalação
 
