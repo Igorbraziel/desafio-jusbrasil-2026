@@ -15,8 +15,13 @@ from pathlib import Path
 
 
 def carregar(caminho: Path) -> str:
-    """Lê um .txt de entrada e devolve o texto em NFC."""
-    return unicodedata.normalize("NFC", caminho.read_text(encoding="utf-8"))
+    """Lê um .txt de entrada e devolve o texto em NFC.
+
+    Byte que não é UTF-8 vira U+FFFD em vez de exceção: o arquivo fora do
+    contrato ainda é processado, e em texto UTF-8 válido nada muda — nenhum
+    offset se desloca.
+    """
+    return unicodedata.normalize("NFC", caminho.read_text(encoding="utf-8", errors="replace"))
 
 
 def documento_id(caminho: Path) -> str:
