@@ -104,6 +104,32 @@ def test_sumula_com_ruido_resolve_para_o_numero_reparado(base_canonica, citacao,
     assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
 
 
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("Súmula 83/STJ", ("STJ", False, 83)),
+        ("Súmula 83-STJ", ("STJ", False, 83)),
+        ("Súmula 83 (STJ)", ("STJ", False, 83)),
+        ("Súmula 331, I, do TST", ("TST", False, 331)),
+        ("Súmula nº 331 do Tribunal Superior do Trabalho", ("TST", False, 331)),
+        ("Súmula 211 do Superior Tribunal de Justiça", ("STJ", False, 211)),
+        ("Súrnula 331 do Tribunal Supcrior do Trabalho", ("TST", False, 331)),
+    ],
+)
+def test_sumula_com_tribunal_em_outras_formas(base_canonica, citacao, chave):
+    """Sem o tribunal a súmula da cobertura não resolve e sai `inventada`."""
+    assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    ["Súmula 83/STF", "Súmula 331 do Supremo Tribunal Federal", "Súmula 443 (TST)"],
+)
+def test_sumula_em_outro_tribunal_continua_inventada(base_canonica, citacao):
+    """O tribunal é conferido junto com o número: outra forma não abre o τ."""
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
 def test_letra_no_meio_do_artigo_nao_encolhe_o_numero(base_canonica):
     """`3l73` é o artigo 3.173, não o 373 — que está na cobertura."""
     assert _classificar(base_canonica, "art. 3l73 do CPC") == [("inventada", None)]

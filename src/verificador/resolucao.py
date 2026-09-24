@@ -405,12 +405,27 @@ def _numero_de_artigo(valor: str | None) -> int | None:
     return _inteiro(valor)
 
 
+def _tribunal_da_sumula(dados: dict[str, str]) -> str | None:
+    """A sigla do tribunal, venha ela como sigla ou pelo nome por extenso.
+
+    A detecção tem um grupo por forma — `_SUMULA` não pode repetir o nome do
+    grupo —, e o extenso já chega com a sigla no nome do grupo (`ext_STJ`).
+    """
+    for grupo in ("tribunal", "tribunal_par", "tribunal_do"):
+        if dados.get(grupo):
+            return dados[grupo].upper()
+    for grupo in dados:
+        if grupo.startswith("ext_"):
+            return grupo.removeprefix("ext_")
+    return None
+
+
 def _resolver_sumula(dados: dict[str, str], base: BaseCanonica) -> tuple[str, int | None, float]:
     numero = _inteiro(dados.get("numero"))
     if numero is None:
         return "incompleta", None, CONFIANCA["incompleta_sem_numero"]
     vinculante = bool(dados.get("vinculante"))
-    tribunal = (dados.get("tribunal") or "").upper() or None
+    tribunal = _tribunal_da_sumula(dados)
     id_canonico = base.sumula(tribunal, vinculante, numero)
     if id_canonico is None:
         return "inventada", None, CONFIANCA["inventada_tabela"]

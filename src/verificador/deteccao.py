@@ -289,10 +289,34 @@ _NUMERO_DE_SUMULA = rf"{_DIGITOIDE}+"
 # grafias, e **é a que a própria base canônica usa**: desde 15/09/2026 os cinco
 # registros de natureza `sumula` abrem com `Súmula n. <número> do <tribunal>`.
 # Sem esta alternativa a citação sumia inteira.
+#
+# O tribunal vem em mais formas do que "do STJ", e sem ele a súmula da cobertura
+# não resolve — `base.sumula` exige o par tribunal e número — e sai `inventada`:
+# a barra ou o hífen (`Súmula 83/STJ`, a grafia corrente dos acórdãos), os
+# parênteses, o inciso intercalado (`Súmula 331, I, do TST`) e o nome por
+# extenso. O extenso tem um grupo por tribunal (`ext_STJ`…), para a resolução
+# saber qual casou sem reler o texto corrompido. "desta Corte" fica de fora: o
+# tribunal depende de quem escreve.
+_SIGLA_DE_TRIBUNAL = rf"(?:{'|'.join(TRIBUNAIS)})(?![A-Za-zÀ-ÿ])"
+_TRIBUNAL_POR_EXTENSO = "|".join(
+    rf"(?P<ext_{sigla}>{r'[ \t]+'.join(_tolerante(p) for p in nome.split())})"
+    for sigla, nome in (
+        ("STF", "Supremo Tribunal Federal"),
+        ("STJ", "Superior Tribunal de Justiça"),
+        ("TST", "Tribunal Superior do Trabalho"),
+        ("TSE", "Tribunal Superior Eleitoral"),
+        ("STM", "Superior Tribunal Militar"),
+    )
+)
 _SUMULA = re.compile(
     rf"\b[S5](?:{_tolerante('úmula')}|[úuû]m\.)\s*(?P<vinculante>{_tolerante('Vinculante')})?"
     rf"\s*(?:{_NUMERO}\s*)?(?P<numero>{_NUMERO_DE_SUMULA})"
-    rf"(?:\s*,?\s*d[oae]s?\s*(?P<tribunal>{'|'.join(TRIBUNAIS)}))?",
+    r"(?:"
+    rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL})"
+    rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL})\s*\)"
+    rf"|(?:\s*,\s*[IVXLC]{{1,8}}\s*,)?\s*,?\s*d[oae]s?\s*"
+    rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL})|{_TRIBUNAL_POR_EXTENSO})"
+    r")?",
     re.IGNORECASE,
 )
 
