@@ -152,16 +152,16 @@ def test_numero_corrompido_resolve_para_os_digitos_certos():
 def test_primeiro_digito_corrompido_nao_muda_o_numero(primeiro):
     """A falha silenciosa: span válido, IoU bom, número errado.
 
-    O núcleo abria com `\\d` literal, então `REsp l.599.910/PR` começava no `5` e
-    devolvia `599910` — um número diferente, que não resolve na base e vira
+    O núcleo abria com `\\d` literal, então `REsp l.234.567/PR` começava no `5` e
+    devolvia `234567` — um número diferente, que não resolve na base e vira
     `inventada` com confiança alta. Medido, 79% das falhas de `ocr_numero`
     tinham o primeiro dígito corrompido.
     """
     from verificador.normalizacao import digitos_do_identificador
 
-    achados = _detectar(f"Ampara o REsp {primeiro}.599.910/PR, citado nos autos.")
+    achados = _detectar(f"Ampara o REsp {primeiro}.234.567/PR, citado nos autos.")
     assert len(achados) == 1
-    assert digitos_do_identificador(achados[0].trecho) == "1599910"
+    assert digitos_do_identificador(achados[0].trecho) == "1234567"
 
 
 @pytest.mark.parametrize(
@@ -567,26 +567,43 @@ def test_nome_em_caixa_alta_com_um_digito_nao_vira_processo():
 @pytest.mark.parametrize(
     "corpo",
     [
-        "Conforme entendimento do Superior Tribunal de Justiça Rcl nº 68.244/SP, negou-se.",
-        "Como decidiu o Supremo Tribunal Federal Rcl nº 68.244/SP, não cabe o recurso.",
-        "Nesse sentido, o Ministro Relator Gilmar Mendes Rcl nº 68.244/SP afastou a tese.",
-        "Em Brasília, a Corte Especial Rcl nº 68.244/SP pacificou o tema em debate.",
-        "Vide jurisprudência do STF Rcl nº 68.244/SP sobre o tema em debate.",
+        "Conforme entendimento do Superior Tribunal de Justiça Rcl nº 12.345/SP, negou-se.",
+        "Como decidiu o Supremo Tribunal Federal Rcl nº 12.345/SP, não cabe o recurso.",
+        "Nesse sentido, o Ministro Relator Gilmar Mendes Rcl nº 12.345/SP afastou a tese.",
+        "Em Brasília, a Corte Especial Rcl nº 12.345/SP pacificou o tema em debate.",
+        "Vide jurisprudência do STF Rcl nº 12.345/SP sobre o tema em debate.",
     ],
 )
 def test_orgao_julgador_nao_entra_no_prefixo(corpo):
-    assert [a.trecho for a in _detectar(corpo)] == ["Rcl nº 68.244/SP"]
+    assert [a.trecho for a in _detectar(corpo)] == ["Rcl nº 12.345/SP"]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # "Federal" também nomeia classe processual: a Intervenção Federal
+        ("Cita-se a Intervenção Federal nº 5.179/DF no ponto.", "Intervenção Federal nº 5.179/DF"),
+        ("Conforme a Justiça Federal Rcl nº 12.345/SP, negou-se.", "Rcl nº 12.345/SP"),
+    ],
+)
+def test_federal_nao_para_a_cadeia_sozinho(corpo, esperado):
+    """Quem para a cadeia é o substantivo do órgão ("Tribunal", "Justiça").
+
+    "Federal" é adjetivo e aparece também dentro do nome da classe; no léxico,
+    ele cortava "Intervenção Federal nº …" em "nº …" (IoU 0,35 — FN e FP).
+    """
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
 
 
 def test_orgao_julgador_nao_leva_o_nome_da_classe_junto():
     """O descarte do complemento para no núcleo do nome da classe."""
-    achados = _detectar("O Relator Gilmar Mendes Reclamação nº 68.244/SP afastou a tese.")
-    assert [a.trecho for a in achados] == ["Reclamação nº 68.244/SP"]
+    achados = _detectar("O Relator Gilmar Mendes Reclamação nº 12.345/SP afastou a tese.")
+    assert [a.trecho for a in achados] == ["Reclamação nº 12.345/SP"]
 
 
 def test_citacoes_coordenadas_nao_se_fundem():
-    achados = _detectar("No julgamento do Recurso Extraordinário e da Rcl nº 68.244/SP, decidiu.")
-    assert achados[-1].trecho.endswith("Rcl nº 68.244/SP")
+    achados = _detectar("No julgamento do Recurso Extraordinário e da Rcl nº 12.345/SP, decidiu.")
+    assert achados[-1].trecho.endswith("Rcl nº 12.345/SP")
     assert "Extraordinário" not in achados[-1].trecho
 
 
@@ -608,8 +625,8 @@ def test_sigla_de_tribunal_colada_continua_elo():
     ("corpo", "esperado"),
     [
         ("Conforme decidido no REsp 1.234.567/SP, o pedido procede.", "REsp 1.234.567/SP"),
-        ("A tese foi fixada na Reclamação nº 22.357/PE, citada.", "Reclamação nº 22.357/PE"),
-        ("A tese foi fixada no AgInt no REsp 1.944.552/RS, citado.", "AgInt no REsp 1.944.552/RS"),
+        ("A tese foi fixada na Reclamação nº 12.345/PE, citada.", "Reclamação nº 12.345/PE"),
+        ("A tese foi fixada no AgInt no REsp 1.234.567/RS, citado.", "AgInt no REsp 1.234.567/RS"),
     ],
 )
 def test_conector_nao_abre_o_span(corpo, esperado):

@@ -24,4 +24,4 @@ Cada checkpoint traz:
 | [05](05-generalizacao.md) | Endurecimento para o conjunto cego | IoU mínimo 0,519 → 0,8125 · `ordem_incompleta` vira imune · score 1,0988 → 1,0992 |
 | [06](06-recall.md) | As perdas de recall | 1º dígito corrompido eram 79% das falhas de `ocr_numero` · pior semente 0,9461 → 0,9764 · rejeição do cp 02 revertida |
 | [07](07-familias-de-lei.md) | As famílias que o reparo de OCR não alcançava | todas (7) 1,0093 → 1,0969 · seis classes imunes · score limpo 1,1000 · NER descartado (ADR 0004) |
-| [08](08-pente-fino.md) | Pente fino com sondas fora da amostra | regressão da CF do cp 07 desfeita · órgão julgador fora do prefixo · IoU mín. 0,8125 → 0,854 · todas (7) a 0,30: 1,0744 → 1,0854 |
+| [08](08-pente-fino.md) | Pente fino com sondas fora da amostra | regressão da CF do cp 07 desfeita · órgão julgador fora do prefixo · IoU mín. 0,8125 → 0,854 · arnês igual ao `main` (ganho fora da amostra) |

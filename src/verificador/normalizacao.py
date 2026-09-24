@@ -198,7 +198,7 @@ def _corrigir_ocr(trecho: str) -> str:
     A primeira passada olha o **token inteiro**: se ele é feito só de dígitos e
     letras confundíveis, é um número, e todas as letras convertem de uma vez. A
     segunda mantém a adjacência para o que sobrou, que é o caso de uma letra
-    isolada colada ao número (``21737l8``, ``240073O``).
+    isolada colada ao número (``12345l7``, ``240073O``).
     """
     caracteres = list(trecho)
 

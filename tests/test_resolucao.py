@@ -164,6 +164,9 @@ def test_letra_no_meio_do_artigo_nao_encolhe_o_numero(base_canonica):
         ("art. 5º da CF de 1988", ("CF", 5)),
         ("artigo 5º, inciso XXXVI, da CF de 1988", ("CF", 5)),
         ("art. 93 da constituição federal", ("CF", 93)),
+        # "Constituição Cidadã" é o apelido corrente da CF/88
+        ("art. 5º da Constituição Cidadã", ("CF", 5)),
+        ("art. 5º da constituição cidadã", ("CF", 5)),
     ],
 )
 def test_diploma_pela_forma_da_base(base_canonica, citacao, chave):

@@ -8,7 +8,7 @@ precisa aparecer.
 A organização é por família, porque a família determina contra o quê a citação
 é resolvida:
 
-``processo``     sigla ou classe processual + número (``AgInt no REsp 1.599.910/PR``)
+``processo``     sigla ou classe processual + número (``AgInt no REsp 1.234.567/PR``)
 ``sumula``       ``Súmula <n> do <tribunal>``, ``Súmula Vinculante <n>``
 ``tema``         ``Tema 2.680 da repercussão geral``
 ``dispositivo``  ``art. <n>, <inciso>, do <código>``
@@ -72,11 +72,11 @@ _MINIMO_DIGITOS = 4
 _NUMERO = r"(?:n\s*[.ºo°]{0,2}|N\s*[.ºO°]{0,2})"
 
 # Pontuação que pode aparecer dentro de um número de processo, incluindo a
-# quebra de linha e o espaço não-quebrável (`533-80. 2012` vem com \xa0).
+# quebra de linha e o espaço não-quebrável (`421-37. 2012` vem com \xa0).
 #
 # **No máximo uma quebra de linha.** Com `\s` solto o núcleo atravessava o fim do
 # parágrafo e engolia o título da seção seguinte: em
-# `Ag. Int. No 7001184-1520197000000.\n\nI — DA COMPETÊNCIA` o span ia até o `I`
+# `Ag. Int. No 7000123-4520197000000.\n\nI — DA COMPETÊNCIA` o span ia até o `I`
 # do título, e o IoU contra o gabarito caía a 0,73. É a mesma política que
 # `_expandir_prefixo` já aplica do outro lado — uma quebra é continuação da
 # citação, duas são fim de parágrafo.
@@ -126,11 +126,11 @@ def _tolerante(palavra: str) -> str:
 
 
 # O núcleo numérico: admite letra de OCR no lugar de um dígito, para não cortar
-# a citação ao meio (`21737l8`).
+# a citação ao meio (`12345l7`).
 #
 # **O primeiro caractere também pode ser digitoide.** Ele era `\d` literal, e o
-# OCR corrompe a primeira posição como qualquer outra: em `REsp l.599.910/PR` o
-# núcleo começava no `5` e devolvia `599910`, um número *diferente*, que não
+# OCR corrompe a primeira posição como qualquer outra: em `REsp l.234.567/PR` o
+# núcleo começava no `5` e devolvia `234567`, um número *diferente*, que não
 # resolve na base. Essa é a pior forma de erro — silenciosa: o span existe, o IoU
 # passa, e a citação vira `inventada` com confiança alta. Medindo 4.000
 # perturbações de um identificador sintético a taxa 0,4, **79% de todas as
@@ -170,7 +170,7 @@ _NUMERO_PROCESSO = re.compile(_NUCLEO)
 # Palavras de prosa que abrem a frase antes de uma citação. Capitalizadas, elas
 # casavam o ramo de sigla e o span começava dez caracteres cedo demais — medido
 # em cinco casos do gabarito, com IoU entre 0,565 e 0,714 ("Também na Rcl
-# 33.132/AC" onde o gabarito anota só "Rcl 33.132/AC").
+# 12.345/AC" onde o gabarito anota só "Rcl 12.345/AC").
 #
 # A lista é de exclusão e não de inclusão de propósito: enumerar as siglas
 # processuais é o que a ADR 0002 refuta. Aqui enumeramos o advérbio de prosa, que
@@ -195,7 +195,7 @@ _PALAVRA_DE_PROSA = frozenset(
 #
 # O ponto **dentro** da sigla é obrigatório no primeiro ramo: sem ele `H.C.`,
 # `AG.REG`, `A.REsp` e `R.Esp.` falhavam o fullmatch e o prefixo era truncado —
-# era a causa dos dois piores IoU do gabarito (0,519 em "AgRg no H.C. Nº 891369"
+# era a causa dos dois piores IoU do gabarito (0,519 em "AgRg no H.C. Nº 123456"
 # e 0,543 em "Terceiro AG.REG na Rcl").
 _ELO = re.compile(
     r"(?:"
@@ -222,7 +222,7 @@ def _e_elo(token: str) -> bool:
 
 # O órgão julgador e a autoridade que antecedem a citação. Capitalizados, eles
 # têm forma de sigla e a cadeia os engolia: "do Superior Tribunal de Justiça Rcl
-# nº 68.244/SP" saía inteiro, com IoU 0,33 contra "Rcl nº 68.244/SP" — abaixo de
+# nº 12.345/SP" saía inteiro, com IoU 0,33 contra "Rcl nº 12.345/SP" — abaixo de
 # 0,5, a citação vira FN **e** FP. Medido nos 996 acórdãos reais: cerca de 2%
 # dos spans de processo carregavam um desses no prefixo. A amostra sintética não
 # tem esse contexto, e o arnês não o gera.
@@ -230,9 +230,14 @@ def _e_elo(token: str) -> bool:
 # Como `_PALAVRA_DE_PROSA`, é léxico fechado do português jurídico — quem julga,
 # não o que se julga —, então não contraria a ADR 0002. A sigla de tribunal
 # entra só **nua** ("STF"): colada à classe, "TST-RR-79500", continua elo.
+#
+# Só substantivos. "Federal" ficou de fora de propósito: é adjetivo, aparece
+# também no nome da classe ("Intervenção Federal nº …"), e ali cortava o span
+# em "nº …". Nos órgãos o substantivo vem antes ("Tribunal Federal", "Justiça
+# Federal") e é ele que para a cadeia; o "Federal" à direita sai como nome.
 _PALAVRA_INSTITUCIONAL = frozenset(
     """
-    tribunal tribunais supremo superior federal justica ministro ministra min
+    tribunal tribunais supremo superior justica ministro ministra min
     relator relatora rel desembargador desembargadora juiz juiza turma corte
     plenario pleno secao camara orgao egregio colendo
     """.split()
@@ -383,7 +388,7 @@ _QUALIFICADOR_MINUSCULO = (
     + "|".join(
         _tolerante(palavra)
         for palavra in """
-        federal república federativa brasileira brasil estadual estado portuguesa
+        federal república federativa brasileira brasil cidadã estadual estado portuguesa
         espanhola italiana francesa alemã americana estrangeira imperial mineira
         paulista fluminense gaúcha baiana catarinense paranaense pernambucana
         """.split()
@@ -828,7 +833,7 @@ def _expandir_prefixo(corpo: str, inicio: int) -> int:
         recuo = posicao
         quebras = 0
         # Uma quebra de linha simples é atravessada — o nível 2 parte citações
-        # no meio (`Recurso em Mandado de Segurança\nnº 67.101/RJ`). Duas
+        # no meio (`Recurso em Mandado de Segurança\nnº 12.345/RJ`). Duas
         # seguidas são fim de parágrafo, e aí a cadeia termina.
         while recuo > 0 and corpo[recuo - 1] in " \t\xa0\n":
             if corpo[recuo - 1] == "\n":

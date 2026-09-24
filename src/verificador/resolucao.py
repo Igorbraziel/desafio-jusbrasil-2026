@@ -195,7 +195,9 @@ _ANO_DE_VERSAO = re.compile(r"(?:\bde\s+|/\s*)(\d{2,4})\b")
 # "do Brasil" entra porque, sem ano, é como a prosa corrente chama a CF/88. A
 # Constituição de 1967 também se chamava "do Brasil", mas quem a cita põe o ano,
 # e o ano é conferido antes contra `ANO_DA_LEI`.
-_QUALIFICADORES_DA_CF = ("federal", "republica", "federativa", "brasileira", "brasil")
+#
+# "Cidadã" é o apelido corrente da CF/88 ("Constituição Cidadã").
+_QUALIFICADORES_DA_CF = ("federal", "republica", "federativa", "brasileira", "brasil", "cidada")
 _CONECTORES = frozenset({"da", "do", "de", "das", "dos"})
 
 

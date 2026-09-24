@@ -52,8 +52,8 @@ sugestão natural de quem lê o artigo.
 ### 1. O primeiro dígito corrompido — 79% das falhas de `ocr_numero`
 
 O núcleo abria com `\d` literal, e o OCR corrompe a primeira posição como
-qualquer outra. Em `REsp l.599.910/PR` o casamento começava no `5` e devolvia
-`599910` — **um número diferente**, que não resolve na base.
+qualquer outra. Em `REsp l.234.567/PR` o casamento começava no `5` e devolvia
+`234567` — **um número diferente**, que não resolve na base.
 
 É a pior forma de erro porque é silenciosa: o span existe, o IoU passa de 0,5, a
 citação vira `inventada` com confiança alta. Não há sintoma.

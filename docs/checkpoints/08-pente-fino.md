@@ -25,10 +25,10 @@ Cada correção é um commit, com o teste que a motivou.
 | # | defeito | sonda | antes | agora |
 |---|---|---|---|---|
 | 1 | um arquivo com falha derruba o lote | `.txt` latin-1 no começo da pasta | **0 de 27** JSONs | 27 de 27; o ruim sai vazio |
-| 2 | o órgão julgador entra no prefixo | "do Superior Tribunal de Justiça Rcl nº 68.244/SP" | IoU 0,33 | 1,00 |
+| 2 | o órgão julgador entra no prefixo | "do Superior Tribunal de Justiça Rcl nº 12.345/SP" | IoU 0,33 | 1,00 |
 | | | "Ministro Relator Gilmar Mendes Rcl…" | IoU 0,34 | 1,00 |
 | | | "do Recurso Extraordinário e da Rcl…" | IoU 0,34 | a Rcl sozinha |
-| 3 | o conector abre o span | "no REsp 1.501.000/RJ" (41 spans no dev) | IoU p5 0,854 | 1,000 |
+| 3 | o conector abre o span | "no REsp 1.234.567/RJ" (41 spans no dev) | IoU p5 0,854 | 1,000 |
 | 4 | **regressão do cp 07**: a CF com verbo ou com ano | "art. 5º da Constituição garante" · "art. 5º da CF de 1988" | `inventada` | `real` |
 | 5 | a prosa entra no nome do Código | "art. 186 do Código Civil trata do ato" | IoU 0,65 | 1,00 |
 | 6 | o tribunal da súmula em outras formas | "Súmula 83/STJ" · "Súmula 331, I, do TST" · por extenso | `inventada` | `real` |
@@ -53,17 +53,21 @@ processuais, então a ADR 0002 continua valendo.
 inalterado em cada um dos oito commits. O IoU mínimo foi de 0,8125 para 0,854,
 e o portão do teste ponta a ponta subiu de 0,75 para 0,80.
 
-**Arnês, 0,15 com 5 sementes e 0,30 com 3:**
+**Arnês, 0,15 com 5 sementes e 0,30 com 3:** idêntico ao `main`, por classe e
+por semente, nas duas taxas (re-medido lado a lado na revisão de 24/09).
 
-| classe | cp 07 (0,15) | agora (0,15) | cp 07 (0,30) | agora (0,30) |
+| classe | `main` (0,15) | branch (0,15) | `main` (0,30) | branch (0,30) |
 |---|---|---|---|---|
-| **todas (7)** | 1,0969 | 1,0969 | 1,0744 | **1,0854** |
-| `ocr_numero` | 1,0993 | 1,0993 | 1,0829 | **1,0942** |
-| `ocr_palavra` | 1,1000 | 1,1000 | 1,0908 | 1,0915 |
-| pior semente, todas (7) | 1,0943 | 1,0943 | — | 1,0719 |
+| **todas (7)** | 1,0969 | 1,0969 | 1,0854 | 1,0854 |
+| `ocr_numero` | 1,0993 | 1,0993 | 1,0942 | 1,0942 |
+| `ocr_palavra` | 1,1000 | 1,1000 | 1,0915 | 1,0915 |
+| pior semente, todas (7) | 1,0943 | 1,0943 | 1,0719 | 1,0719 |
 
-No ponto calibrado nada mudou. A 0,30, a borda mais justa do span ganha folga:
-a citação ruidosa que antes ficava perto de IoU 0,5 agora casa.
+**Correção de registro:** a primeira versão deste checkpoint comparava a 0,30
+com os números do cp 07 (1,0744 em todas) e atribuía a esta branch o ganho até
+1,0854. Esse ganho já estava no `main`: o cp 07 mediu a 0,30 antes dos últimos
+commits daquela etapa. As correções daqui não mexem no arnês; o ganho delas é
+fora da amostra — sondas e acórdãos reais, abaixo.
 
 **Confiança:** `medir_confianca.py` nas duas taxas. Todos os caminhos continuam
 em 100%, exceto `inventada_processo`, que ficou em 417/423: pela regra de
