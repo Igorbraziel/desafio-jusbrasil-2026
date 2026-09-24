@@ -642,3 +642,32 @@ def test_verbo_depois_da_constituicao_nao_entra_no_diploma(corpo, esperado):
 )
 def test_prosa_depois_do_nome_do_codigo_nao_entra_no_diploma(corpo, esperado):
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "qualificador",
+    [
+        "parágrafo único",
+        "§ único",
+        "inc. LV",
+        "incs. LIV e LV",
+        "caput e inciso LV",
+        "caput, e inciso II",
+        "parágrafo 2º",
+    ],
+)
+def test_dispositivo_com_qualificadores_correntes(qualificador):
+    corpo = f"Conforme o art. 5º, {qualificador}, da Constituição Federal, todos."
+    assert [a.trecho for a in _detectar(corpo)] == [
+        f"art. 5º, {qualificador}, da Constituição Federal"
+    ]
+
+
+def test_qualificadores_nao_explodem_em_texto_longo():
+    """Cada repetição consome texto literal: o custo continua linear."""
+    import time
+
+    inicio = time.perf_counter()
+    _detectar("art. 5º, " + "caput e inciso, " * 20000)
+    _detectar("art. 5º" + ", parágrafo" * 20000)
+    assert time.perf_counter() - inicio < 2

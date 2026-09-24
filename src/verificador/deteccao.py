@@ -446,10 +446,17 @@ _DIPLOMA = (
 # romanos ("incisos I e II") aparece em 109. Nenhuma das três é forma exótica; a
 # amostra sintética é que não as produziu.
 _ROMANO = r"[IVXLC]{1,8}"
+#
+# `parágrafo único`, a abreviação `inc.` e o `caput` coordenado com inciso
+# (`caput e inciso LV`, `caput, e inciso II`) são formas correntes que faziam a
+# citação sumir inteira. Continuam dentro da mesma regra: toda alternativa
+# consome texto literal, e cada repetição começa por vírgula.
+_INCISO = rf"(?:incisos?|incs?\.)\s+{_ROMANO}(?:\s+e\s+{_ROMANO})?"
 _QUALIFICADORES = (
     rf"(?:\s*,\s*(?:§+\s*{_DIGITOIDE}+[ºo°]?(?:\s*-\s*[A-Z])?(?:\s+e\s+\d+[ºo°]?)?"
-    rf"|incisos?\s+{_ROMANO}(?:\s+e\s+{_ROMANO})?"
-    rf"|al[íi]nea\s+[a-z]\)?|caput|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+    rf"|(?:e\s+)?{_INCISO}"
+    rf"|par[áa]grafo\s+(?:[úu]nico|{_DIGITOIDE}+[ºo°]?)|§\s*[úu]nico"
+    rf"|al[íi]nea\s+[a-z]\)?|caput(?:\s+e\s+{_INCISO})?|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
     r"|['\"]?[a-z]['\"]?\)?))"
     r"{0,5}"
 )
