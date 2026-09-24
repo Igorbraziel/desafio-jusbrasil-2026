@@ -626,3 +626,19 @@ def test_conector_nao_abre_o_span(corpo, esperado):
 )
 def test_verbo_depois_da_constituicao_nao_entra_no_diploma(corpo, esperado):
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("O art. 186 do Código Civil trata do ato ilícito.", "art. 186 do Código Civil"),
+        ("O art. 276 do Código Eleitoral trata do recurso.", "art. 276 do Código Eleitoral"),
+        # a minúscula da lista fechada continua entrando — o CPPM precisa dela
+        (
+            "Viola o art. 312 do código de processo penal militar no ponto.",
+            "art. 312 do código de processo penal militar",
+        ),
+    ],
+)
+def test_prosa_depois_do_nome_do_codigo_nao_entra_no_diploma(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]

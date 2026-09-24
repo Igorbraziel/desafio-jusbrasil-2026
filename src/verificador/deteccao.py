@@ -316,7 +316,27 @@ _TEMA = re.compile(
 # erro grave da métrica. Por isso o conector solto não pode ser a última palavra
 # do nome (`(?!d[aeo]\b)`): se fosse, ele engoliria o "de" e o ano ficaria fora.
 _ANO_DE_VERSAO = r"(?:\s*/\s*\d{2,4}|\s+de\s+(?:19|20)\d{2})?"
-_PALAVRA_DO_NOME = r"(?:\s+(?:d[aeo]\s+)?(?!d[aeo]\b)[A-ZÀ-Úa-zà-ú][\wÀ-ú]*)"
+#
+# A palavra do nome tem inicial maiúscula — `(?-i:…)`, porque `_DISPOSITIVO` é
+# IGNORECASE — ou é uma das minúsculas de `_PALAVRA_DE_CODIGO_MINUSCULA`. Antes
+# qualquer palavra servia, e a prosa entrava no span: "art. 186 do Código Civil
+# trata do ato" (IoU 0,65). `militar` está na lista para que o CPPM escrito em
+# minúscula continue capturado inteiro e recusado.
+_PALAVRA_DE_CODIGO_MINUSCULA = (
+    "(?:"
+    + "|".join(
+        _tolerante(palavra)
+        for palavra in """
+        processo civil penal militar defesa consumidor eleitoral tributário
+        comercial trânsito brasileiro florestal nacional aeronáutico
+        """.split()
+    )
+    + r")(?![\wÀ-ú])"
+)
+_PALAVRA_DO_NOME = (
+    r"(?:\s+(?:d[aeo]\s+)?(?!d[aeo]\b)"
+    rf"(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]*|{_PALAVRA_DE_CODIGO_MINUSCULA}))"
+)
 _NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,3}}{_ANO_DE_VERSAO}"
 # O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
 # lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
