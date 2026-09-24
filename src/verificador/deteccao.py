@@ -220,6 +220,60 @@ def _e_elo(token: str) -> bool:
     return chave_textual(token.strip(".,;:")) not in _PALAVRA_DE_PROSA
 
 
+# O órgão julgador e a autoridade que antecedem a citação. Capitalizados, eles
+# têm forma de sigla e a cadeia os engolia: "do Superior Tribunal de Justiça Rcl
+# nº 68.244/SP" saía inteiro, com IoU 0,33 contra "Rcl nº 68.244/SP" — abaixo de
+# 0,5, a citação vira FN **e** FP. Medido nos 996 acórdãos reais: cerca de 2%
+# dos spans de processo carregavam um desses no prefixo. A amostra sintética não
+# tem esse contexto, e o arnês não o gera.
+#
+# Como `_PALAVRA_DE_PROSA`, é léxico fechado do português jurídico — quem julga,
+# não o que se julga —, então não contraria a ADR 0002. A sigla de tribunal
+# entra só **nua** ("STF"): colada à classe, "TST-RR-79500", continua elo.
+_PALAVRA_INSTITUCIONAL = frozenset(
+    """
+    tribunal tribunais supremo superior federal justica ministro ministra min
+    relator relatora rel desembargador desembargadora juiz juiza turma corte
+    plenario pleno secao camara orgao egregio colendo
+    """.split()
+) | frozenset(t.lower() for t in TRIBUNAIS)
+
+# Núcleos de nome de classe por extenso. Não servem para detectar — a detecção
+# ancora no número (ADR 0002) —, só para frear o descarte do complemento do nome
+# do órgão: em "Relator Gilmar Mendes Reclamação nº 1", "Reclamação" fica.
+_NUCLEO_DE_CLASSE = frozenset(
+    """
+    recurso agravo embargos reclamacao habeas mandado acao apelacao peticao
+    inquerito conflito suspensao extradicao revisao representacao consulta
+    """.split()
+)
+
+
+# Preposição contraída com artigo: é o que abre a segunda de duas citações
+# coordenadas, e nunca aparece depois do "e" dentro de um nome de classe.
+_CONTRACAO = frozenset({"da", "do", "das", "dos", "na", "no", "nas", "nos"})
+
+
+def _e_institucional(token: str) -> bool:
+    return chave_textual(token.strip(".,;:()")) in _PALAVRA_INSTITUCIONAL
+
+
+def _e_palavra_de_nome(token: str) -> bool:
+    """Palavra por extenso com inicial maiúscula, sem nenhuma marca de sigla.
+
+    Sigla tem ponto, hífen, dígito ou mais de uma maiúscula (`AG.REG`, `REsp`,
+    `TST-RR`); as de três letras (`Rcl`, `Pet`) ficam de fora pelo tamanho.
+    """
+    limpo = token.strip(",;:()")
+    return (
+        len(limpo) >= 4
+        and limpo[:1].isupper()
+        and limpo[1:].isalpha()
+        and limpo[1:].islower()
+        and chave_textual(limpo) not in _NUCLEO_DE_CLASSE
+    )
+
+
 # O maior prefixo do gabarito tem 11 palavras ("Embargos de Declaração no
 # Agravo Interno no Agravo em Recurso Especial nº").
 _MAXIMO_ELOS = 12
@@ -681,6 +735,8 @@ def _expandir_prefixo(corpo: str, inicio: int) -> int:
     falha, e a suíte passou de milissegundos para 41 segundos. Aqui o custo é
     linear e o limite é explícito.
     """
+    # Os elos aceitos, da direita para a esquerda, como (início, token).
+    aceitos: list[tuple[int, str]] = []
     posicao = inicio
     for _ in range(_MAXIMO_ELOS):
         recuo = posicao
@@ -700,10 +756,22 @@ def _expandir_prefixo(corpo: str, inicio: int) -> int:
         while recuo > 0 and not corpo[recuo - 1].isspace():
             recuo -= 1
         token = corpo[recuo:fim_token]
+        if _e_institucional(token):
+            # O órgão ou a autoridade que proferiu a decisão não faz parte da
+            # citação, e o que vem logo à direita dele é o complemento do nome
+            # ("Corte Especial", "Ministro Gilmar Mendes") — sai junto.
+            while aceitos and _e_palavra_de_nome(aceitos[-1][1]):
+                aceitos.pop()
+            break
+        if token == "e" and aceitos and aceitos[-1][1] in _CONTRACAO:
+            # "do Recurso Extraordinário e da Rcl nº 1" coordena duas citações;
+            # o nome de classe usa a preposição nua ("Liminar e de Sentença").
+            break
         if not _e_elo(token) and not _elo_corrompido(corpo, recuo, token):
             break
+        aceitos.append((recuo, token))
         posicao = recuo
-    return posicao
+    return aceitos[-1][0] if aceitos else inicio
 
 
 # Os pedaços da marca de número separados por espaço: `n º`, `N °`. O arnês

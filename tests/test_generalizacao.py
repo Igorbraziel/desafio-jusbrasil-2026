@@ -554,3 +554,50 @@ def test_nome_em_caixa_alta_com_um_digito_nao_vira_processo():
     Na base real não há como separar os dois pela forma.
     """
     assert _detectar("Brasília, 26 de abril de 2016. MSTF 3SSIL - RELATOR do feito.") == []
+
+
+# ── O órgão julgador antes da citação ─────────────────────────────────────────
+#
+# Capitalizados, "Tribunal", "Ministro" e o nome que os segue têm forma de sigla,
+# e a cadeia de prefixo os engolia: IoU entre 0,33 e 0,39 contra o span da
+# citação, que vira FN e FP. Nos acórdãos reais, ~2% dos spans de processo.
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Conforme entendimento do Superior Tribunal de Justiça Rcl nº 68.244/SP, negou-se.",
+        "Como decidiu o Supremo Tribunal Federal Rcl nº 68.244/SP, não cabe o recurso.",
+        "Nesse sentido, o Ministro Relator Gilmar Mendes Rcl nº 68.244/SP afastou a tese.",
+        "Em Brasília, a Corte Especial Rcl nº 68.244/SP pacificou o tema em debate.",
+        "Vide jurisprudência do STF Rcl nº 68.244/SP sobre o tema em debate.",
+    ],
+)
+def test_orgao_julgador_nao_entra_no_prefixo(corpo):
+    assert [a.trecho for a in _detectar(corpo)] == ["Rcl nº 68.244/SP"]
+
+
+def test_orgao_julgador_nao_leva_o_nome_da_classe_junto():
+    """O descarte do complemento para no núcleo do nome da classe."""
+    achados = _detectar("O Relator Gilmar Mendes Reclamação nº 68.244/SP afastou a tese.")
+    assert [a.trecho for a in achados] == ["Reclamação nº 68.244/SP"]
+
+
+def test_citacoes_coordenadas_nao_se_fundem():
+    achados = _detectar("No julgamento do Recurso Extraordinário e da Rcl nº 68.244/SP, decidiu.")
+    assert achados[-1].trecho.endswith("Rcl nº 68.244/SP")
+    assert "Extraordinário" not in achados[-1].trecho
+
+
+def test_e_dentro_do_nome_da_classe_continua_elo():
+    achados = _detectar(
+        "Cita-se o Agravo Interno na Suspensão de Liminar e de Sentença nº 2.883/MA no ponto."
+    )
+    assert [a.trecho for a in achados] == [
+        "Agravo Interno na Suspensão de Liminar e de Sentença nº 2.883/MA"
+    ]
+
+
+def test_sigla_de_tribunal_colada_continua_elo():
+    achados = _detectar("Conforme o processo nº TST-RR-79500-16.2009.5.15.0001, julgado.")
+    assert achados[0].trecho.startswith("processo nº TST-RR-")
