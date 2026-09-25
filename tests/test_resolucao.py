@@ -326,3 +326,88 @@ def test_sigla_curta_nao_casa_dentro_de_outra_palavra(base_canonica):
     assert _classificar(base_canonica, "art. 7º da Constituição Fcdcral") == [
         ("real", DISPOSITIVOS[("CF", 7)])
     ]
+
+
+# ── Os caminhos de τ achados na revisão de 24/09 ──────────────────────────────
+#
+# Cada caso aqui saía `real` apontando para um registro da cobertura, embora a
+# citação fosse de outro diploma, outro tribunal ou outro artigo. É o erro que a
+# métrica multiplica pelo nível inteiro.
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # a sigla sem fronteira à direita: "CPPM" casava "CPP" e sobrava o "M"
+        "art. 312 do CPPM",
+        # o conector corrompido e o nome longo cortavam "Militar" fora do diploma
+        "art. 312 do Código dc Processo Penal Militar",
+        "art. 312 do Código Brasileiro de Processo Penal Militar",
+        # o qualificador estrangeiro depois do primeiro ficava fora do diploma
+        "art. 5º da Constituição da República Portuguesa",
+        "art. 5º da Constituição Federal Alemã",
+        "art. 5º da Constituição da República de Angola",
+        # artigo com sufixo é outro artigo: nenhum da cobertura tem sufixo
+        "art. 896-A da CLT",
+        "art. 373-A do CPC",
+        # códigos por sigla fora da cobertura
+        "art. 121 do CP",
+        "art. 142 do CTN",
+    ],
+)
+def test_diploma_ou_artigo_fora_da_cobertura_nao_vira_real(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # as siglas correntes da CF e do CPC vigentes
+        ("art. 5º, LV, da CRFB/88", ("CF", 5)),
+        ("art. 93, IX, da CRFB", ("CF", 93)),
+        ("art. 373 do NCPC", ("CPC", 373)),
+        # "LC nº 64/90": o marcador era o literal "lc 64", sem a marca de número
+        ("art. 1º, I, g, da LC nº 64/90", ("LC64", 1)),
+        # o parágrafo com sufixo não é sufixo do artigo
+        ("art. 896, § 1º-A, da CLT", ("CLT", 896)),
+    ],
+)
+def test_siglas_correntes_da_cobertura_sao_real(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+def test_sumula_vinculante_de_outro_tribunal_e_inventada(base_canonica):
+    """Súmula vinculante só existe no STF; "do STJ" é outra súmula."""
+    assert _classificar(base_canonica, "Súmula Vinculante 10 do STJ") == [("inventada", None)]
+    assert _classificar(base_canonica, "Súmula Vinculante 10 do STF") == [
+        ("real", SUMULAS[("STF", True, 10)])
+    ]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # tema em outras grafias caía na família `processo`, e o número de um
+        # tema citado na ementa de um acórdão resolvia para esse acórdão
+        "Tema Repetitivo 1.046 do STJ",
+        "tema repetitivo 1.148 do STJ",
+        "Tema de Repercussão Geral nº 1.046",
+        "Tema RG 1.046",
+    ],
+)
+def test_tema_em_outras_grafias_e_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # lei citada pelo número, com ano de dois dígitos: não é processo
+        "artigo 189 da Lei Federal nº 9.504/97",
+        "art 189 da Lci nº 9.504/97",
+    ],
+)
+def test_lei_com_ano_de_dois_digitos_nao_vira_processo(base_canonica, citacao):
+    familias = {a.familia for a in detectar(f"Invoca-se o {citacao}, no ponto.")}
+    assert "processo" not in familias
+    assert all(classe != "real" for classe, _ in _classificar(base_canonica, citacao))

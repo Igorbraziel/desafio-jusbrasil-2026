@@ -328,7 +328,16 @@ _SUMULA = re.compile(
 _TEMA = re.compile(
     # O número atravessa o digitoide, mas não pode começar colado à palavra nem
     # terminar dentro de outra: sem os freios, `temas` casava como Tema `s`.
-    rf"\b{_tolerante('Tema')}\s+(?:{_NUMERO}\s*)?"
+    #
+    # A espécie do tema pode vir entre a palavra e o número ("Tema Repetitivo
+    # 1.046", "Tema de Repercussão Geral nº 1.046", "Tema RG 1.046"), e o plural
+    # abre a enumeração ("Temas 1.046 e 1.191"). Sem essas formas a citação caía
+    # na família `processo`, e o número de um tema mencionado na ementa de um
+    # acórdão resolvia para esse acórdão — `inventada` → `real`.
+    rf"\b{_tolerante('Tema')}s?\s+"
+    rf"(?:(?:d[ae]\s+)?(?:{_tolerante('Repercussão')}\s+{_tolerante('Geral')}"
+    rf"|{_tolerante('Repetitivo')}|RG)\s+)?"
+    rf"(?:{_NUMERO}\s*)?"
     rf"(?P<numero>{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*)(?![A-Za-zÀ-ÿ])"
     rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?",
     re.IGNORECASE,
@@ -346,11 +355,18 @@ _TEMA = re.compile(
 # do nome (`(?!d[aeo]\b)`): se fosse, ele engoliria o "de" e o ano ficaria fora.
 _ANO_DE_VERSAO = r"(?:\s*/\s*\d{2,4}|\s+de\s+(?:19|20)\d{2})?"
 #
-# A palavra do nome tem inicial maiúscula — `(?-i:…)`, porque `_DISPOSITIVO` é
-# IGNORECASE — ou é uma das minúsculas de `_PALAVRA_DE_CODIGO_MINUSCULA`. Antes
+# A palavra do nome está em caixa de título — maiúscula seguida de minúscula, com
+# `(?-i:…)` porque `_DISPOSITIVO` é IGNORECASE — ou é uma das palavras do
+# vocabulário fechado de `_PALAVRA_DE_CODIGO_MINUSCULA`, em qualquer caixa. Antes
 # qualquer palavra servia, e a prosa entrava no span: "art. 186 do Código Civil
 # trata do ato" (IoU 0,65). `militar` está na lista para que o CPPM escrito em
 # minúscula continue capturado inteiro e recusado.
+#
+# Caixa de título, e não só inicial maiúscula: em caixa alta — ementas inteiras
+# são escritas assim — toda palavra tem inicial maiúscula, e a prosa entrava no
+# diploma ("ART. 290 DO CÓDIGO PENAL MILITAR SE ENCONTRA"). Ali só entra palavra
+# do vocabulário fechado.
+_PALAVRA_TITULO = r"(?-i:[A-ZÀ-Ú][a-zà-ú])[\wÀ-ú]*"
 _PALAVRA_DE_CODIGO_MINUSCULA = (
     "(?:"
     + "|".join(
@@ -362,11 +378,17 @@ _PALAVRA_DE_CODIGO_MINUSCULA = (
     )
     + r")(?![\wÀ-ú])"
 )
+#
+# O conector aceita o ruído do nível 2 (`dc`, `d0`, `dã`) e o nome vai até quatro
+# palavras. Com o conector literal e o teto de três, "Código dc Processo Penal
+# Militar" e "Código Brasileiro de Processo Penal Militar" perdiam o "Militar":
+# o CPPM, fora da cobertura, chegava à resolução como CPP — o erro grave.
+_CONECTOR_DE_NOME = r"d[aeoc0ã]"
 _PALAVRA_DO_NOME = (
-    r"(?:\s+(?:d[aeo]\s+)?(?!d[aeo]\b)"
-    rf"(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]*|{_PALAVRA_DE_CODIGO_MINUSCULA}))"
+    rf"(?:\s+(?:{_CONECTOR_DE_NOME}\s+)?(?!{_CONECTOR_DE_NOME}\b)"
+    rf"(?:{_PALAVRA_TITULO}|{_PALAVRA_DE_CODIGO_MINUSCULA}))"
 )
-_NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,3}}{_ANO_DE_VERSAO}"
+_NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,4}}{_ANO_DE_VERSAO}"
 # O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
 # lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
 # e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
@@ -396,10 +418,26 @@ _QUALIFICADOR_MINUSCULO = (
     + r")(?![\wÀ-ú])"
 )
 
+# A palavra "Lei" também sofre o ruído de letra (`Lci`), e o número pode vir
+# depois de um qualificador ("Lei Federal nº 9.504/97"). Sem as duas coisas o
+# dispositivo não casava, e o número da lei sobrava para a família `processo`.
+_QUALIFICADOR_DE_LEI = "|".join(
+    _tolerante(p) for p in ("Complementar", "Federal", "Estadual", "Municipal", "Ordinária")
+)
+
+# Palavras de qualificador da Constituição depois da primeira, na mesma linha:
+# "Constituição da República Portuguesa", "Constituição Federal Alemã". Só a
+# primeira palavra entrava no diploma, e o qualificador estrangeiro que vinha
+# depois nunca chegava à regra de inclusão da CF. O algarismo romano fica de
+# fora para que o título da seção seguinte não entre no diploma.
+_QUALIFICADOR_SEGUINTE = (
+    r"(?:(?:[ \t\xa0]+d[aeo]s?)?[ \t\xa0]+(?!(?-i:[IVXLC]+)\b)"
+    rf"(?:{_PALAVRA_TITULO}|{_QUALIFICADOR_MINUSCULO})){{0,2}}"
+)
+
 _DIPLOMA = (
     r"(?:"
-    rf"Lei\s+Complementar{_NUMERO_DE_LEI}"
-    rf"|Lei{_NUMERO_DE_LEI}"
+    rf"{_tolerante('Lei')}(?:\s+(?:{_QUALIFICADOR_DE_LEI}))?{_NUMERO_DE_LEI}"
     rf"|{_tolerante('Consolidação')}\s+das\s+{_tolerante('Leis')}\s+d[oe]\s+{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
     # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
@@ -423,7 +461,7 @@ _DIPLOMA = (
     # CF: `real` virava `inventada`. Medido nos 996 acórdãos, eram 98 citações.
     rf"|{_tolerante('Constituição')}(?:\s+de\s+(?:19|20)\d{{2}}"
     rf"|(?:\s+d[aeo]\s+)?(?:\s*(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]+|{_QUALIFICADOR_MINUSCULO}))?"
-    rf"{_ANO_DE_VERSAO})"
+    rf"{_QUALIFICADOR_SEGUINTE}{_ANO_DE_VERSAO})"
     r"|Carta\s+Magna"
     # `Decreto-Lei nº 5.452/1943` é **como a base canônica nomeia a CLT** na
     # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
@@ -433,7 +471,14 @@ _DIPLOMA = (
     rf"|LC{_NUMERO_DE_LEI}"
     # `CPC/73` e `CC/16` são os códigos revogados; o ano vai junto para a
     # resolução decidir. `CF/88` é o caso particular que já existia.
-    rf"|(?:CPC|CPP|CPM|CLT|CDC|CF|CC){_ANO_DE_VERSAO}"
+    #
+    # A sigla precisa terminar ali: sem a fronteira, `CPPM` casava `CPP` e o "M"
+    # ficava de fora — o Código de Processo Penal Militar, fora da cobertura,
+    # resolvia para o art. 312 do CPP. As siglas fora da cobertura (`CP`, `CTN`,
+    # `CTB`, `ECA`, `CPPM`) entram para que a citação exista e saia `inventada`;
+    # `CRFB` e `NCPC` são grafias correntes da CF/88 e do CPC vigente.
+    rf"|(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA|CF|CC|CP)(?![A-Za-zÀ-ÿ])"
+    rf"{_ANO_DE_VERSAO}"
     r")"
 )
 
@@ -767,6 +812,27 @@ _ROTULO_DISTRATOR = re.compile(
     re.IGNORECASE,
 )
 
+# Ato normativo ou referência que não é decisão, logo à esquerda do número:
+# "Lei 8.112/90", "Decreto 3.048/99", "Medida Provisória nº 2.200-2/2001",
+# "Informativo 1.046". O número casava o núcleo da família `processo` e virava
+# citação `inventada` que o gabarito não anota; com ano de dois dígitos
+# ("Lei nº 9.504/97") ele ainda escapava de `_TERMINA_EM_ANO` e, se o índice o
+# tivesse, virava `real`. Conferido: nenhuma citação de processo do gabarito
+# tem uma dessas palavras nos 40 caracteres à esquerda.
+#
+# A palavra precisa estar colada ao número, admitido só um qualificador curto
+# ("Lei Federal", "Lei Complementar") e a marca de número: é o que impede a
+# regra de apagar o processo vizinho em "A Lei 8.112/90 … no REsp 1.234.567/SP".
+_ATO_NORMATIVO = re.compile(
+    rf"\b(?:{_tolerante('Lei')}(?:\s+(?:{_tolerante('Complementar')}|{_tolerante('Federal')}"
+    rf"|{_tolerante('Estadual')}|{_tolerante('Municipal')}|{_tolerante('Ordinária')}))?"
+    r"|LC|Decreto(?:[-‐\s]*Lei)?|Medida\s+Provis[óo]ria|MP|Portaria|Resolu[çc][ãa]o"
+    r"|Instru[çc][ãa]o\s+Normativa|IN|Emenda(?:\s+Constitucional)?|EC"
+    r"|Informativo|Info|OJ|Enunciado|Provimento|Ato|Of[íi]cio|Parecer|Nota\s+T[ée]cnica)"
+    rf"\s*[.:]?\s*(?:{_NUMERO}\s*)?$",
+    re.IGNORECASE,
+)
+
 
 def _forma_canonica(numero: str) -> str:
     """O número sem ruído de superfície, mas com a pontuação que o estrutura.
@@ -806,7 +872,8 @@ def _e_numero_de_processo(numero: str, antes: str, depois: str = "") -> bool:
         return False
     if _CENTAVOS.match(depois):
         return False
-    return not _ROTULO_DISTRATOR.search(antes[-_JANELA_ROTULO:])
+    janela = antes[-_JANELA_ROTULO:]
+    return not (_ROTULO_DISTRATOR.search(janela) or _ATO_NORMATIVO.search(janela))
 
 
 def _aparar(texto: str, inicio: int, fim: int) -> tuple[int, int]:

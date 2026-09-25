@@ -130,15 +130,21 @@ CONFIANCA = {
 # dos registros nomeia esses dois diplomas. `NUMERO_DA_LEI` já os conhecia; sem
 # eles aqui, `art. 186 da Lei nº 10.406/2002` não achava diploma e virava
 # `inventada`.
+#
+# `cppm` é a sigla do CPPM e precisa vencer `cpp`, que a contém. `crfb` e `ncpc`
+# são as siglas correntes da CF/88 e do CPC vigente. A Lei Complementar casa pelo
+# marcador `lc` solto, e não mais pelo literal "lc 64": com a marca de número no
+# meio ("LC nº 64/90") o literal não casava e a citação `real` virava `inventada`.
+# O número e o ano continuam conferidos em `_diploma_confere`.
 DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
-    (("processo penal militar",), (), "CPPM_FORA"),
-    (("processo civil", "13.105", "13105", "cpc"), (), "CPC"),
+    (("processo penal militar", "cppm"), (), "CPPM_FORA"),
+    (("processo civil", "13.105", "13105", "cpc", "ncpc"), (), "CPC"),
     (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
     (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
     (("consolidacao das leis", "clt", "5.452", "5452"), (), "CLT"),
-    (("constituic", "carta magna", "cf"), (), "CF"),
-    (("lei complementar", "lc 64", "64/1990"), (), "LC64"),
+    (("constituic", "carta magna", "cf", "crfb"), (), "CF"),
+    (("lei complementar", "lc", "64/1990"), (), "LC64"),
     (("eleitoral", "4.737", "4737"), (), "ELEITORAL"),
     (("civil", "cc", "10.406", "10406"), (), "CC"),
 )
@@ -232,7 +238,7 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
     levariam ao erro grave — Estadual, Portuguesa, Mineira — estão longe dos
     três aceitos.
     """
-    if "carta magna" in chave or re.fullmatch(r"cf(?:\s*/\s*\d{2,4})?", chave):
+    if "carta magna" in chave or re.fullmatch(r"(?:cf|crfb)(?:\s*/\s*\d{2,4})?", chave):
         return True
     # A sigla sai como o nome: "cf de 1988" sobrava como "cf", palavra que não é
     # qualificador, e a CF com ano virava `inventada`.
@@ -401,7 +407,19 @@ def _inteiro(valor: str | None) -> int | None:
 _ORDINAL = re.compile(rf"^([1-9])\s*[ºo°ª](?![\d{''.join(sorted(set(OCR_PARA_DIGITO)))}])")
 
 
+# Artigo com sufixo de letra (`896-A`, `373-A`) é outro artigo, acrescentado
+# depois ao código. Nenhum dos 13 da cobertura tem sufixo, e descartar a letra
+# fazia o `896-A` resolver para o art. 896 — `inventada` → `real`.
+_SUFIXO_DE_ARTIGO = re.compile(r"\d\s*[-‐]\s*[A-Za-z]\s*$")
+
+# Número que nenhum artigo tem: devolvido para o artigo com sufixo, ele passa
+# pela consulta à tabela curada e sai `inventada`, que é a resposta certa.
+ARTIGO_FORA_DA_COBERTURA = -1
+
+
 def _numero_de_artigo(valor: str | None) -> int | None:
+    if valor and _SUFIXO_DE_ARTIGO.search(valor):
+        return ARTIGO_FORA_DA_COBERTURA
     if valor and (ordinal := _ORDINAL.match(valor)):
         return int(ordinal.group(1))
     return _inteiro(valor)

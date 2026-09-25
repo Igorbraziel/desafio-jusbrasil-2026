@@ -286,6 +286,11 @@ class BaseCanonica:
 
     def sumula(self, tribunal: str | None, vinculante: bool, numero: int) -> int | None:
         if vinculante:
+            # Súmula vinculante só existe no STF. Com outro tribunal nomeado
+            # ("Súmula Vinculante 10 do STJ") a citação é de outra súmula, e
+            # ignorar o tribunal a resolvia para a SV 10 — `inventada` → `real`.
+            if tribunal not in (None, "STF"):
+                return None
             return SUMULAS.get(("STF", True, numero))
         if tribunal is None:
             return None

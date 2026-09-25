@@ -689,3 +689,58 @@ def test_qualificadores_nao_explodem_em_texto_longo():
     _detectar("art. 5º, " + "caput e inciso, " * 20000)
     _detectar("art. 5º" + ", parágrafo" * 20000)
     assert time.perf_counter() - inicio < 2
+
+
+# ── Ato normativo não é processo ──────────────────────────────────────────────
+#
+# O número de uma lei, decreto ou medida provisória citados soltos casava o
+# núcleo da família `processo` e virava citação `inventada` — falso positivo
+# que o gabarito não anota. O sinal é a palavra do ato logo à esquerda.
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Nos termos da Lei 8.112/90, o servidor faz jus ao adicional.",
+        "Nos termos da Lei nº 13.467, de 2017, a reforma se aplica.",
+        "Nos termos do Decreto 3.048/99, o benefício é devido.",
+        "Nos termos da Medida Provisória nº 2.200-2/2001, a assinatura vale.",
+        "Nos termos da Instrução Normativa nº 1.234, a exigência cai.",
+        "Nos termos da Portaria nº 12.345, a exigência cai.",
+        "Consta do Informativo 1.046 do STF que a tese prevaleceu.",
+    ],
+)
+def test_ato_normativo_nao_vira_processo(corpo):
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+def test_ato_normativo_nao_derruba_o_processo_vizinho():
+    """A regra olha o prefixo da própria citação, não a frase inteira."""
+    achados = _detectar("A Lei 8.112/90 foi aplicada no REsp 1.234.567/SP, citado.")
+    assert [a.trecho for a in achados] == ["REsp 1.234.567/SP"]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # em caixa alta toda palavra tem inicial maiúscula, e o nome do código
+        # engolia a prosa seguinte ("… MILITAR SE ENCONTRA")
+        (
+            "A CONDUTA DO ART. 290 DO CÓDIGO PENAL MILITAR SE ENCONTRA PROVADA.",
+            "ART. 290 DO CÓDIGO PENAL MILITAR",
+        ),
+        (
+            "A NORMA DO ART. 185 DO CÓDIGO TRIBUTÁRIO NACIONAL É ABSOLUTA.",
+            "ART. 185 DO CÓDIGO TRIBUTÁRIO NACIONAL",
+        ),
+        (
+            "VIOLOU O ART. 373 DO CÓDIGO DE PROCESSO CIVIL E DO ART. 5º DA CF.",
+            "ART. 373 DO CÓDIGO DE PROCESSO CIVIL",
+        ),
+    ],
+)
+def test_nome_do_codigo_em_caixa_alta_para_no_nome(corpo, esperado):
+    # Linha toda em caixa alta logo depois do cabeçalho é lida como título dele
+    # (`fim_do_cabecalho`); a prosa na frente põe a ementa no corpo.
+    achados = _detectar("A ementa do julgado é a seguinte.\n" + corpo)
+    assert achados[0].trecho == esperado
