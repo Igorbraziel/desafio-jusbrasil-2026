@@ -38,8 +38,9 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from .estrutura import zonas_de_identificacao
-from .normalizacao import numeros_do_texto
+from .deteccao import _e_numero_de_processo
+from .estrutura import tribunal_do_texto, zonas_de_identificacao
+from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO
 
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
 MINIMO_DIGITOS = 4
@@ -128,12 +129,61 @@ _REFERENCIA_A_LEI = re.compile(
     re.IGNORECASE,
 )
 
+# A mesma referência com o ano em dois dígitos ("Lei nº 9.504/97", "Lei Federal
+# nº 8.112/90"), que a expressão acima não pega: o número entrava no índice como
+# `950497` e a citação `inventada` que o usasse resolvia para o acórdão. Só com
+# barra: com ponto, "13.467.20…" seria o começo de outro número.
+_LEI_COM_ANO_CURTO = re.compile(
+    r"\b(?:lei|lc|decreto(?:[-\s]lei)?|medida\s+provis[óo]ria|mp|emenda\s+constitucional|ec)"
+    rf"(?:\s+(?:complementar|federal))?{_NUMERO_ABREVIADO}\s*\d{{1,3}}(?:\.\d{{3}})*"
+    r"\s*/\s*\d{2}(?!\d)",
+    re.IGNORECASE,
+)
+
+# Data com barra: a data da sessão abre o cabeçalho do STF ("27/11/2024") e o do
+# STM ("SESSÃO VIRTUAL DE 16/03/2026"), e entrava no índice como `27112024`. A
+# data com ponto fica de propósito: `7.00.0000`, dentro do número CNJ do STM,
+# tem essa forma.
+_DATA_COM_BARRA = re.compile(r"\b\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4}\b")
+
+# Inscrição na OAB, nas duas grafias da base: "OAB: 12345/SP" (TSE) e o número
+# colado à UF no rol de advogados do STJ ("SP123456").
+_OAB = re.compile(
+    r"OAB\s*[:/]?\s*[A-Z]{0,2}\s*[:/]?\s*\d[\d.\-]*(?:\s*/\s*[A-Z]{2})?|\b[A-Z]{2}\d{3,7}\b"
+)
+
+# O número próprio do TST, na forma em que ele aparece: `TST-<classe>-<número>`.
+# O "cabeçalho" do TST é o começo da ementa, e os demais números dele são
+# citação — "ADI 1717-DF", "Tema 1046" — que faziam o acórdão responder por um
+# processo que ele só menciona.
+_NUMERO_DO_TST = re.compile(r"TST\s*-\s*[A-Za-z]+(?:\s*-\s*[A-Za-z]+)*\s*-\s*\d[\d.\-\s]*\d")
+
+# No cabeçalho dos demais tribunais, o número próprio vem antes do relator; o
+# que vem depois é o rol de partes, com seus números ("COATOR: RELATOR DO HC Nº
+# 604.005", a inscrição dos advogados).
+_RELATOR = re.compile(r"\bRELATOR[A]?\s*:|\bRelator[a]?\s*:")
+
+# Rótulo que marca o número seguinte como artigo, tema, súmula ou inciso, e não
+# como processo: "art. 1.021", "Tema 1046". Os rótulos de distrator e de ato
+# normativo já vêm de `deteccao._e_numero_de_processo`, aplicada aqui também.
+_ROTULO_NAO_PROPRIO = re.compile(
+    r"(?:(?<!\w)(?:arts?\.?|artigos?|temas?|s[úu]mulas?|incisos?)|§+)\s*(?:n[.ºo°]?\s*)?$",
+    re.IGNORECASE,
+)
+
 # Um número que muitos registros reivindicam como próprio não é identificador —
 # é texto de fórmula. Os pares de duplicata conhecidos da base compartilham um
 # número entre *dois* registros; acima disso é vazamento da região, e deixar
 # entrar custa τ. Este corte é independente de reconhecer sintaxe de lei, então
 # pega também o que a regex acima não descreve.
 MAXIMO_REGISTROS_POR_NUMERO = 2
+
+# Para número longo (CNJ, número único do STJ), o corte conta **textos
+# distintos**, não registros: a base tem acórdãos indexados três e quatro vezes
+# com o mesmo texto, e contar registros tirava do índice o número próprio de
+# todos eles. Número longo não é fórmula; o curto continua contado por registro.
+DIGITOS_NUMERO_LONGO = 10
+LIMITE_ASSINATURA = 3000
 
 
 # Método padrão de extração da região. Trocável por `--metodo` em
@@ -166,14 +216,28 @@ def _regiao_baseline(texto: str) -> str:
     return "\n".join(pedacos)
 
 
+def _cabecalho_proprio(cabecalho: str, tribunal: str) -> str:
+    """Só a parte do cabeçalho onde o número próprio pode estar."""
+    if tribunal == "TST":
+        return "\n".join(m.group() for m in _NUMERO_DO_TST.finditer(cabecalho))
+    relator = _RELATOR.search(cabecalho)
+    return cabecalho[: relator.start()] if relator else cabecalho
+
+
 def _regiao_estrutural(texto: str, tribunal: str | None) -> str:
     """As zonas identificadoras da segmentação, por espécie de tribunal.
 
     Em vez de supor onde o número está, segmenta o documento e pega as zonas em
     que ele *pode* estar — ver :mod:`verificador.estrutura`.
     """
-    zonas = zonas_de_identificacao(texto, tribunal)
-    return "\n".join(z.texto for z in zonas)
+    tribunal = (tribunal or tribunal_do_texto(texto) or "").upper()
+    pedacos = []
+    for zona in zonas_de_identificacao(texto, tribunal or None):
+        pedaco = zona.texto
+        if zona.tipo == "cabecalho":
+            pedaco = _cabecalho_proprio(pedaco, tribunal)
+        pedacos.append(pedaco)
+    return "\n".join(pedacos)
 
 
 def regiao_de_identificacao(
@@ -196,7 +260,49 @@ def regiao_de_identificacao(
     bruto = (
         _regiao_estrutural(texto, tribunal) if metodo == "estrutural" else _regiao_baseline(texto)
     )
-    return _REFERENCIA_A_LEI.sub(" ", bruto)
+    for nao_proprio in (_DATA_COM_BARRA, _OAB, _LEI_COM_ANO_CURTO, _REFERENCIA_A_LEI):
+        bruto = nao_proprio.sub(" ", bruto)
+    return bruto
+
+
+def numeros_proprios(regiao: str) -> set[str]:
+    """Os números da região que podem ser o número do próprio processo.
+
+    Parte das duas leituras de :func:`numeros_do_texto` e descarta três coisas:
+
+    * o que a detecção também recusaria como processo — página, data, ano,
+      inscrição, ato normativo —, com a mesma regra dos dois lados
+      (`deteccao._e_numero_de_processo`);
+    * o que vem depois de rótulo de artigo, tema, súmula ou inciso;
+    * a leitura conservadora que é só o começo da permissiva no mesmo ponto: em
+      "Nº 111-66. 2016.6.26…" o espaço parte o número, e o pedaço `11166` virava
+      chave sem ser número de nada — a `Rcl nº 11.166` inventada resolvia por ele.
+    """
+    permissivos = {m.start(): re.sub(r"\D", "", m.group()) for m in _NUCLEO.finditer(regiao)}
+    saida = set()
+    for expressao in (_NUCLEO_LIMPO, _NUCLEO):
+        for casamento in expressao.finditer(regiao):
+            numero = re.sub(r"\D", "", casamento.group())
+            if len(numero) < MINIMO_DIGITOS or _ANO.fullmatch(numero):
+                continue
+            antes = regiao[: casamento.start()]
+            if _ROTULO_NAO_PROPRIO.search(antes[-20:]):
+                continue
+            if not _e_numero_de_processo(casamento.group(), antes, regiao[casamento.end() :]):
+                continue
+            inteiro = permissivos.get(casamento.start(), "")
+            if (
+                expressao is _NUCLEO_LIMPO
+                and len(inteiro) > len(numero)
+                and inteiro.startswith(numero)
+            ):
+                continue
+            saida.add(numero)
+    return saida
+
+
+# Ano solto não é número próprio de processo nenhum da base (conferido).
+_ANO = re.compile(r"(?:19|20)\d{2}")
 
 
 def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
@@ -208,6 +314,7 @@ def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
     conexao = sqlite3.connect(f"file:{caminho_db}?mode=ro", uri=True)
     numeros: dict[str, list[str]] = {}
     registros: dict[str, dict] = {}
+    assinaturas: dict[str, str] = {}
 
     consulta = (
         "SELECT documento_id, id, tribunal, texto, texto_len "
@@ -219,19 +326,24 @@ def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
             "tribunal": tribunal,
             "texto_len": texto_len,
         }
+        assinaturas[documento_id] = _ESPACOS.sub(" ", texto[:LIMITE_ASSINATURA])
         regiao = regiao_de_identificacao(texto, tribunal, metodo)
-        for numero in numeros_do_texto(regiao):
-            if len(numero) >= MINIMO_DIGITOS:
-                numeros.setdefault(numero, []).append(documento_id)
+        for numero in numeros_proprios(regiao):
+            numeros.setdefault(numero, []).append(documento_id)
 
     conexao.close()
 
+    def donos(numero: str, documentos: list[str]) -> int:
+        if len(numero) >= DIGITOS_NUMERO_LONGO:
+            return len({assinaturas[d] for d in documentos})
+        return len(documentos)
+
     # Descarta o que muitos registros reivindicam: é fórmula, não identificador.
-    # Ver MAXIMO_REGISTROS_POR_NUMERO.
+    # Ver MAXIMO_REGISTROS_POR_NUMERO e DIGITOS_NUMERO_LONGO.
     numeros = {
         numero: documentos
         for numero, documentos in numeros.items()
-        if len(documentos) <= MAXIMO_REGISTROS_POR_NUMERO
+        if donos(numero, documentos) <= MAXIMO_REGISTROS_POR_NUMERO
     }
     return {"numeros": numeros, "registros": registros}
 

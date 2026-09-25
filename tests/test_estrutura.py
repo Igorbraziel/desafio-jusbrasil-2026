@@ -85,6 +85,24 @@ def test_zona_de_identificacao_limita_o_tamanho():
     assert "TST-RR-9999-99.2011.5.02.0251" in identificacao[0].texto
 
 
+def test_destes_autos_na_ementa_nao_abre_a_identificacao():
+    """ "Destes autos" e "nestes autos" na ementa não são a fórmula de abertura.
+
+    Sem fronteira de palavra, "de**stes autos**" casava a âncora na ementa do TST,
+    a zona de identificação caía no lugar errado e o número próprio ficava fora
+    do índice — o acórdão deixava de responder por ele.
+    """
+    texto = (
+        "A C Ó R D Ã O SbDI-1 GMJRP/ir EMBARGOS. No caso destes autos, não se "
+        "conhece do recurso. Embargos não conhecidos. " + "y" * 600 + " Vistos, relatados e "
+        "discutidos estes autos de Embargos em Recurso de Revista nº "
+        "TST-E-RR-9999-99.2011.5.02.0251, em que é Embargante FULANO " + "x" * 800
+    )
+    identificacao = [z for z in segmentar(texto, "TST") if z.tipo == "identificacao"]
+    assert len(identificacao) == 1
+    assert "TST-E-RR-9999-99.2011.5.02.0251" in identificacao[0].texto
+
+
 def test_zonas_de_identificacao_filtra():
     texto = CABECALHO_STJ + CORPO
     assert {z.tipo for z in zonas_de_identificacao(texto, "STJ")} <= ZONAS_IDENTIFICADORAS
