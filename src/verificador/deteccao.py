@@ -110,6 +110,11 @@ def _tolerante(palavra: str) -> str:
     nunca para classes abertas — é o que mantém a superfície de falso positivo
     onde estava: a âncora continua exigindo a palavra inteira, e o resto da
     expressão (número, diploma, tribunal) continua exigido.
+
+    Aceita também o dígito que o OCR põe no lugar da letra — `Súmu1a`, `Re1.`,
+    `Con5tituição`, `julgad0` —, que o nível 2 da amostra mostra na prosa
+    ("5úmula", "C0NTROVÉRSIA") e que apagava a citação inteira. O dígito vem da
+    inversa de `OCR_PARA_DIGITO`, a mesma tabela do reparo do número.
     """
     partes = []
     for letra in palavra:
@@ -118,6 +123,9 @@ def _tolerante(palavra: str) -> str:
         confusao = CONFUSOES_DE_LETRA.get(base.lower())
         if confusao:
             opcoes.add(confusao)
+        digito = OCR_PARA_DIGITO.get(base) or OCR_PARA_DIGITO.get(base.lower())
+        if digito:
+            opcoes.add(digito)
         simples = sorted(o for o in opcoes if len(o) == 1)
         classe = re.escape(simples[0]) if len(simples) == 1 else f"[{''.join(simples)}]"
         compostas = sorted(o for o in opcoes if len(o) > 1)
@@ -302,7 +310,25 @@ _NUMERO_DE_SUMULA = rf"{_DIGITOIDE}+"
 # extenso. O extenso tem um grupo por tribunal (`ext_STJ`…), para a resolução
 # saber qual casou sem reler o texto corrompido. "desta Corte" fica de fora: o
 # tribunal depende de quem escreve.
-_SIGLA_DE_TRIBUNAL = rf"(?:{'|'.join(TRIBUNAIS)})(?![A-Za-zÀ-ÿ])"
+#
+# A sigla aceita o `S` lido como `5` ("5TJ", "T5T"), a troca que o nível 2 da
+# amostra faz com a letra maiúscula ("DO5", "PIRE5"). Sem isso a súmula perdia o
+# tribunal e saía `inventada`, e a `vaga` começava no meio da sigla.
+# `sigla_do_tribunal` devolve a forma limpa.
+_SIGLA_DE_TRIBUNAL = (
+    r"(?:(?-i:[S5]TF|[S5]TJ|T[S5]T|T[S5]E|[S5]TM)|STF|STJ|TST|TSE|STM)(?![A-Za-zÀ-ÿ\d])"
+)
+
+# O conector curto antes do tribunal ou do diploma, com o ruído do nível 2:
+# "d0", "dc", "dã" no lugar de "do", "de", "da".
+_CONECTOR = r"d[oaeã0c]s?"
+
+
+def sigla_do_tribunal(texto: str) -> str:
+    """A sigla do tribunal sem o ruído de OCR: `5TJ` → `STJ`."""
+    return texto.upper().replace("5", "S")
+
+
 _TRIBUNAL_POR_EXTENSO = "|".join(
     rf"(?P<ext_{sigla}>{r'[ \t]+'.join(_tolerante(p) for p in nome.split())})"
     for sigla, nome in (
@@ -319,7 +345,7 @@ _SUMULA = re.compile(
     r"(?:"
     rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL})"
     rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL})\s*\)"
-    rf"|(?:\s*,\s*[IVXLC]{{1,8}}\s*,)?\s*,?\s*d[oae]s?\s*"
+    rf"|(?:\s*,\s*[IVXLC]{{1,8}}\s*,)?\s*,?\s*{_CONECTOR}\s*"
     rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL})|{_TRIBUNAL_POR_EXTENSO})"
     r")?",
     re.IGNORECASE,
@@ -540,7 +566,7 @@ _NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-
 _DISPOSITIVO = re.compile(
     rf"\b{_tolerante('art')}(?:{_tolerante('igo')}|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"
     rf"{_QUALIFICADORES}"
-    rf"\s*,?\s*\n?\s*d[oae]s?\s+(?P<diploma>{_DIPLOMA})",
+    rf"\s*,?\s*\n?\s*{_CONECTOR}\s+(?P<diploma>{_DIPLOMA})",
     re.IGNORECASE,
 )
 
@@ -585,7 +611,7 @@ _ANO_TOLERANTE = (
 
 _VAGA = re.compile(
     rf"{_CABECA_VAGA}"
-    rf"(?:\s*,?\s*d[oa]\s+(?:{'|'.join(TRIBUNAIS)}))?"
+    rf"(?:\s*,?\s*{_CONECTOR}\s+{_SIGLA_DE_TRIBUNAL})?"
     rf"\s*,?\s*(?:{_tolerante('proferid')}[oaã0]|{_tolerante('julgad')}[oaã0])?\s*(?:d[ec]|[ec]rn|[ec]m)\s*\n?\s*"
     rf"{_ANO_TOLERANTE}"
     r"[^.]{0,30}?"
@@ -642,7 +668,7 @@ _RELATOR_NOMEADO = re.compile(
 # desaparecia quando o ano fechava a sentença.
 _ANO_ISOLADO = re.compile(rf"(?<![\d./-]){_ANO_TOLERANTE}(?![-/]|\.?\d)")
 
-_MENCAO_TRIBUNAL = re.compile(rf"\b(?:{'|'.join(TRIBUNAIS)})\b")
+_MENCAO_TRIBUNAL = re.compile(rf"\b{_SIGLA_DE_TRIBUNAL}")
 
 # A cabeça que abre a referência, quando presente. Só serve para estender o span
 # à esquerda até o substantivo que nomeia a decisão — não é exigida.
@@ -995,6 +1021,36 @@ def _sentencas(corpo: str) -> list[tuple[int, int]]:
     return [(a, b) for a, b in zip(limites, limites[1:], strict=False) if b > a]
 
 
+# O último pedaço do núcleo, depois de um espaço: `5ob` em "2020 5ob".
+_PEDACO_FINAL = re.compile(rf"[ \t\xa0\n]+({_DIGITOIDE}+)$")
+
+
+def _sem_palavra_corrompida(numero: str) -> str:
+    """O núcleo sem o pedaço final que é palavra com uma letra virada dígito.
+
+    O núcleo atravessa espaço e aceita digitoide, então "de 2020 5ob a vigência"
+    (o "sob" com o `s` corrompido) casava `2020 5ob`, cuja forma canônica
+    `2020506` já não é ano, e virava processo `inventada`.
+
+    O pedaço só sai quando tem mais letra do que dígito **e** o que vem antes
+    dele é um número completo — ano ou página —, não um número em andamento.
+    Grupo de milhar corrompido no fim ("1 B21 bb3", "1.234 S6O") também tem mais
+    letra que dígito, mas vem depois de outro grupo e tem exatamente três
+    caracteres: ali o pedaço é número, e cortá-lo encurtava o identificador.
+    """
+    pedaco = _PEDACO_FINAL.search(numero)
+    if pedaco is None:
+        return numero
+    final = pedaco.group(1)
+    letras = sum(c.isalpha() for c in final)
+    if letras <= len(final) - letras:
+        return numero
+    resto = numero[: pedaco.start()]
+    if len(final) == 3 and not _ANO_SOLTO.match(_forma_canonica(resto)):
+        return numero
+    return resto
+
+
 def _tem_numero_de_processo(trecho: str) -> bool:
     """Há na janela um número que a base consegue resolver?
 
@@ -1125,12 +1181,14 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
             vagas.append((inicio_vaga, fim_vaga))
 
     for m in _NUMERO_PROCESSO.finditer(corpo):
-        if not _digitos_suficientes(m.group(), corpo, m.start()):
+        numero = _sem_palavra_corrompida(m.group())
+        fim_numero = m.start() + len(numero)
+        if not _digitos_suficientes(numero, corpo, m.start()):
             continue
-        if not _e_numero_de_processo(m.group(), corpo[: m.start()], corpo[m.end() :]):
+        if not _e_numero_de_processo(numero, corpo[: m.start()], corpo[fim_numero:]):
             continue
         inicio = _expandir_prefixo(corpo, m.start())
-        fim = m.end()
+        fim = fim_numero
         uf = _UF.match(corpo, fim)
         if uf is not None:
             fim = uf.end()

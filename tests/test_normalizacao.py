@@ -72,3 +72,19 @@ def test_chave_textual_remove_acento_e_caixa():
 def test_numeros_do_texto_normaliza_pontuacao():
     texto = "RECURSO ESPECIAL Nº 1.234.567 - PR (2018/0116304-1)"
     assert "1234567" in numeros_do_texto(texto)
+
+
+@pytest.mark.parametrize("uf", ["G0", "6O"])
+def test_goias_corrompido_nao_entra_no_numero(uf):
+    """GO é a única UF feita de duas letras que o OCR confunde com dígito.
+
+    Corrompida, ela não era reconhecida como UF, o reparo a lia como `60` e o
+    número ganhava dois dígitos: `REsp 1.234.567/G0` virava `123456760`.
+    """
+    assert digitos_do_identificador(f"REsp 1.234.567/{uf}") == "1234567"
+    assert separar_uf(f"REsp 1.234.567/{uf}") == ("REsp 1.234.567", "GO")
+
+
+def test_ultimo_grupo_60_continua_no_numero():
+    """`60` puro é grupo de número, não Goiás corrompido."""
+    assert digitos_do_identificador("REspe nº 281-60") == "28160"

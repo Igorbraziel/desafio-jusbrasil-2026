@@ -21,8 +21,10 @@ fim exclusivo de um span.
 1. **Dígito nunca vira outro dígito.** A organização garante isso nos dados do
    desafio. Quebrar a garantia transformaria uma citação ``real`` ruidosa numa
    ``inventada`` de fato, e mediríamos um problema que a tarefa não tem.
-2. **Ruído de prosa é letra→letra.** Nunca cria sequência numérica nova, senão
-   o gerador inventa citações que o gabarito não anota.
+2. **Ruído de prosa nunca cria número.** Na maior parte das classes é
+   letra→letra. A exceção é ``ocr_letra_digito``, que põe **um** dígito no meio
+   de uma palavra, sem dígito vizinho — forma que o nível 2 da amostra tem
+   ("5úmula", "C0NTROVÉRSIA") e que nunca forma sequência numérica citável.
 
 Uso:
     python scripts/perturbar.py --classe ocr_numero --taxa 0.3 --semente 1
@@ -101,7 +103,24 @@ CLASSES = (
     "marca_numero",
     "sigla_nao_vista",
     "ordem_incompleta",
+    "ocr_letra_digito",
+    "sigla_tribunal",
+    "ocr_curta",
 )
+
+# Letra -> dígito dentro da palavra: o inverso de `_OCR_DIGITO`, escrito à parte
+# pelo mesmo motivo (derivar do reparo tornaria a medição circular). São as
+# trocas que o nível 2 da amostra mostra na prosa: `S`→`5`, `O`/`o`→`0`, `l`→`1`.
+_OCR_LETRA_DIGITO = {"S": "5", "s": "5", "O": "0", "o": "0", "l": "1", "I": "1", "B": "8"}
+
+# As siglas de tribunal e a corrupção que o OCR aplica a elas.
+_SIGLA_TRIBUNAL = re.compile(r"\b(?:STF|STJ|TST|TSE|STM)\b")
+
+# Palavras de duas e três letras — os conectores "de", "da", "do" e afins —, que
+# `_PALAVRA` nunca corrompe porque exige quatro letras. As trocas são as medidas
+# no nível 2: `e`→`c`, `a`→`ã`, `o`→`0` ("dc", "dã", "d0").
+_PALAVRA_CURTA = re.compile(r"(?<![\wÀ-ÿ])[A-Za-zÀ-ÿ]{2,3}(?![\wÀ-ÿ])")
+_OCR_CURTA = {"e": "c", "a": "ã", "o": "0"}
 
 
 @dataclass(frozen=True)
@@ -262,6 +281,54 @@ def _ordem_incompleta(texto, spans, rng, taxa) -> list[tuple[int, int, str]]:
     return trocas
 
 
+def _ocr_letra_digito(texto, spans, rng, taxa) -> list[tuple[int, int, str]]:
+    """Uma letra vira dígito dentro da palavra ("5úmula", "C0NTROVÉRSIA").
+
+    Só em palavra de três letras ou mais e só em posição sem dígito vizinho: o
+    dígito entra isolado entre letras e nunca forma número.
+    """
+    trocas = []
+    for casamento in re.finditer(r"[A-Za-zÀ-ÿ]{3,}", texto):
+        if rng.random() >= taxa:
+            continue
+        palavra = casamento.group()
+        candidatos = [i for i, c in enumerate(palavra) if c in _OCR_LETRA_DIGITO]
+        if not candidatos:
+            continue
+        i = rng.choice(candidatos)
+        posicao = casamento.start() + i
+        trocas.append((posicao, posicao + 1, _OCR_LETRA_DIGITO[palavra[i]]))
+    return trocas
+
+
+def _sigla_tribunal(texto, spans, rng, taxa) -> list[tuple[int, int, str]]:
+    """O `S` da sigla do tribunal vira `5` ("5TJ", "T5T")."""
+    trocas = []
+    for casamento in _SIGLA_TRIBUNAL.finditer(texto):
+        if rng.random() >= taxa:
+            continue
+        posicoes = [casamento.start() + i for i, c in enumerate(casamento.group()) if c == "S"]
+        posicao = rng.choice(posicoes)
+        trocas.append((posicao, posicao + 1, "5"))
+    return trocas
+
+
+def _ocr_curta(texto, spans, rng, taxa) -> list[tuple[int, int, str]]:
+    """Uma letra da palavra curta ("de" → "dc", "da" → "dã", "do" → "d0")."""
+    trocas = []
+    for casamento in _PALAVRA_CURTA.finditer(texto):
+        if rng.random() >= taxa:
+            continue
+        palavra = casamento.group()
+        candidatos = [i for i, c in enumerate(palavra) if c in _OCR_CURTA]
+        if not candidatos:
+            continue
+        i = rng.choice(candidatos)
+        posicao = casamento.start() + i
+        trocas.append((posicao, posicao + 1, _OCR_CURTA[palavra[i]]))
+    return trocas
+
+
 _GERADORES = {
     "ocr_numero": _ocr_numero,
     "ocr_palavra": _ocr_palavra,
@@ -270,6 +337,9 @@ _GERADORES = {
     "marca_numero": _marca_numero,
     "sigla_nao_vista": _sigla_nao_vista,
     "ordem_incompleta": _ordem_incompleta,
+    "ocr_letra_digito": _ocr_letra_digito,
+    "sigla_tribunal": _sigla_tribunal,
+    "ocr_curta": _ocr_curta,
 }
 
 

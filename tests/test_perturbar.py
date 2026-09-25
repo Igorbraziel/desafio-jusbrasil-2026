@@ -148,3 +148,38 @@ def test_span_traduzido_continua_ancorado(classe, semente):
     resultado = perturbar(TEXTO, [(inicio, fim, "real")], [classe], 0.4, semente=semente)
     novo_inicio, novo_fim = resultado.traduzir(inicio, fim)
     assert 0 <= novo_inicio < novo_fim <= len(resultado.texto)
+
+
+# ── As classes que medem o ruído que o gerador do desafio já mostrou ──────────
+#
+# Três formas estão no nível 2 da amostra e o arnês não gerava: letra trocada por
+# dígito dentro de palavra ("5úmula", "C0NTROVÉRSIA"), a sigla do tribunal
+# corrompida ("5TJ") e a palavra curta corrompida ("dc", "dã" no lugar de "de",
+# "da"). Sem elas, nenhuma medição exercitava esses caminhos.
+
+
+def test_ocr_letra_digito_nunca_cria_numero():
+    """O dígito entra sozinho, no meio de letras: nunca forma número citável."""
+    import re
+
+    texto = "Aplica-se a Súmula do Superior Tribunal, conforme a controvérsia posta nos autos. " * 5
+    resultado = perturbar(texto, [], ["ocr_letra_digito"], 1.0, semente=3)
+    assert resultado.texto != texto
+    assert not re.search(r"\d{2}", resultado.texto)
+    assert all(
+        sum(c.isdigit() for c in palavra) <= 1 for palavra in re.findall(r"\w+", resultado.texto)
+    )
+
+
+def test_sigla_tribunal_corrompe_so_a_sigla():
+    texto = "Súmula 83 do STJ e acórdão do TST, publicados."
+    resultado = perturbar(texto, [], ["sigla_tribunal"], 1.0, semente=1)
+    assert resultado.texto.replace("5", "S") == texto
+
+
+def test_ocr_curta_corrompe_palavras_de_duas_e_tres_letras():
+    texto = "art. 5º da Constituição e o art. 186 do Código Civil, de 2002."
+    resultado = perturbar(texto, [], ["ocr_curta"], 1.0, semente=2)
+    assert resultado.texto != texto
+    longas = [p for p in texto.split() if len(p.strip(".,")) > 3]
+    assert all(p in resultado.texto for p in longas)

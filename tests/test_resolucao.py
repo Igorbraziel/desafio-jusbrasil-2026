@@ -411,3 +411,32 @@ def test_lei_com_ano_de_dois_digitos_nao_vira_processo(base_canonica, citacao):
     familias = {a.familia for a in detectar(f"Invoca-se o {citacao}, no ponto.")}
     assert "processo" not in familias
     assert all(classe != "real" for classe, _ in _classificar(base_canonica, citacao))
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # a sigla do tribunal com o `S` lido como `5`
+        ("Súmula 83 do 5TJ", ("STJ", False, 83)),
+        ("Súmula 331 do T5T", ("TST", False, 331)),
+        ("Súmula Vinculante 10 do 5TF", ("STF", True, 10)),
+        # o conector curto corrompido
+        ("Súmula 83 d0 STJ", ("STJ", False, 83)),
+        ("Súmula 211 dc STJ", ("STJ", False, 211)),
+    ],
+)
+def test_sumula_com_sigla_ou_conector_corrompido(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 93, IX, dã Constituição Federal", ("CF", 93)),
+        ("art. 312 d0 Código de Processo Penal", ("CPP", 312)),
+        ("art. 477 dã CLT", ("CLT", 477)),
+        ("art. 1º dã Lei Complcmentar nº 64/1990", ("LC64", 1)),
+    ],
+)
+def test_dispositivo_com_conector_corrompido(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]

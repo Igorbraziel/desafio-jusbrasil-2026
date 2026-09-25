@@ -110,6 +110,14 @@ _NUCLEO_LIMPO = re.compile(rf"\d(?:{_PONTUACAO_NA_BASE}*\d)*")
 # passar faz o `S` virar `5` e corromper o identificador.
 _SUFIXO_UF = re.compile(rf"\s*[/({_HIFENS}]\s*([A-Za-z]{{1,2}})\s*\)?[\s.]*$")
 
+# Goiás corrompido: "GO" é a única UF feita de duas letras que o OCR confunde
+# com dígito (`G`→`6`, `O`→`0`). Corrompida, ela não casava `_SUFIXO_UF`, o
+# reparo a lia como `60`, e o número ganhava dois dígitos — `/G0` fazia uma
+# citação `real` virar `inventada`. Só depois de separador, só no fim, e só com
+# uma letra sobrevivente: `60` puro é indistinguível do último grupo de um número
+# ("REspe nº 281-60"), e lê-lo como UF encurtaria o número.
+_GOIAS_CORROMPIDO = re.compile(rf"\s*[/({_HIFENS}]\s*(?:G0|6O)\s*\)?[\s.]*$")
+
 _ESPACOS = re.compile(r"\s+")
 
 
@@ -134,6 +142,9 @@ def separar_uf(trecho: str) -> tuple[str, str | None]:
     """
     casamento = _SUFIXO_UF.search(trecho)
     if casamento is None:
+        goias = _GOIAS_CORROMPIDO.search(trecho)
+        if goias is not None:
+            return trecho[: goias.start()].strip(), "GO"
         return trecho.strip(), None
     uf = casamento.group(1).upper()
     # Duas letras só saem se formarem UF de verdade; uma letra sai sempre, por

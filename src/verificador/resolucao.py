@@ -44,7 +44,7 @@ import re
 
 from .base_canonica import BaseCanonica
 from .classe import afinidade, marcas
-from .deteccao import Achado
+from .deteccao import Achado, sigla_do_tribunal
 from .normalizacao import (
     CONFUSOES_DE_LETRA,
     OCR_PARA_DIGITO,
@@ -437,7 +437,7 @@ def _tribunal_da_sumula(dados: dict[str, str]) -> str | None:
     """
     for grupo in ("tribunal", "tribunal_par", "tribunal_do"):
         if dados.get(grupo):
-            return dados[grupo].upper()
+            return sigla_do_tribunal(dados[grupo])
     for grupo in dados:
         if grupo.startswith("ext_"):
             return grupo.removeprefix("ext_")

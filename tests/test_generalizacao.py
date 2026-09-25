@@ -744,3 +744,86 @@ def test_nome_do_codigo_em_caixa_alta_para_no_nome(corpo, esperado):
     # (`fim_do_cabecalho`); a prosa na frente põe a ementa no corpo.
     achados = _detectar("A ementa do julgado é a seguinte.\n" + corpo)
     assert achados[0].trecho == esperado
+
+
+# ── Letra trocada por dígito na palavra-chave ─────────────────────────────────
+#
+# O nível 2 da amostra troca letra por dígito dentro da palavra ("5úmula",
+# "C0NTROVÉRSIA"). Nas palavras-chave das expressões isso apagava a citação
+# inteira: "Súmu1a", "Re1. Min.", "Con5tituição" não casavam. Medido com a classe
+# `ocr_letra_digito` do arnês, era a maior perda de `incompleta`.
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Aplica-se a Súmu1a Vinculante 10, no ponto.", "Súmu1a Vinculante 10"),
+        ("Aplica-se a Súmula 83 do STJ, no ponto.", "Súmula 83 do STJ"),
+        (
+            "Viola o art. 5º, LV, da Con5tituição Federal, no ponto.",
+            "art. 5º, LV, da Con5tituição Federal",
+        ),
+        ("Viola o art. 186 do Códig0 Civil, no ponto.", "art. 186 do Códig0 Civil"),
+        (
+            "Viola o art. 1º da Le1 Complementar nº 64/1990.",
+            "art. 1º da Le1 Complementar nº 64/1990",
+        ),
+        (
+            "Invoca-se a Reclamação do STF, de 2025, Re1. Min. CRISTIANO ZANIN, no ponto.",
+            "Reclamação do STF, de 2025, Re1. Min. CRISTIANO ZANIN",
+        ),
+        (
+            "Invoca-se o julgad0 do STJ proferido em 2023 pela re1atoria de Sérgio Kukina.",
+            "julgad0 do STJ proferido em 2023 pela re1atoria de Sérgio Kukina",
+        ),
+    ],
+)
+def test_digito_no_lugar_da_letra_na_palavra_chave(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # o dígito colado ao ano ou à página vinha de uma palavra corrompida
+        "O fato ocorreu em 2020 5ob a vigência da lei anterior.",
+        "A decisão de 2021 s0b exame foi mantida pelo colegiado.",
+        "Consta das fls. 478/804. 5ob esse prisma, o pedido procede.",
+    ],
+)
+def test_palavra_com_digito_colada_ao_numero_nao_vira_processo(corpo):
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        (
+            "Invoca-se o julgado do 5TF proferido em 2024 pela relatoria de Dias Toffoli.",
+            "julgado do 5TF proferido em 2024 pela relatoria de Dias Toffoli",
+        ),
+        (
+            "Invoca-se a Reclamação do 5TF, de 2025, Rel. Min. CRISTIANO ZANIN, no ponto.",
+            "Reclamação do 5TF, de 2025, Rel. Min. CRISTIANO ZANIN",
+        ),
+    ],
+)
+def test_vaga_com_sigla_de_tribunal_corrompida(corpo, esperado):
+    """A sigla corrompida partia o span: ele começava no "TF" e perdia a cabeça."""
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "digitos"),
+    [
+        # grupo de milhar corrompido no fim do número: ainda é número
+        ("Invoca-se o EDcl no AgInt no ARESP 1 B21 bb3/SC, no ponto.", "1821663"),
+        ("Invoca-se o REsp 1.234 S6O/SP, no ponto.", "1234560"),
+    ],
+)
+def test_grupo_final_corrompido_continua_no_numero(corpo, digitos):
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(corpo)
+    assert len(achados) == 1
+    assert digitos_do_identificador(achados[0].trecho) == digitos
