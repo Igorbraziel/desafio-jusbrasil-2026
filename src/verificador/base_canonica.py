@@ -38,6 +38,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from .classe import marcas
 from .deteccao import _e_numero_de_processo
 from .estrutura import tribunal_do_texto, zonas_de_identificacao
 from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO
@@ -85,12 +86,19 @@ DISPOSITIVOS: dict[tuple[str, int], int] = {
 
 @dataclass(frozen=True)
 class Registro:
-    """Um registro da base canônica, no mínimo necessário para resolver."""
+    """Um registro da base canônica, no mínimo necessário para resolver.
+
+    ``classe`` são as marcas da classe processual do cabeçalho (ver
+    :mod:`verificador.classe`), usadas só para desempatar registros que dividem
+    o mesmo número próprio. Índice construído antes dela não a tem, e aí o
+    desempate cai na ordem estável.
+    """
 
     documento_id: str
     id_canonico: int
     tribunal: str | None
     texto_len: int
+    classe: frozenset[str] = frozenset()
 
 
 # O cabeçalho basta para STF, STJ, TSE e STM: medindo as 82 citações reais do
@@ -304,6 +312,24 @@ def numeros_proprios(regiao: str) -> set[str]:
 # Ano solto não é número próprio de processo nenhum da base (conferido).
 _ANO = re.compile(r"(?:19|20)\d{2}")
 
+# O trecho do cabeçalho que nomeia a classe do próprio processo: o que vem antes
+# do número, até onde o cabeçalho dos quatro tribunais regulares o põe (a folga
+# cobre "EMB.DECL. NO AG.REG. NOS EMB.DECL. NO RECURSO EXTRAORDINÁRIO COM
+# AGRAVO"). No TST, a classe está na fórmula "estes autos de <Classe> nº TST-".
+_FIM_DA_CLASSE = re.compile(r"\s(?:N\s?[º°o.]|\d)")
+_CLASSE_DO_TST = re.compile(r"est[eo]s\s+autos\s+de\s+(.{3,220}?)\s+n?\s*[º°o.]?\s*TST", re.I)
+JANELA_CLASSE = 260
+
+
+def classe_do_cabecalho(texto: str, tribunal: str | None) -> str:
+    """O nome da classe processual do próprio acórdão, como o cabeçalho o escreve."""
+    if (tribunal or "").upper() == "TST":
+        formula = _CLASSE_DO_TST.search(_ESPACOS.sub(" ", texto[:12000]))
+        return formula.group(1) if formula else ""
+    inicio = _ESPACOS.sub(" ", texto[:JANELA_CLASSE])
+    fim = _FIM_DA_CLASSE.search(inicio, 12)
+    return inicio[: fim.start()] if fim else inicio
+
 
 def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
     """Varre a base uma vez e devolve o índice de números próprios.
@@ -325,6 +351,7 @@ def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
             "id": id_canonico,
             "tribunal": tribunal,
             "texto_len": texto_len,
+            "classe": sorted(marcas(classe_do_cabecalho(texto, tribunal))),
         }
         assinaturas[documento_id] = _ESPACOS.sub(" ", texto[:LIMITE_ASSINATURA])
         regiao = regiao_de_identificacao(texto, tribunal, metodo)
@@ -364,6 +391,7 @@ class BaseCanonica:
                 id_canonico=dados["id"],
                 tribunal=dados["tribunal"],
                 texto_len=dados["texto_len"],
+                classe=frozenset(dados.get("classe", ())),
             )
             for documento_id, dados in indice["registros"].items()
         }

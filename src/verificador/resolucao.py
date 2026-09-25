@@ -43,6 +43,7 @@ from __future__ import annotations
 import re
 
 from .base_canonica import BaseCanonica
+from .classe import afinidade, marcas
 from .deteccao import Achado
 from .normalizacao import (
     CONFUSOES_DE_LETRA,
@@ -79,13 +80,16 @@ from .normalizacao import (
 #   aqui predição sem par conta como erro. A acurácia que o bônus vê é pelo menos
 #   esta.
 #
-# A exceção declarada é `real_desempate`, que mantém 0,83: as 10 observações são
-# a **mesma** citação repetida pelas sementes, e a ADR 0003 registra que o
-# critério de desempate está refutado. Dez repetições de um caso não são dez
-# casos.
+# O desempate tem dois caminhos desde a revisão de 24/09. Com margem de classe
+# (`real_desempate_classe`), a escolha é uma leitura do prefixo da citação contra
+# o cabeçalho de cada candidato, e fica no valor que o caminho único de desempate
+# tinha (0,83) até a recalibração medir. Sem margem (`real_desempate`), sobram
+# duplicatas exatas e classes que não distinguem, e a escolha é uma moeda: com
+# dois candidatos, 0,5 é o valor que minimiza o Brier de um chute honesto.
 CONFIANCA = {
     "real_unico": 0.99,  # 757/757
-    "real_desempate": 0.83,  # um só caso, repetido — ver acima
+    "real_desempate_classe": 0.83,  # a recalibrar — ver acima
+    "real_desempate": 0.50,  # moeda entre cópias — ver acima
     "real_tabela": 0.99,  # 188/188
     "inventada_processo": 0.98,  # 416/421
     "inventada_tabela": 0.99,  # 201/201
@@ -486,15 +490,24 @@ def _resolver_processo(achado: Achado, base: BaseCanonica) -> tuple[str, int | N
     if len(candidatos) == 1:
         return "real", candidatos[0].id_canonico, CONFIANCA["real_unico"]
 
-    # Empate. Pegamos o primeiro da ordenação de `candidatos_por_numero`, que é
-    # determinística mas **arbitrária**: ela ordena por maior `texto_len`, e a
-    # ADR 0003 registra que esse critério foi refutado pela distribuição de
-    # 15/09 — o único par ambíguo que sobrou resolve para o candidato mais curto.
-    # A ordem serve para estabilidade, não como preferência.
+    # Empate. Dois acórdãos distintos com o mesmo número próprio são incidentes
+    # do mesmo processo — o recurso e o agravo interno nele, o recurso e os
+    # embargos de declaração —, e o que os separa é a classe, que a citação traz
+    # no prefixo. Ganha o candidato cuja classe mais concorda com a da citação
+    # (ver `classe.afinidade`); só com margem sobre o segundo o desempate é
+    # uma leitura, e não um chute.
     #
-    # O que continua valendo é a aritmética: chutar domina desistir. Link errado
-    # num par `real`×`real` custa só `fp[real]`; rebaixar para `incompleta`
-    # custaria o `fn[real]` **e** o `fp[incompleta]`. Ver a nota no topo do módulo.
+    # Sem margem — duplicata exata, ou classe que não distingue —, fica o
+    # primeiro da ordem estável de `candidatos_por_numero`, que é arbitrária
+    # (ADR 0003). O que continua valendo é a aritmética: chutar domina desistir.
+    # Link errado num par `real`×`real` custa só `fp[real]`; rebaixar para
+    # `incompleta` custaria o `fn[real]` **e** o `fp[incompleta]`.
+    da_citacao = marcas(achado.trecho)
+    pontos = [afinidade(da_citacao, c.classe) for c in candidatos]
+    melhor = max(range(len(candidatos)), key=lambda i: pontos[i])
+    segundo = max(p for i, p in enumerate(pontos) if i != melhor)
+    if pontos[melhor] > segundo:
+        return "real", candidatos[melhor].id_canonico, CONFIANCA["real_desempate_classe"]
     return "real", candidatos[0].id_canonico, CONFIANCA["real_desempate"]
 
 

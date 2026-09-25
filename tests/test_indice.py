@@ -97,3 +97,34 @@ def test_numero_citado_na_zona_de_identificacao_nao_e_chave(base, citacao):
 )
 def test_numero_proprio_continua_chave(base, citacao):
     assert _classes(base, citacao) == ["real"]
+
+
+# ── Desempate por classe processual ───────────────────────────────────────────
+#
+# Quando dois acórdãos distintos têm o mesmo número próprio, é porque um é
+# incidente do outro: o agravo interno e os embargos de divergência no mesmo
+# recurso especial, o recurso e o pedido de extensão, o recurso e os embargos de
+# declaração. O que os separa é a classe no cabeçalho — e a citação traz a
+# classe. O desempate antigo (maior texto) acertava metade desses casos.
+
+
+@pytest.mark.parametrize(
+    ("citacao", "documento_esperado"),
+    [
+        # os números vêm dos cabeçalhos da base; nenhum é citação do gabarito
+        ("o RHC nº 90.861/RS", "doc_0214"),
+        ("o PExt no RHC nº 90.861/RS", "doc_0217"),
+        ("o AgInt no REsp nº 1.599.372/PR", "doc_0210"),
+        ("o AgInt nos EDv nos EREsp nº 1.599.372/PR", "doc_0288"),
+        ("o AgRg no REsp nº 2.015.694/SP", "doc_0328"),
+        ("os EDcl no AgRg no REsp nº 2.015.694/SP", "doc_0306"),
+        ("o REspe nº 281-60.2012.6.06.0033", "doc_0428"),
+        ("os ED no REspe nº 281-60.2012.6.06.0033", "doc_0469"),
+    ],
+)
+def test_desempate_escolhe_pela_classe(base, indice, citacao, documento_esperado):
+    texto = CABECALHO + f"Invoca-se {citacao}, no ponto. Ainda que assim não fosse.\n"
+    citacoes = processar_texto("x", texto, base).citacoes
+    assert len(citacoes) == 1
+    esperado = indice["registros"][documento_esperado]["id"]
+    assert (citacoes[0].classificacao, citacoes[0].id_canonico) == ("real", esperado)
