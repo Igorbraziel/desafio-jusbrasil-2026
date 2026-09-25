@@ -827,3 +827,83 @@ def test_grupo_final_corrompido_continua_no_numero(corpo, digitos):
     achados = _detectar(corpo)
     assert len(achados) == 1
     assert digitos_do_identificador(achados[0].trecho) == digitos
+
+
+# ── A borda direita da `vaga` e as citações coordenadas ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # o nome do relator engolia a primeira palavra da frase seguinte
+        (
+            "Invoca-se a Reclamação do STF, de 2020, Rel. Min. Celso De Mello. Antes de avançar.",
+            ["Reclamação do STF, de 2020, Rel. Min. Celso De Mello"],
+        ),
+        # e o título da seção depois de uma linha em branco
+        (
+            "Invoca-se a Rcl de 2025, Rel. Min. CÁRMEN LÚCIA.\n\nIII — DO DIREITO\n\nTexto.",
+            ["Rcl de 2025, Rel. Min. CÁRMEN LÚCIA"],
+        ),
+        # o nome continua atravessando uma quebra de linha e a inicial abreviada
+        (
+            "Invoca-se o julgado do STF proferido em 2024 pela relatoria de Cristiano\n"
+            "Zanin, no ponto.",
+            ["julgado do STF proferido em 2024 pela relatoria de Cristiano\nZanin"],
+        ),
+        (
+            "Invoca-se o julgado do STF de 2024, relator Ministro J. Otávio Noronha, no ponto.",
+            ["julgado do STF de 2024, relator Ministro J. Otávio Noronha"],
+        ),
+    ],
+)
+def test_borda_direita_da_vaga(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == esperado
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a citação seguinte, colada ao fim da `vaga`, não pode sumir
+        (
+            "Invoca-se a Rcl de 2025, Rel. Min. CÁRMEN LÚCIA. REsp 1.234.567/SP confirma.",
+            ["Rcl de 2025, Rel. Min. CÁRMEN LÚCIA", "REsp 1.234.567/SP"],
+        ),
+        # nem a coordenada a um dispositivo
+        (
+            "Invoca-se o art. 5º da CF e REsp 1.234.567/SP, no ponto.",
+            ["art. 5º da CF", "REsp 1.234.567/SP"],
+        ),
+        (
+            "Não incide o art. 219 do CPC no processo AgR-REspe nº 123-45.2012.6.13.0029, citado.",
+            ["art. 219 do CPC", "processo AgR-REspe nº 123-45.2012.6.13.0029"],
+        ),
+    ],
+)
+def test_citacao_coordenada_nao_some(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == esperado
+
+
+def test_rol_de_advogados_nao_vira_citacao():
+    """Inscrição colada à UF ("DF058845") em sequência não é processo.
+
+    Os candidatos já existiam e se anulavam por sobreposição; o resgate de
+    citação coordenada não pode ressuscitá-los. Só volta o span cujo número vem
+    logo depois de uma classe processual.
+    """
+    # A prosa na frente põe o rol no corpo: sozinha, a linha em caixa alta seria
+    # lida como parte do cabeçalho (`fim_do_cabecalho`).
+    corpo = (
+        "O acórdão recorrido registra as partes.\nADVOGADOS : JOSÉ DA SILVA - DF020779 "
+        "LUIS PRATA - DF039956 ALINE SANTOS - DF043530 GABRIELLA VENÂNCIO - DF058845 "
+        "FRANCISCO LIMA - DF069138 REQUERIDO : X"
+    )
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+def test_inscricao_sem_zero_a_esquerda_nao_vira_citacao():
+    corpo = (
+        "O acórdão recorrido registra as partes.\nADVOGADOS : LILIAN SERDOZ - SP254779 "
+        "LUCAS TIEPPO - SP413475 REQUERIDO : X"
+    )
+    assert [a.familia for a in _detectar(corpo)] == []

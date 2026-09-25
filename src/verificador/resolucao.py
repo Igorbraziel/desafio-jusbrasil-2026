@@ -147,7 +147,19 @@ DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
     (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
     (("consolidacao das leis", "clt", "5.452", "5452"), (), "CLT"),
-    (("constituic", "carta magna", "cf", "crfb"), (), "CF"),
+    (
+        (
+            "constituic",
+            "carta magna",
+            "lei maior",
+            "carta politica",
+            "carta da republica",
+            "cf",
+            "crfb",
+        ),
+        (),
+        "CF",
+    ),
     (("lei complementar", "lc", "64/1990"), (), "LC64"),
     (("eleitoral", "4.737", "4737"), (), "ELEITORAL"),
     (("civil", "cc", "10.406", "10406"), (), "CC"),
@@ -242,7 +254,12 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
     levariam ao erro grave — Estadual, Portuguesa, Mineira — estão longe dos
     três aceitos.
     """
-    if "carta magna" in chave or re.fullmatch(r"(?:cf|crfb)(?:\s*/\s*\d{2,4})?", chave):
+    if any(
+        nome in chave
+        for nome in ("carta magna", "lei maior", "carta politica", "carta da republica")
+    ):
+        return True
+    if re.fullmatch(r"(?:cf|crfb)(?:\s*/\s*\d{2,4})?", chave):
         return True
     # A sigla sai como o nome: "cf de 1988" sobrava como "cf", palavra que não é
     # qualificador, e a CF com ano virava `inventada`.
@@ -448,8 +465,12 @@ def _resolver_sumula(dados: dict[str, str], base: BaseCanonica) -> tuple[str, in
     numero = _inteiro(dados.get("numero"))
     if numero is None:
         return "incompleta", None, CONFIANCA["incompleta_sem_numero"]
-    vinculante = bool(dados.get("vinculante"))
+    vinculante = bool(dados.get("vinculante") or dados.get("sv"))
     tribunal = _tribunal_da_sumula(dados)
+    if dados.get("enunciado") and tribunal != "TST":
+        # "Enunciado" é como o TST chama as próprias súmulas; de outro tribunal,
+        # ou sem tribunal, não identifica súmula da cobertura.
+        return "inventada", None, CONFIANCA["inventada_tabela"]
     id_canonico = base.sumula(tribunal, vinculante, numero)
     if id_canonico is None:
         return "inventada", None, CONFIANCA["inventada_tabela"]
@@ -460,7 +481,7 @@ def _resolver_dispositivo(
     dados: dict[str, str], base: BaseCanonica
 ) -> tuple[str, int | None, float]:
     artigo = _numero_de_artigo(dados.get("artigo"))
-    diploma = dados.get("diploma")
+    diploma = dados.get("diploma") or dados.get("diploma_sigla")
     codigo = _codigo_do_diploma(diploma)
 
     if artigo is None or not diploma:

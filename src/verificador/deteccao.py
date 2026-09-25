@@ -339,13 +339,26 @@ _TRIBUNAL_POR_EXTENSO = "|".join(
         ("STM", "Superior Tribunal Militar"),
     )
 )
+#
+# Formas correntes que a amostra não tem e o texto jurídico usa: a sigla da
+# súmula vinculante ("SV 10"), "Enunciado" (como o TST chama as próprias
+# súmulas), o inciso como "item" ("Súmula 331, item IV, do TST") e o honorífico
+# antes do tribunal ("do C. STJ", "do E. STJ", "do col. TST"). Sem elas a súmula
+# da cobertura sumia ou saía sem tribunal — `inventada`. O "Enunciado" é marcado
+# no grupo `enunciado` para a resolução só o aceitar do TST.
+_HONORIFICO = r"(?:(?:C|E|Col|Colendo|Egr[ée]gio|Eg)\.?\s+)"
+_ITEM_DA_SUMULA = r"(?:\s*,\s*(?:item\s+|inciso\s+)?[IVXLC]{1,8}\s*,)"
 _SUMULA = re.compile(
-    rf"\b[S5](?:{_tolerante('úmula')}|[úuû]m\.)\s*(?P<vinculante>{_tolerante('Vinculante')})?"
+    r"\b(?:"
+    rf"[S5](?:{_tolerante('úmula')}|[úuû]m\.)\s*(?P<vinculante>{_tolerante('Vinculante')})?"
+    r"|(?P<sv>SV)(?=\s*(?:n|N|\d))"
+    rf"|(?P<enunciado>{_tolerante('Enunciado')})"
+    r")"
     rf"\s*(?:{_NUMERO}\s*)?(?P<numero>{_NUMERO_DE_SUMULA})"
     r"(?:"
     rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL})"
     rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL})\s*\)"
-    rf"|(?:\s*,\s*[IVXLC]{{1,8}}\s*,)?\s*,?\s*{_CONECTOR}\s*"
+    rf"|{_ITEM_DA_SUMULA}?\s*,?\s*{_CONECTOR}\s*{_HONORIFICO}?"
     rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL})|{_TRIBUNAL_POR_EXTENSO})"
     r")?",
     re.IGNORECASE,
@@ -488,7 +501,9 @@ _DIPLOMA = (
     rf"|{_tolerante('Constituição')}(?:\s+de\s+(?:19|20)\d{{2}}"
     rf"|(?:\s+d[aeo]\s+)?(?:\s*(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]+|{_QUALIFICADOR_MINUSCULO}))?"
     rf"{_QUALIFICADOR_SEGUINTE}{_ANO_DE_VERSAO})"
-    r"|Carta\s+Magna"
+    # "Lei Maior", "Carta Política" e "Carta da República" são como a prosa
+    # jurídica chama a CF/88, tanto quanto "Carta Magna".
+    r"|Carta\s+Magna|Lei\s+Maior|Carta\s+Pol[íi]tica|Carta\s+da\s+Rep[úu]blica"
     # `Decreto-Lei nº 5.452/1943` é **como a base canônica nomeia a CLT** na
     # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
     # corrente da Lei Complementar. Sem as duas alternativas a citação sumia — e
@@ -563,10 +578,25 @@ _QUALIFICADORES = (
 # na quinta semente, desde o checkpoint 06.
 _NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-ºo°][\w]{{0,3}})?"
 
+# "novo" ou "atual" antes do diploma ("art. 373 do novo Código de Processo
+# Civil", "do atual CPC") é como a prosa distingue o CPC/2015 do de 1973; o
+# adjetivo ficava entre o conector e o diploma e a citação sumia.
+#
+# O diploma por sigla pode vir só depois de vírgula, sem conector ("art. 5º, LV,
+# CF"), forma corrente em peça jurídica. Só a sigla, e só com vírgula: nome por
+# extenso sem conector seria prosa.
+_ADJETIVO_DE_DIPLOMA = r"(?:(?:novo|atual|vigente)\s+)"
+_SIGLA_DE_DIPLOMA = (
+    r"(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA|CF|CC|CP)(?![A-Za-zÀ-ÿ])"
+    r"(?:\s*/\s*\d{2,4})?"
+)
 _DISPOSITIVO = re.compile(
     rf"\b{_tolerante('art')}(?:{_tolerante('igo')}|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"
     rf"{_QUALIFICADORES}"
-    rf"\s*,?\s*\n?\s*{_CONECTOR}\s+(?P<diploma>{_DIPLOMA})",
+    r"(?:"
+    rf"\s*,?\s*\n?\s*{_CONECTOR}\s+{_ADJETIVO_DE_DIPLOMA}?(?P<diploma>{_DIPLOMA})"
+    rf"|\s*,\s*(?P<diploma_sigla>(?-i:{_SIGLA_DE_DIPLOMA}))"
+    r")",
     re.IGNORECASE,
 )
 
@@ -596,7 +626,19 @@ _CABECA_VAGA = (
     r")"
 )
 
-_NOME_PROPRIO = r"[A-ZÀ-Ú][\wÀ-ú.']*(?:\s+(?:d[aeo]s?\s+)?[A-ZÀ-Ú][\wÀ-ú.']*){0,4}"
+# O nome do relator: palavras capitalizadas, com conector ("Celso de Mello") e
+# inicial abreviada ("J. Otávio Noronha"). O ponto só vale **como inicial** — uma
+# letra e o ponto —, e entre as palavras cabe no máximo uma quebra de linha.
+# Com o ponto solto e `\s+`, o nome atravessava o fim da frase e engolia a
+# primeira palavra da seguinte ("… Celso De Mello. Antes") ou o título da seção
+# depois da linha em branco ("… LÚCIA.\n\nIII"), e roubava a sobreposição da
+# citação que viesse logo depois ("… LÚCIA. REsp 1.234.567/SP" perdia o REsp).
+_SEPARADOR_DE_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
+_PALAVRA_DE_NOME = r"[A-ZÀ-Ú](?:[\wÀ-ú']+|\.)"
+_NOME_PROPRIO = (
+    rf"{_PALAVRA_DE_NOME}"
+    rf"(?:{_SEPARADOR_DE_NOME}(?:d[aeo]s?{_SEPARADOR_DE_NOME})?{_PALAVRA_DE_NOME}){{0,4}}"
+)
 
 # O ano, tolerante ao ruído do nível 2. Esta é a única quantia numérica da
 # família `vaga`, então exigir quatro dígitos limpos apaga a citação inteira
@@ -898,8 +940,17 @@ def _e_numero_de_processo(numero: str, antes: str, depois: str = "") -> bool:
         return False
     if _CENTAVOS.match(depois):
         return False
+    if _INSCRICAO_COM_UF.search(antes):
+        return False
     janela = antes[-_JANELA_ROTULO:]
     return not (_ROTULO_DISTRATOR.search(janela) or _ATO_NORMATIVO.search(janela))
+
+
+# A inscrição na OAB colada à sigla da UF, como o rol de advogados do STJ a
+# escreve ("ALINE SANTOS - DF043530", "LUCAS TIEPPO - SP413475"). O núcleo não
+# pode começar colado à letra, então casa a partir do segundo caractere — e o
+# rótulo "DF" nunca chegava à janela do filtro. O sinal é a UF colada ao dígito.
+_INSCRICAO_COM_UF = re.compile(rf"(?<![A-Za-zÀ-ÿ])(?:{'|'.join(sorted(UFS))})\d*$")
 
 
 def _aparar(texto: str, inicio: int, fim: int) -> tuple[int, int]:
@@ -1149,7 +1200,7 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
     for m in _DISPOSITIVO.finditer(corpo):
         if not _tem_digito_real(m.group("artigo")):
             continue
-        if not _numero_de_lei_plausivel(m.group("diploma")):
+        if not _numero_de_lei_plausivel(m.group("diploma") or m.group("diploma_sigla")):
             continue
         registrar(m, "dispositivo", "lei")
     vagas: list[tuple[int, int]] = []
@@ -1217,10 +1268,49 @@ def _resolver_sobreposicao(achados: list[Achado]) -> list[Achado]:
     )
     escolhidos: list[Achado] = []
     for achado in ordenados:
-        if any(not (achado.fim <= e.inicio or achado.inicio >= e.fim) for e in escolhidos):
+        conflitos = [
+            e for e in escolhidos if not (achado.fim <= e.inicio or achado.inicio >= e.fim)
+        ]
+        if conflitos and achado.familia == "processo":
+            achado = _sem_o_prefixo_alheio(achado, conflitos)
+            if achado is not None:
+                conflitos = []
+        if conflitos:
             continue
         escolhidos.append(achado)
     return sorted(escolhidos, key=lambda a: a.inicio)
+
+
+def _sem_o_prefixo_alheio(achado: Achado, vencedores: list[Achado]) -> Achado | None:
+    """O span de processo que perdeu só pelo prefixo, cortado depois do vencedor.
+
+    A cadeia de prefixo atravessa o fim de outra citação quando as duas vêm
+    coordenadas: em "art. 5º da CF e REsp 1.234.567/SP" o prefixo do REsp começa
+    em "CF", e "… CÁRMEN LÚCIA. REsp 1.234.567/SP" puxa o nome do relator. O REsp
+    perdia a sobreposição e sumia inteiro. Se o número está todo depois do
+    vencedor, basta começar o span no primeiro token depois dele, pulando a
+    conjunção e a pontuação que as ligam.
+    """
+    fim_vencedor = max(e.fim for e in vencedores)
+    if any(e.inicio >= achado.inicio + len(achado.trecho) for e in vencedores):
+        return None
+    deslocamento = fim_vencedor - achado.inicio
+    resto = achado.trecho[deslocamento:]
+    # A pontuação, a conjunção e o conector que ligam as duas citações ficam de
+    # fora — o conector nunca é a borda do span (ver `_expandir_prefixo`).
+    cortado = re.match(r"[\s.,;:]*(?:(?:e|o|a|os|as|n[oa]s?|d[oae]s?|em)\s+)*", resto)
+    inicio_rel = deslocamento + (cortado.end() if cortado else 0)
+    trecho = achado.trecho[inicio_rel:]
+    # O que sobra precisa ser uma citação inteira: uma classe processual e, logo
+    # depois dela, o número. Sem isso o resgate ressuscitava candidatos que só
+    # se anulavam por sobreposição — o rol de advogados ("ALINE SANTOS -
+    # DF043530"), onde cada inscrição puxa o nome anterior como prefixo.
+    numero = _NUMERO_PROCESSO.search(trecho)
+    if numero is None or not _prefixo_nomeia_classe(trecho, numero.start()):
+        return None
+    return Achado(
+        achado.inicio + inicio_rel, achado.fim, trecho, achado.familia, achado.tipo, achado.dados
+    )
 
 
 def detectar(texto: str) -> list[Achado]:

@@ -440,3 +440,46 @@ def test_sumula_com_sigla_ou_conector_corrompido(base_canonica, citacao, chave):
 )
 def test_dispositivo_com_conector_corrompido(base_canonica, citacao, chave):
     assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+# ── Formas correntes que a amostra sintética não produziu ─────────────────────
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # o inciso da súmula como "item" e o honorífico antes do tribunal
+        ("Súmula 331, item IV, do TST", ("TST", False, 331)),
+        ("Súmula 83 do C. STJ", ("STJ", False, 83)),
+        ("Súmula 443 do E. STJ", ("STJ", False, 443)),
+        ("Súmula 331 do col. TST", ("TST", False, 331)),
+        # a sigla da súmula vinculante
+        ("SV 10", ("STF", True, 10)),
+        ("SV nº 10 do STF", ("STF", True, 10)),
+        # "Enunciado" é como o TST chama as próprias súmulas
+        ("Enunciado 331 do TST", ("TST", False, 331)),
+    ],
+)
+def test_sumula_em_formas_correntes(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 373 do novo Código de Processo Civil", ("CPC", 373)),
+        ("art. 373 do atual CPC", ("CPC", 373)),
+        ("art. 93, IX, da Lei Maior", ("CF", 93)),
+        ("art. 5º, LV, da Carta Política", ("CF", 5)),
+        ("art. 5º, LV, da Carta da República", ("CF", 5)),
+        # o diploma por sigla, sem o conector
+        ("art. 5º, LV, CF", ("CF", 5)),
+        ("art. 5º, LV, CF/88", ("CF", 5)),
+    ],
+)
+def test_dispositivo_em_formas_correntes(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+def test_enunciado_de_outro_tribunal_nao_vira_sumula_do_tst(base_canonica):
+    assert _classificar(base_canonica, "Enunciado 331 do STF") == [("inventada", None)]
