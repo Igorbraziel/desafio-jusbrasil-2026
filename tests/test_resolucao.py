@@ -483,3 +483,32 @@ def test_dispositivo_em_formas_correntes(base_canonica, citacao, chave):
 
 def test_enunciado_de_outro_tribunal_nao_vira_sumula_do_tst(base_canonica):
     assert _classificar(base_canonica, "Enunciado 331 do STF") == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # a detecção atravessa o dígito no lugar da letra; a resolução também
+        # precisa, senão a citação `real` sai `inventada`
+        ("art. 93, IX, da Con5tituição da Repúb1ica", ("CF", 93)),
+        ("art. 14 do Códig0 de Defesa do Con5umidor", ("CDC", 14)),
+        ("art. 312 do Código de Processo Pena1", ("CPP", 312)),
+        ("art. 290 do Código Penal Mi1itar", ("CPM", 290)),
+        ("art. 186 do Código Civi1", ("CC", 186)),
+        ("art. 1º, I, 'g', da Lei Comp1ementar nº 64/1990", ("LC64", 1)),
+    ],
+)
+def test_diploma_com_digito_no_lugar_da_letra(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # o CPPM com dígito continua fora da cobertura
+        "art. 312 do Código de Processo Penal Mi1itar",
+        "art. 5º da Con5tituição Estadua1",
+    ],
+)
+def test_diploma_fora_com_digito_continua_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]

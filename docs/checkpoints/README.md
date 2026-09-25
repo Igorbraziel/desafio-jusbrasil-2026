@@ -25,3 +25,4 @@ Cada checkpoint traz:
 | [06](06-recall.md) | As perdas de recall | 1º dígito corrompido eram 79% das falhas de `ocr_numero` · pior semente 0,9461 → 0,9764 · rejeição do cp 02 revertida |
 | [07](07-familias-de-lei.md) | As famílias que o reparo de OCR não alcançava | todas (7) 1,0093 → 1,0969 · seis classes imunes · score limpo 1,1000 · NER descartado (ADR 0004) |
 | [08](08-pente-fino.md) | Pente fino com sondas fora da amostra | regressão da CF do cp 07 desfeita · órgão julgador fora do prefixo · IoU mín. 0,8125 → 0,854 · arnês igual ao `main` (ganho fora da amostra) |
+| [09](09-revisao-final.md) | Revisão final: τ, índice, desempate e ruído de OCR | chaves do índice 2.001 → 1.190 · sem número 25 → 1 · IoU mín. 0,854 → 1,000 · três classes novas no arnês · container conferido |

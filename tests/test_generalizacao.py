@@ -907,3 +907,37 @@ def test_inscricao_sem_zero_a_esquerda_nao_vira_citacao():
         "LUCAS TIEPPO - SP413475 REQUERIDO : X"
     )
     assert [a.familia for a in _detectar(corpo)] == []
+
+
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        # o ruído do nível 2 também cai no título do cabeçalho: `m`→`rn`,
+        # `n`→`ri`, letra→dígito, e a proporção de maiúsculas despenca
+        "MErn0RIAL",
+        "MIriISTÉR1O PÚBLIeO rn1LITAR",
+        "PODER JUDlCIÁRIO",
+    ],
+)
+def test_titulo_corrompido_continua_sendo_cabecalho(titulo):
+    """Sem isso o cabeçalho inteiro caía no corpo, e o número dos autos do
+    próprio documento — o distrator canônico — virava citação."""
+    texto = f"{titulo}\n\nProcesso nº 1234567-89.2020.5.14.1391\n\nA defesa vem interpor agravo.\n"
+    assert _detectar_bruto(texto) == []
+
+
+def _detectar_bruto(texto):
+    return [a.trecho for a in detectar(texto)]
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # o rótulo da folha com uma letra corrompida: `fls.` → `f1s.`, `fIs.`
+        "Consta a prova testemunhal às f1s. 762/872 dos autos.",
+        "Consta a prova testemunhal às fIs. 762/872 dos autos.",
+        "Consta a prova testemunhal às f1s.\n478/804 dos autos.",
+    ],
+)
+def test_referencia_de_folha_corrompida_nao_vira_processo(corpo):
+    assert [a.familia for a in _detectar(corpo)] == []

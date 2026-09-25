@@ -865,7 +865,9 @@ _ROTULO_DISTRATOR = re.compile(
     # a referência a outro processo em "suspensão de tutela nº <número CNJ>"
     # sumia. Medido nos 996 acórdãos reais. `R$` fica de fora da fronteira
     # porque começa em letra mas termina em símbolo.
-    r"(?:\b(?:fls?|folhas?|protocolo|CPF|CNPJ|valor\s+da\s+causa"
+    # `f[l1I]s?` e não `fls?`: com a letra do meio corrompida (`f1s.`, `fIs.`) o
+    # rótulo sumia e a folha virava processo.
+    r"(?:\b(?:f[l1I]s?|folhas?|protocolo|CPF|CNPJ|valor\s+da\s+causa"
     r"|telefone|tel|fone|celular|RG|CEP|PIS|PASEP|CNH|NIT"
     r"|matr[íi]cula|guia|precat[óo]rio|ag[êe]ncia|conta"
     # O DDD entre parênteses separa o rótulo do número e quebrava a adjacência:

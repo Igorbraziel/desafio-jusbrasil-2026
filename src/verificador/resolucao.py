@@ -80,21 +80,26 @@ from .normalizacao import (
 #   aqui predição sem par conta como erro. A acurácia que o bônus vê é pelo menos
 #   esta.
 #
-# O desempate tem dois caminhos desde a revisão de 24/09. Com margem de classe
-# (`real_desempate_classe`), a escolha é uma leitura do prefixo da citação contra
-# o cabeçalho de cada candidato, e fica no valor que o caminho único de desempate
-# tinha (0,83) até a recalibração medir. Sem margem (`real_desempate`), sobram
+# **Recalibrado na revisão de 24/09**, com as mesmas três regras, contando só
+# pares casados (como o Brier oficial) e com o arnês de dez classes, que inclui
+# as três novas de ruído de OCR. `inventada_processo` caiu de 416/421 para
+# 374/391: as classes novas geram número de `real` corrompido que o reparo ainda
+# não desfaz, e é nesse caminho que ele cai.
+#
+# O desempate tem dois caminhos desde a mesma revisão. Com margem de classe
+# (`real_desempate_classe`), a escolha é uma leitura do prefixo da citação
+# contra o cabeçalho de cada candidato. Sem margem (`real_desempate`), sobram
 # duplicatas exatas e classes que não distinguem, e a escolha é uma moeda: com
 # dois candidatos, 0,5 é o valor que minimiza o Brier de um chute honesto.
 CONFIANCA = {
-    "real_unico": 0.99,  # 757/757
-    "real_desempate_classe": 0.83,  # a recalibrar — ver acima
+    "real_unico": 0.99,  # 817/817 (junto com real_tabela)
+    "real_desempate_classe": 0.90,  # 9/9, Laplace
     "real_desempate": 0.50,  # moeda entre cópias — ver acima
-    "real_tabela": 0.99,  # 188/188
-    "inventada_processo": 0.98,  # 416/421
-    "inventada_tabela": 0.99,  # 201/201
-    "inventada_tema": 0.91,  # 10/10, Laplace; a cobertura não tem tema
-    "incompleta_vaga": 0.99,  # 319/319
+    "real_tabela": 0.99,  # 817/817 (junto com real_unico)
+    "inventada_processo": 0.95,  # 374/391
+    "inventada_tabela": 0.98,  # 185/187
+    "inventada_tema": 0.88,  # 7/7, Laplace; a cobertura não tem tema
+    "incompleta_vaga": 0.99,  # 287/287
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
     # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
@@ -291,11 +296,16 @@ _VOCABULARIO_DE_DIPLOMA = frozenset(
 
 # O inverso de `CONFUSOES_DE_LETRA`: cada forma corrompida e as letras que ela
 # pode ter substituído. `c` pode ser `e` corrompido e `e` pode ser `c`.
-_DESFAZER = [(corrompida, original) for original, corrompida in CONFUSOES_DE_LETRA.items()] + [
-    ("ri", "n"),
-    ("ii", "u"),
-    ("rn", "m"),
-]
+#
+# Entram também as trocas de letra por dígito (`Con5tituição`, `Civi1`,
+# `Códig0`): a detecção passou a atravessá-las nas palavras-chave, e sem o
+# inverso aqui a citação `real` era achada e saía `inventada`. A chave já vem em
+# minúsculas, então cada dígito desfaz para a letra minúscula que ele imita.
+_DESFAZER = (
+    [(corrompida, original) for original, corrompida in CONFUSOES_DE_LETRA.items()]
+    + [("ri", "n"), ("ii", "u"), ("rn", "m")]
+    + [(digito, letra.lower()) for letra, digito in OCR_PARA_DIGITO.items()]
+)
 
 
 def _variantes(palavra: str) -> set[str]:
@@ -358,11 +368,12 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
     """
     if not diploma:
         return None
-    # O reparo de OCR vem antes: o número da lei também chega corrompido
-    # (`Lei Complementar nº b4/1990`), e sem ele não confere com a cobertura.
-    # `_corrigir_ocr` só converte letra colada a dígito, então o nome do diploma
-    # passa intacto.
-    chave = _desfazer_ruido_de_letra(chave_textual(_corrigir_ocr(diploma)))
+    # O nome do diploma é desfeito **antes** do reparo de OCR do número. O reparo
+    # converte a letra colada a um dígito, e numa palavra com um dígito perdido
+    # ("Mi1itar") ele alastra: `m111tar` já não volta a `militar`, e o CPPM
+    # passava por CPP. Desfeito o nome, o reparo só alcança o número da lei
+    # (`Lei Complementar nº b4/1990`), que precisa dele para conferir.
+    chave = chave_textual(_corrigir_ocr(_desfazer_ruido_de_letra(chave_textual(diploma))))
     for marcadores, exclusoes, codigo in DIPLOMAS:
         if not any(_contem_marcador(chave, marcador) for marcador in marcadores):
             continue
