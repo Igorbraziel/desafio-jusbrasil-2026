@@ -54,8 +54,9 @@ from .normalizacao import (
 )
 
 # Confiança por caminho de decisão, **medida** por
-# ``scripts/medir_confianca.py``: acurácia do caminho sobre o corpus limpo mais
-# as sementes de perturbação, com predição sem par contando como erro.
+# ``scripts/medir_confianca.py`` (`make confianca`): acurácia do caminho sobre o
+# corpus limpo mais as sementes de perturbação, contando só os pares casados com
+# o gabarito — como o Brier oficial.
 #
 # Medir importa porque o bônus da métrica é ``b = 0,10·(1 − Brier)`` e o Brier é
 # minimizado exatamente em ``p = acurácia``. Emitir 0,83 num caminho que acerta
@@ -76,15 +77,17 @@ from .normalizacao import (
 # * **Teto de 0,99.** O arnês só mede o ruído que sabemos gerar; o conjunto cego
 #   tem formas que ele não tem. O teto custa quase nada se a acurácia for 1,0 e
 #   limita a punição quadrática se não for.
-# * **A medição é conservadora.** O Brier oficial só conta pares **casados**, e
-#   aqui predição sem par conta como erro. A acurácia que o bônus vê é pelo menos
-#   esta.
+# * **A medição conta o que a métrica conta.** O Brier oficial só vê pares
+#   casados; até o checkpoint 07 a predição sem par entrava aqui como erro, o que
+#   puxava a acurácia para baixo de um valor que o bônus não vê.
 #
 # **Recalibrado na revisão de 24/09**, com as mesmas três regras, contando só
 # pares casados (como o Brier oficial) e com o arnês de dez classes, que inclui
-# as três novas de ruído de OCR. `inventada_processo` caiu de 416/421 para
-# 374/391: as classes novas geram número de `real` corrompido que o reparo ainda
-# não desfaz, e é nesse caminho que ele cai.
+# as três novas de ruído de OCR. Os números abaixo são a soma de `make confianca`
+# nas duas taxas (0,15 com 5 sementes e 0,30 com 3; cada execução inclui o corpus
+# limpo), reproduzíveis pelo script do repositório. `inventada_processo` é o
+# caminho que mais erra: as classes novas geram número de `real` corrompido que
+# o reparo ainda não desfaz, e é nele que esse número cai.
 #
 # O desempate tem dois caminhos desde a mesma revisão. Com margem de classe
 # (`real_desempate_classe`), a escolha é uma leitura do prefixo da citação
@@ -92,14 +95,14 @@ from .normalizacao import (
 # duplicatas exatas e classes que não distinguem, e a escolha é uma moeda: com
 # dois candidatos, 0,5 é o valor que minimiza o Brier de um chute honesto.
 CONFIANCA = {
-    "real_unico": 0.99,  # 817/817 (junto com real_tabela)
-    "real_desempate_classe": 0.90,  # 9/9, Laplace
+    "real_unico": 0.99,  # 913/913 (junto com real_tabela)
+    "real_desempate_classe": 0.91,  # 10/10, Laplace
     "real_desempate": 0.50,  # moeda entre cópias — ver acima
-    "real_tabela": 0.99,  # 817/817 (junto com real_unico)
-    "inventada_processo": 0.95,  # 374/391
-    "inventada_tabela": 0.98,  # 185/187
-    "inventada_tema": 0.88,  # 7/7, Laplace; a cobertura não tem tema
-    "incompleta_vaga": 0.99,  # 287/287
+    "real_tabela": 0.99,  # 913/913 (junto com real_unico)
+    "inventada_processo": 0.96,  # 416/432
+    "inventada_tabela": 0.98,  # 206/208
+    "inventada_tema": 0.90,  # 8/8, Laplace; a cobertura não tem tema
+    "incompleta_vaga": 0.99,  # 319/319
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
     # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
@@ -259,16 +262,17 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
     levariam ao erro grave — Estadual, Portuguesa, Mineira — estão longe dos
     três aceitos.
     """
-    if any(
-        nome in chave
-        for nome in ("carta magna", "lei maior", "carta politica", "carta da republica")
-    ):
-        return True
     if re.fullmatch(r"(?:cf|crfb)(?:\s*/\s*\d{2,4})?", chave):
         return True
-    # A sigla sai como o nome: "cf de 1988" sobrava como "cf", palavra que não é
-    # qualificador, e a CF com ano virava `inventada`.
-    resto = re.sub(r"^(?:constitui\w*|cf)\b", "", chave)
+    # A sigla e os apelidos saem como o nome: "cf de 1988" sobrava como "cf", e
+    # "lei maior de 1969" como "lei maior", palavras que não são qualificador.
+    # O que vier depois deles passa pela mesma regra do nome por extenso — o
+    # apelido sozinho não bastava, e "Carta da República Portuguesa" virava a CF.
+    resto = re.sub(
+        r"^(?:constitui\w*|cf|carta magna|lei maior|carta politica|carta da republica)\b",
+        "",
+        chave,
+    )
     resto = _ANO_DE_VERSAO.sub(" ", resto)  # o ano já foi conferido
     palavras = [p for p in resto.split() if p not in _CONECTORES]
     # **Toda** palavra precisa ser qualificador da CF/88 — "República Federativa
@@ -360,6 +364,36 @@ def _contem_marcador(chave: str, marcador: str) -> bool:
     return re.search(rf"(?<![a-z0-9]){re.escape(marcador)}(?![a-z0-9])", chave) is not None
 
 
+_LEI_DE_OUTRO_ENTE = re.compile(r"\blei\s+(?:complementar\s+)?(?:estadual|municipal|distrital)\b")
+
+
+def _chave_do_diploma(diploma: str) -> str:
+    """O nome do diploma com o ruído de letra desfeito e o número reparado.
+
+    Os dois reparos precisam de lados diferentes do texto. O nome é desfeito
+    palavra a palavra contra o vocabulário fechado, e antes do reparo do número:
+    numa palavra com um dígito perdido ("Mi1itar") o reparo alastra, `m111tar`
+    já não volta a `militar`, e o CPPM passava por CPP. O número da lei é
+    reparado sobre o texto **original**, com a caixa preservada: a tabela de OCR
+    distingue `G`→6 de `g`→9 e `B`→8 de `b`→6, e reparar depois de passar para
+    minúsculas lia "Lei Complementar nº G4/1990" como a lei 94 e "LC nº B4/1990"
+    (a lei 84) como a LC 64.
+    """
+    nomes = _desfazer_ruido_de_letra(chave_textual(diploma)).split()
+    numeros = chave_textual(_corrigir_ocr(diploma)).split()
+    if len(nomes) != len(numeros):
+        return " ".join(numeros)
+
+    def e_numero(palavra: str) -> bool:
+        # Número da lei tem mais dígito que letra ("g4/1990", "b.078/1990");
+        # palavra do nome com um dígito perdido ("con5tituicao") tem o contrário.
+        return sum(c.isdigit() for c in palavra) > sum(c.isalpha() for c in palavra)
+
+    return " ".join(
+        numero if e_numero(numero) else nome for nome, numero in zip(nomes, numeros, strict=True)
+    )
+
+
 def _codigo_do_diploma(diploma: str | None) -> str | None:
     """Reduz o nome citado do diploma à chave da tabela curada.
 
@@ -368,12 +402,12 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
     """
     if not diploma:
         return None
-    # O nome do diploma é desfeito **antes** do reparo de OCR do número. O reparo
-    # converte a letra colada a um dígito, e numa palavra com um dígito perdido
-    # ("Mi1itar") ele alastra: `m111tar` já não volta a `militar`, e o CPPM
-    # passava por CPP. Desfeito o nome, o reparo só alcança o número da lei
-    # (`Lei Complementar nº b4/1990`), que precisa dele para conferir.
-    chave = chave_textual(_corrigir_ocr(_desfazer_ruido_de_letra(chave_textual(diploma))))
+    chave = _chave_do_diploma(diploma)
+    # Lei de outro ente federativo com o número de uma lei federal da cobertura
+    # ("Lei Estadual nº 10.406/2002") é outro diploma: conferir só o número a
+    # resolvia para o Código Civil — `inventada` → `real`.
+    if _LEI_DE_OUTRO_ENTE.search(chave):
+        return None
     for marcadores, exclusoes, codigo in DIPLOMAS:
         if not any(_contem_marcador(chave, marcador) for marcador in marcadores):
             continue

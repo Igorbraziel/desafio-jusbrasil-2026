@@ -37,10 +37,11 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 529 deles, todos passando.
+cada etapa — 556 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
-níveis, τ = 0, score 1,1000.** Leia esse número com a desconfiança que ele
+níveis, τ = 0, IoU mínimo 1,000, score 1,0999** (a confiança calibrada custa
+0,0001 num corpus em que tudo acerta). Leia esse número com a desconfiança que ele
 merece: são os mesmos 26 documentos usados para construir a solução, e
 [docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
 essa amostra não consegue medir. O leaderboard sobre o conjunto final é a
@@ -147,8 +148,8 @@ Frentes abertas, nessa ordem de valor:
    [ADR 0004](docs/decisoes/0004-ner-de-pesos-abertos.md) diz quando revisitar.
 
 Regra que vale para qualquer mudança: **o portão é o score limpo, as
-propriedades imunes e o volume nos acórdãos reais.** Nada entra se derrubar
-1,1000, quebrar uma classe imune no arnês, ou fizer uma família saltar em
+propriedades imunes e o volume nos acórdãos reais.** Nada entra se derrubar o
+F1 do dev, abrir τ, quebrar uma classe imune no arnês, ou fizer uma família saltar em
 `medir_espurias.py` sem explicação. Toda regra nova em `deteccao.py` vem com o
 caso que a motivou nos testes.
 

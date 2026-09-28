@@ -469,9 +469,20 @@ _QUALIFICADOR_DE_LEI = "|".join(
 # primeira palavra entrava no diploma, e o qualificador estrangeiro que vinha
 # depois nunca chegava à regra de inclusão da CF. O algarismo romano fica de
 # fora para que o título da seção seguinte não entre no diploma.
+#
+# Nem toda palavra capitalizada é qualificador: sem pontuação entre as duas, a
+# âncora de outra citação ("… Constituição Federal Súmula 83 do STJ") ou o nome
+# de quem julga ("… Federal Relator Ministro Fulano") entrava no diploma — a CF
+# saía `inventada` e a citação vizinha sumia. Palavra-âncora de família,
+# palavra institucional e sigla de classe processual param a captura.
+_NAO_QUALIFICA = (
+    r"(?!(?:S[úu]mulas?|Enunciados?|Temas?|Arts?\b|Artigos?|Leis?\b|Decreto|C[óo]digo|"
+    r"Rel\b|Relator|Relatora|Ministr[oa]|Min\b|Tribunal|Turma|Corte|Plen[áa]rio|"
+    r"REsp|RE\b|ARE\b|AREsp|RHC|HC\b|MS\b|Rcl|ADI|ADPF|AgInt|AgRg|EDcl|RR\b|AI\b)(?![a-zà-ú]))"
+)
 _QUALIFICADOR_SEGUINTE = (
     r"(?:(?:[ \t\xa0]+d[aeo]s?)?[ \t\xa0]+(?!(?-i:[IVXLC]+)\b)"
-    rf"(?:{_PALAVRA_TITULO}|{_QUALIFICADOR_MINUSCULO})){{0,2}}"
+    rf"(?-i:{_NAO_QUALIFICA})(?:{_PALAVRA_TITULO}|{_QUALIFICADOR_MINUSCULO})){{0,2}}"
 )
 
 _DIPLOMA = (
@@ -499,11 +510,15 @@ _DIPLOMA = (
     # diploma ("art. 5º da Constituição garante") e reprovava o qualificador da
     # CF: `real` virava `inventada`. Medido nos 996 acórdãos, eram 98 citações.
     rf"|{_tolerante('Constituição')}(?:\s+de\s+(?:19|20)\d{{2}}"
-    rf"|(?:\s+d[aeo]\s+)?(?:\s*(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]+|{_QUALIFICADOR_MINUSCULO}))?"
+    rf"|(?:\s+d[aeo]\s+)?(?:\s*(?-i:{_NAO_QUALIFICA})(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]+|{_QUALIFICADOR_MINUSCULO}))?"
     rf"{_QUALIFICADOR_SEGUINTE}{_ANO_DE_VERSAO})"
     # "Lei Maior", "Carta Política" e "Carta da República" são como a prosa
     # jurídica chama a CF/88, tanto quanto "Carta Magna".
-    r"|Carta\s+Magna|Lei\s+Maior|Carta\s+Pol[íi]tica|Carta\s+da\s+Rep[úu]blica"
+    # O apelido leva o qualificador e o ano que vierem depois, como a
+    # Constituição: "Lei Maior de 1969", "Carta da República Portuguesa" são
+    # outra carta, e só com o qualificador no diploma a resolução pode recusá-la.
+    r"|(?:Carta\s+Magna|Lei\s+Maior|Carta\s+Pol[íi]tica|Carta\s+da\s+Rep[úu]blica)"
+    rf"(?:\s+de\s+(?:19|20)\d{{2}}|(?:\s+d[aeo]s?)?{_QUALIFICADOR_SEGUINTE}{_ANO_DE_VERSAO})"
     # `Decreto-Lei nº 5.452/1943` é **como a base canônica nomeia a CLT** na
     # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
     # corrente da Lei Complementar. Sem as duas alternativas a citação sumia — e
@@ -795,7 +810,10 @@ def _numero_de_lei_plausivel(diploma: str) -> bool:
     `_NUMERO_DE_LEI` aceita digitoide pelo mesmo motivo que o número do artigo, e
     precisa do mesmo contrapeso: sem ele "Lei Os" seria "Lei 05".
     """
-    numero = re.search(rf"{_DIGITOIDE}[{_DIGITOIDE[1:-1]}./]*$", diploma or "")
+    # O número é o último token inteiro, não a cauda de uma palavra: sem a
+    # fronteira, o `o` final de "Lei Maior do Estado" era lido como número sem
+    # dígito real, e a citação — que precisa existir para sair `inventada` — sumia.
+    numero = re.search(rf"(?<![A-Za-zÀ-ÿ]){_DIGITOIDE}[{_DIGITOIDE[1:-1]}./]*$", diploma or "")
     if numero is None or not re.match(r"(?i)\s*(?:lei|lc|decreto)", diploma):
         return True
     return _digitos(numero.group()) >= 1
@@ -951,8 +969,16 @@ def _e_numero_de_processo(numero: str, antes: str, depois: str = "") -> bool:
 # A inscrição na OAB colada à sigla da UF, como o rol de advogados do STJ a
 # escreve ("ALINE SANTOS - DF043530", "LUCAS TIEPPO - SP413475"). O núcleo não
 # pode começar colado à letra, então casa a partir do segundo caractere — e o
-# rótulo "DF" nunca chegava à janela do filtro. O sinal é a UF colada ao dígito.
-_INSCRICAO_COM_UF = re.compile(rf"(?<![A-Za-zÀ-ÿ])(?:{'|'.join(sorted(UFS))})\d*$")
+# rótulo "DF" nunca chegava à janela do filtro.
+#
+# O sinal é a UF colada ao dígito **depois do travessão** que separa o nome do
+# advogado da inscrição, ou depois do rótulo "OAB" (a forma do STM: "(OAB
+# SC50542)"). Sem nenhum dos dois, a UF colada é sigla de classe que por acaso
+# coincide com uma UF ("MS12345/DF", "REsp nº SP1234567"), e a citação não pode
+# sumir.
+_INSCRICAO_COM_UF = re.compile(
+    rf"(?:[-–—]|\bOAB\b[ \t\xa0]*[:/]?)[ \t\xa0]*(?:{'|'.join(sorted(UFS))})\d*$"
+)
 
 
 def _aparar(texto: str, inicio: int, fim: int) -> tuple[int, int]:
@@ -1099,7 +1125,12 @@ def _sem_palavra_corrompida(numero: str) -> str:
     if letras <= len(final) - letras:
         return numero
     resto = numero[: pedaco.start()]
-    if len(final) == 3 and not _ANO_SOLTO.match(_forma_canonica(resto)):
+    # Só sai quando o que fica antes é um número completo que não é processo —
+    # ano ou página. Em qualquer outro caso o pedaço é o último grupo de um
+    # número corrompido, em qualquer tamanho: "APL 7000380-08 2023 7 00 O0OO"
+    # perdia o `O0OO` e virava `inventada`.
+    canonico = _forma_canonica(resto)
+    if not (_ANO_SOLTO.match(canonico) or _PAGINAS.match(canonico)):
         return numero
     return resto
 

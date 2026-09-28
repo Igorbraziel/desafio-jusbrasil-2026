@@ -512,3 +512,56 @@ def test_diploma_com_digito_no_lugar_da_letra(base_canonica, citacao, chave):
 )
 def test_diploma_fora_com_digito_continua_inventada(base_canonica, citacao):
     assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+# ── Achados da revisão final ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # a letra maiúscula que o OCR põe no número da lei: `G`→6, `B`→8
+        ("art. 1º da Lei Complementar nº G4/1990", ("LC64", 1)),
+        ("art. 14 da Lei nº B.078/1990", ("CDC", 14)),
+        ("art. 312 do Decreto-Lei nº 3.G89/1941", ("CPP", 312)),
+        ("art. 186 da Lei nº 10.40G/2002", ("CC", 186)),
+        ("art. 276 da Lei nº 4.737/19G5", ("ELEITORAL", 276)),
+    ],
+)
+def test_numero_da_lei_com_maiuscula_de_ocr(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # `B`→8: a lei 84 não é a LC 64, e a lei 10.408 não é o Código Civil
+        "art. 1º da LC nº B4/1990",
+        "art. 186 da Lei nº 1O.4OB/2002",
+        # lei estadual, municipal ou distrital com o número de uma lei federal
+        "art. 186 da Lei Estadual nº 10.406/2002",
+        "art. 14 da Lei Municipal nº 8.078/1990",
+        "art. 186 da Lei Estadual nº 10.406",
+        # apelidos da Constituição com ano ou qualificador de outra carta
+        "art. 5º da Lei Maior de 1969",
+        "art. 5º da Carta Política de 1967",
+        "art. 5º da Lei Maior do Estado",
+        "art. 5º da Lei Maior mineira",
+        "art. 5º da Carta da República Portuguesa",
+        "art. 5º da Carta Magna de 1967",
+    ],
+)
+def test_achados_da_revisao_continuam_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 5º da Lei Maior", ("CF", 5)),
+        ("art. 5º da Carta Magna", ("CF", 5)),
+        ("art. 5º da Carta Política de 1988", ("CF", 5)),
+    ],
+)
+def test_apelidos_da_cf_88_continuam_real(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]

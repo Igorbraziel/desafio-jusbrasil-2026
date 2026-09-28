@@ -108,17 +108,18 @@ etapa 3, antes de a etapa 4 mexer no ruído de OCR. "Todas (10)" não tem iníci
 porque a combinação só existe depois das classes novas. As classes que já
 estavam imunes seguem imunes (1,0999 é o custo da confiança recalibrada).
 
-**Confiança**, só pares casados, as duas taxas: `real` 817/817;
-`inventada_processo` 374/391 (0,98 → 0,95); `inventada_tabela` 185/187
-(0,98); `incompleta_vaga` 287/287; `real_desempate_classe` 9/9 (0,90);
-`real_desempate` 0,5 (moeda entre cópias).
+**Confiança**, por `make confianca` nas duas taxas, só pares casados (como o
+Brier oficial; o script contava a predição sem par como erro e deixou de
+contar): `real` 913/913; `inventada_processo` 416/432 (0,98 → 0,96);
+`inventada_tabela` 206/208 (0,98); `incompleta_vaga` 319/319;
+`real_desempate_classe` 10/10 (0,91); `real_desempate` 0,5 (moeda entre cópias).
 
-**Volume nos 996 acórdãos** (janela de 4.000): `processo` 7.916 → 6.585 (lei,
-ato normativo, tema e inscrição na OAB que viravam processo); `dispositivo`
+**Volume nos 996 acórdãos** (janela de 4.000): `processo` 7.916 → 6.509 (lei,
+ato normativo, tema, inscrição na OAB e folha corrompida que viravam processo); `dispositivo`
 2.078 → 2.147 e `sumula` 1.208 → 1.232 (formas correntes, conferidas por
 amostra); `tema` 609 → 683.
 
-**Testes:** 361 → 529.
+**Testes:** 361 → 556.
 
 ## O que ficou aberto
 
@@ -127,3 +128,28 @@ amostra); `tema` 609 → 683.
    `real` que o reparo ainda não desfaz, que cai em `inventada_processo`.
 2. **O número sem nenhum dígito real** (`Rcl BB.gbG/RJ`), como no cp 07.
 3. **O leaderboard do conjunto final** continua sendo a única medida honesta.
+
+## Revisão independente
+
+Um revisor com contexto novo leu a branch inteira e sondou cada regra nova.
+Achou um defeito crítico e cinco importantes, todos corrigidos com teste:
+
+1. **O reparo do número de lei perdia a caixa** (`G`→6 virava `g`→9): "Lei
+   Complementar nº G4/1990" saía `inventada` e "LC nº B4/1990" — a lei 84 —
+   saía `real`. O nome e o número do diploma passaram a ser reparados em
+   separado, o número sobre o texto original.
+2. **Lei estadual ou municipal** com o número de uma lei federal da cobertura
+   resolvia para ela; agora é outro diploma.
+3. **Os apelidos da CF** ("Lei Maior", "Carta Política", "Carta Magna") aceitavam
+   ano e qualificador de outra carta; agora passam pela regra de inclusão.
+4. **O último grupo de um número separado por espaços** era cortado quando
+   tinha mais letra que dígito; agora só sai depois de ano ou página.
+5. **Palavra capitalizada depois da CF** sem pontuação no meio — a âncora de
+   outra citação ou o nome do relator — entrava no diploma.
+6. **O filtro de OAB colada à UF** apagava `MS12345/DF`; agora exige o
+   travessão do rol de advogados ou o rótulo "OAB".
+
+Depois das correções: dev igual, arnês igual nas dez classes e nas duas taxas,
+e `ocr_numero` com 20 sementes a 0,15 sobe de 1,0963 (pior 1,0848) para 1,0972
+(pior 1,0881). Nenhum par com IoU ≥ 0,5 nem trecho desalinhado nos 1.022 textos
+do dev e da base (173 mil spans).

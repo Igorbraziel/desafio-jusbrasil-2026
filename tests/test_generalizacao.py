@@ -941,3 +941,63 @@ def _detectar_bruto(texto):
 )
 def test_referencia_de_folha_corrompida_nao_vira_processo(corpo):
     assert [a.familia for a in _detectar(corpo)] == []
+
+
+# ── Achados da revisão final ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("corpo", "digitos"),
+    [
+        # número CNJ com os grupos separados por espaço e o último corrompido:
+        # o pedaço final não é palavra, e cortá-lo encurtava o número
+        ("Invoca-se a APL 7000380-08 2023 7 00 O0OO/DF, no ponto.", "70003800820237000000"),
+        ("Invoca-se o REspe 0600689-52 2020 6 19 OO3S, no ponto.", "06006895220206190035"),
+    ],
+)
+def test_ultimo_grupo_corrompido_de_numero_separado_por_espaco(corpo, digitos):
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(corpo)
+    assert len(achados) == 1
+    assert digitos_do_identificador(achados[0].trecho) == digitos
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # palavra em caixa de título depois da CF, sem pontuação no meio, não é
+        # qualificador: é o começo de outra citação ou do nome do relator
+        (
+            "Viola o art. 5º da Constituição Federal Súmula 83 do STJ no ponto.",
+            ["art. 5º da Constituição Federal", "Súmula 83 do STJ"],
+        ),
+        (
+            "Viola o art. 5º da Constituição Federal Relator Ministro Fulano, no ponto.",
+            ["art. 5º da Constituição Federal"],
+        ),
+    ],
+)
+def test_qualificador_da_constituicao_para_em_outra_citacao(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == esperado
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a sigla da classe coincide com uma UF e vem colada ao número
+        ("Invoca-se o MS12345/DF, no ponto.", "MS12345/DF"),
+        ("Invoca-se o REsp nº SP1234567, no ponto.", "REsp nº SP1234567"),
+    ],
+)
+def test_sigla_de_classe_igual_a_uf_nao_e_inscricao(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+def test_inscricao_com_rotulo_oab_colado_a_uf_nao_vira_citacao():
+    """A forma do STM: "(OAB SC50542)", o rótulo antes e a UF colada ao número."""
+    corpo = (
+        "O acórdão recorrido registra as partes.\nADVOGADOS: LUANA BRUN (OAB SC50542), "
+        "FABIO HYPOLITTO (OAB: SP292401) e MARIA RUFINO (OAB DF68561). REQUERIDO: X"
+    )
+    assert [a.familia for a in _detectar(corpo)] == []
