@@ -7,7 +7,10 @@
 # Sem pesos e sem dados dentro da imagem, como exige o regulamento: a base
 # canônica entra por volume. Sem rede em runtime — o pipeline é determinístico e
 # só usa a biblioteca padrão do Python.
-FROM python:3.12-slim
+# Versão exata e digest fixos: o bundle reproduzível é reexecutado pela
+# organização depois do fechamento, e `3.12-slim` flutua. 3.12.3 é a versão em
+# que as medições foram feitas.
+FROM python:3.12.3-slim@sha256:afc139a0a640942491ec481ad8dda10f2c5b753f5c969393b12480155fe15a63
 
 # Sem bytecode residual e sem buffer, para que a saída do container apareça na hora.
 ENV PYTHONDONTWRITEBYTECODE=1 \

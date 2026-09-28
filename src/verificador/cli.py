@@ -21,11 +21,18 @@ PADRAO_DB = Path(os.environ.get("VERIFICADOR_DB", "data/dev/desafio1_bracis.db")
 
 
 def _carregar_base(indice: Path, db: Path) -> BaseCanonica:
-    """Usa o índice pré-construído; se não existir, constrói a partir do banco."""
-    if indice.exists():
-        return BaseCanonica.de_arquivo(indice)
+    """Constrói o índice do banco; o JSON pré-construído é só o reserva.
+
+    No contrato de execução da organização só o banco é montado, e o índice sai
+    dele. Preferir um JSON que estivesse no disco faria a execução local usar um
+    índice possivelmente antigo — a submissão feita daqui divergiria da
+    reexecução, e "não bater o score" desclassifica. Construir leva cerca de um
+    segundo.
+    """
     if db.exists():
         return BaseCanonica.de_banco(db)
+    if indice.exists():
+        return BaseCanonica.de_arquivo(indice)
     raise SystemExit(
         f"nem índice ({indice}) nem base canônica ({db}) encontrados.\n"
         "Rode `make dados && make indice`."

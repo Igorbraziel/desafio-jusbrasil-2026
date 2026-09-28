@@ -139,7 +139,7 @@ entre `real` e `inventada`.
 ## Ruído de OCR observado no nível 2
 
 Além dos `0↔O`, `1↔l`, `5↔S`, `m↔rn` que o material menciona, a amostra também
-traz `9↔g` (`1.45g.779`), `6↔G` (`6G.838`) e `0↔O` em posição final (`170076O`).
+traz `9↔g` (`1.23g.456`), `6↔G` (`1G.234`) e `0↔O` em posição final (`123450O`).
 
 Nas palavras, o ruído é uma substituição por palavra e pode cair em qualquer
 posição, inclusive a última letra: `entendirnento`, `jurisprudêneia`,

@@ -45,8 +45,9 @@ robustez: ## Mede a degradação por classe de ruído (exige `make baseline`)
 confianca: ## Mede a acurácia por caminho de decisão, para calibrar CONFIANCA
 	$(RUN) python scripts/medir_confianca.py --taxa 0.15 --sementes 3
 
-submissao: rodar ## Gera data/submission.csv para enviar no Kaggle
+submissao: rodar ## Gera e confere data/submission.csv para enviar no Kaggle
 	$(RUN) python $(DEV)/ferramentas/json_to_submission.py $(OUT) data/submission.csv
+	$(RUN) python scripts/conferir_submissao.py data/submission.csv $(DEV)/sample_submission.csv
 
 requirements: ## Exporta requirements.txt pinado para o Dockerfile
 	uv export --no-dev --format requirements-txt --no-emit-project > requirements.txt

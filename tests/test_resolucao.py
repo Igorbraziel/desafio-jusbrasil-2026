@@ -104,6 +104,32 @@ def test_sumula_com_ruido_resolve_para_o_numero_reparado(base_canonica, citacao,
     assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
 
 
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("Súmula 83/STJ", ("STJ", False, 83)),
+        ("Súmula 83-STJ", ("STJ", False, 83)),
+        ("Súmula 83 (STJ)", ("STJ", False, 83)),
+        ("Súmula 331, I, do TST", ("TST", False, 331)),
+        ("Súmula nº 331 do Tribunal Superior do Trabalho", ("TST", False, 331)),
+        ("Súmula 211 do Superior Tribunal de Justiça", ("STJ", False, 211)),
+        ("Súrnula 331 do Tribunal Supcrior do Trabalho", ("TST", False, 331)),
+    ],
+)
+def test_sumula_com_tribunal_em_outras_formas(base_canonica, citacao, chave):
+    """Sem o tribunal a súmula da cobertura não resolve e sai `inventada`."""
+    assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    ["Súmula 83/STF", "Súmula 331 do Supremo Tribunal Federal", "Súmula 443 (TST)"],
+)
+def test_sumula_em_outro_tribunal_continua_inventada(base_canonica, citacao):
+    """O tribunal é conferido junto com o número: outra forma não abre o τ."""
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
 def test_letra_no_meio_do_artigo_nao_encolhe_o_numero(base_canonica):
     """`3l73` é o artigo 3.173, não o 373 — que está na cobertura."""
     assert _classificar(base_canonica, "art. 3l73 do CPC") == [("inventada", None)]
@@ -132,6 +158,15 @@ def test_letra_no_meio_do_artigo_nao_encolhe_o_numero(base_canonica):
         ("art. 5º, caput, da Constituição Federal", ("CF", 5)),
         ("art. 5º, LXXVIII, da Constituição Federal", ("CF", 5)),
         ("art. 373, incisos I e II, do CPC", ("CPC", 373)),
+        # o verbo da frase não é qualificador, e a sigla com ano é a CF/88
+        ("art. 5º da Constituição garante a igualdade", ("CF", 5)),
+        ("art. 5º, II, da Constituição consagra a legalidade", ("CF", 5)),
+        ("art. 5º da CF de 1988", ("CF", 5)),
+        ("artigo 5º, inciso XXXVI, da CF de 1988", ("CF", 5)),
+        ("art. 93 da constituição federal", ("CF", 93)),
+        # "Constituição Cidadã" é o apelido corrente da CF/88
+        ("art. 5º da Constituição Cidadã", ("CF", 5)),
+        ("art. 5º da constituição cidadã", ("CF", 5)),
     ],
 )
 def test_diploma_pela_forma_da_base(base_canonica, citacao, chave):
@@ -157,6 +192,12 @@ def test_diploma_pela_forma_da_base(base_canonica, citacao, chave):
         "art. 5º da Constituição de 1967",
         "art. 5º da Constituição do Brasil de 1967",
         "art. 5º da Constituição Mineira",
+        # o qualificador em minúscula continua capturado, e continua recusado
+        "art. 5º da constituição estadual",
+        "art. 5º da constituição mineira",
+        "art. 5º da constituição portuguesa",
+        "art. 93 da constituição do estado",
+        "art. 5º da CF de 1967",
         # "5O" maiúsculo é a confusão de OCR documentada, não ordinal: lê-lo como
         # 5º levaria o art. 50 da CF, fora da cobertura, ao art. 5º
         "art. 5O da Constituição Federal",
@@ -285,3 +326,242 @@ def test_sigla_curta_nao_casa_dentro_de_outra_palavra(base_canonica):
     assert _classificar(base_canonica, "art. 7º da Constituição Fcdcral") == [
         ("real", DISPOSITIVOS[("CF", 7)])
     ]
+
+
+# ── Os caminhos de τ achados na revisão de 24/09 ──────────────────────────────
+#
+# Cada caso aqui saía `real` apontando para um registro da cobertura, embora a
+# citação fosse de outro diploma, outro tribunal ou outro artigo. É o erro que a
+# métrica multiplica pelo nível inteiro.
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # a sigla sem fronteira à direita: "CPPM" casava "CPP" e sobrava o "M"
+        "art. 312 do CPPM",
+        # o conector corrompido e o nome longo cortavam "Militar" fora do diploma
+        "art. 312 do Código dc Processo Penal Militar",
+        "art. 312 do Código Brasileiro de Processo Penal Militar",
+        # o qualificador estrangeiro depois do primeiro ficava fora do diploma
+        "art. 5º da Constituição da República Portuguesa",
+        "art. 5º da Constituição Federal Alemã",
+        "art. 5º da Constituição da República de Angola",
+        # artigo com sufixo é outro artigo: nenhum da cobertura tem sufixo
+        "art. 896-A da CLT",
+        "art. 373-A do CPC",
+        # códigos por sigla fora da cobertura
+        "art. 121 do CP",
+        "art. 142 do CTN",
+    ],
+)
+def test_diploma_ou_artigo_fora_da_cobertura_nao_vira_real(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # as siglas correntes da CF e do CPC vigentes
+        ("art. 5º, LV, da CRFB/88", ("CF", 5)),
+        ("art. 93, IX, da CRFB", ("CF", 93)),
+        ("art. 373 do NCPC", ("CPC", 373)),
+        # "LC nº 64/90": o marcador era o literal "lc 64", sem a marca de número
+        ("art. 1º, I, g, da LC nº 64/90", ("LC64", 1)),
+        # o parágrafo com sufixo não é sufixo do artigo
+        ("art. 896, § 1º-A, da CLT", ("CLT", 896)),
+    ],
+)
+def test_siglas_correntes_da_cobertura_sao_real(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+def test_sumula_vinculante_de_outro_tribunal_e_inventada(base_canonica):
+    """Súmula vinculante só existe no STF; "do STJ" é outra súmula."""
+    assert _classificar(base_canonica, "Súmula Vinculante 10 do STJ") == [("inventada", None)]
+    assert _classificar(base_canonica, "Súmula Vinculante 10 do STF") == [
+        ("real", SUMULAS[("STF", True, 10)])
+    ]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # tema em outras grafias caía na família `processo`, e o número de um
+        # tema citado na ementa de um acórdão resolvia para esse acórdão
+        "Tema Repetitivo 1.046 do STJ",
+        "tema repetitivo 1.148 do STJ",
+        "Tema de Repercussão Geral nº 1.046",
+        "Tema RG 1.046",
+    ],
+)
+def test_tema_em_outras_grafias_e_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # lei citada pelo número, com ano de dois dígitos: não é processo
+        "artigo 189 da Lei Federal nº 9.504/97",
+        "art 189 da Lci nº 9.504/97",
+    ],
+)
+def test_lei_com_ano_de_dois_digitos_nao_vira_processo(base_canonica, citacao):
+    familias = {a.familia for a in detectar(f"Invoca-se o {citacao}, no ponto.")}
+    assert "processo" not in familias
+    assert all(classe != "real" for classe, _ in _classificar(base_canonica, citacao))
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # a sigla do tribunal com o `S` lido como `5`
+        ("Súmula 83 do 5TJ", ("STJ", False, 83)),
+        ("Súmula 331 do T5T", ("TST", False, 331)),
+        ("Súmula Vinculante 10 do 5TF", ("STF", True, 10)),
+        # o conector curto corrompido
+        ("Súmula 83 d0 STJ", ("STJ", False, 83)),
+        ("Súmula 211 dc STJ", ("STJ", False, 211)),
+    ],
+)
+def test_sumula_com_sigla_ou_conector_corrompido(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 93, IX, dã Constituição Federal", ("CF", 93)),
+        ("art. 312 d0 Código de Processo Penal", ("CPP", 312)),
+        ("art. 477 dã CLT", ("CLT", 477)),
+        ("art. 1º dã Lei Complcmentar nº 64/1990", ("LC64", 1)),
+    ],
+)
+def test_dispositivo_com_conector_corrompido(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+# ── Formas correntes que a amostra sintética não produziu ─────────────────────
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # o inciso da súmula como "item" e o honorífico antes do tribunal
+        ("Súmula 331, item IV, do TST", ("TST", False, 331)),
+        ("Súmula 83 do C. STJ", ("STJ", False, 83)),
+        ("Súmula 443 do E. STJ", ("STJ", False, 443)),
+        ("Súmula 331 do col. TST", ("TST", False, 331)),
+        # a sigla da súmula vinculante
+        ("SV 10", ("STF", True, 10)),
+        ("SV nº 10 do STF", ("STF", True, 10)),
+        # "Enunciado" é como o TST chama as próprias súmulas
+        ("Enunciado 331 do TST", ("TST", False, 331)),
+    ],
+)
+def test_sumula_em_formas_correntes(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", SUMULAS[chave])]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 373 do novo Código de Processo Civil", ("CPC", 373)),
+        ("art. 373 do atual CPC", ("CPC", 373)),
+        ("art. 93, IX, da Lei Maior", ("CF", 93)),
+        ("art. 5º, LV, da Carta Política", ("CF", 5)),
+        ("art. 5º, LV, da Carta da República", ("CF", 5)),
+        # o diploma por sigla, sem o conector
+        ("art. 5º, LV, CF", ("CF", 5)),
+        ("art. 5º, LV, CF/88", ("CF", 5)),
+    ],
+)
+def test_dispositivo_em_formas_correntes(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+def test_enunciado_de_outro_tribunal_nao_vira_sumula_do_tst(base_canonica):
+    assert _classificar(base_canonica, "Enunciado 331 do STF") == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # a detecção atravessa o dígito no lugar da letra; a resolução também
+        # precisa, senão a citação `real` sai `inventada`
+        ("art. 93, IX, da Con5tituição da Repúb1ica", ("CF", 93)),
+        ("art. 14 do Códig0 de Defesa do Con5umidor", ("CDC", 14)),
+        ("art. 312 do Código de Processo Pena1", ("CPP", 312)),
+        ("art. 290 do Código Penal Mi1itar", ("CPM", 290)),
+        ("art. 186 do Código Civi1", ("CC", 186)),
+        ("art. 1º, I, 'g', da Lei Comp1ementar nº 64/1990", ("LC64", 1)),
+    ],
+)
+def test_diploma_com_digito_no_lugar_da_letra(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # o CPPM com dígito continua fora da cobertura
+        "art. 312 do Código de Processo Penal Mi1itar",
+        "art. 5º da Con5tituição Estadua1",
+    ],
+)
+def test_diploma_fora_com_digito_continua_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+# ── Achados da revisão final ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        # a letra maiúscula que o OCR põe no número da lei: `G`→6, `B`→8
+        ("art. 1º da Lei Complementar nº G4/1990", ("LC64", 1)),
+        ("art. 14 da Lei nº B.078/1990", ("CDC", 14)),
+        ("art. 312 do Decreto-Lei nº 3.G89/1941", ("CPP", 312)),
+        ("art. 186 da Lei nº 10.40G/2002", ("CC", 186)),
+        ("art. 276 da Lei nº 4.737/19G5", ("ELEITORAL", 276)),
+    ],
+)
+def test_numero_da_lei_com_maiuscula_de_ocr(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+@pytest.mark.parametrize(
+    "citacao",
+    [
+        # `B`→8: a lei 84 não é a LC 64, e a lei 10.408 não é o Código Civil
+        "art. 1º da LC nº B4/1990",
+        "art. 186 da Lei nº 1O.4OB/2002",
+        # lei estadual, municipal ou distrital com o número de uma lei federal
+        "art. 186 da Lei Estadual nº 10.406/2002",
+        "art. 14 da Lei Municipal nº 8.078/1990",
+        "art. 186 da Lei Estadual nº 10.406",
+        # apelidos da Constituição com ano ou qualificador de outra carta
+        "art. 5º da Lei Maior de 1969",
+        "art. 5º da Carta Política de 1967",
+        "art. 5º da Lei Maior do Estado",
+        "art. 5º da Lei Maior mineira",
+        "art. 5º da Carta da República Portuguesa",
+        "art. 5º da Carta Magna de 1967",
+    ],
+)
+def test_achados_da_revisao_continuam_inventada(base_canonica, citacao):
+    assert _classificar(base_canonica, citacao) == [("inventada", None)]
+
+
+@pytest.mark.parametrize(
+    ("citacao", "chave"),
+    [
+        ("art. 5º da Lei Maior", ("CF", 5)),
+        ("art. 5º da Carta Magna", ("CF", 5)),
+        ("art. 5º da Carta Política de 1988", ("CF", 5)),
+    ],
+)
+def test_apelidos_da_cf_88_continuam_real(base_canonica, citacao, chave):
+    assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]

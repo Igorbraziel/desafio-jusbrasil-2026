@@ -9,7 +9,8 @@ emitir 0,93 num que acerta 0,70 é pior, porque a punição é quadrática.
 O método: rodar o pipeline sobre o corpus **perturbado**, casar cada predição
 com o gabarito traduzido pela mesma regra do avaliador oficial (IoU ≥ 0,5) e
 contar, por caminho de decisão, quantas vezes a predição estava certa — mesma
-classe e, nas ``real``, mesmo ``id_canonico``.
+classe e, nas ``real``, mesmo ``id_canonico``. A predição sem par fica de fora,
+como no Brier oficial, que só conta pares casados.
 
 Por que sob perturbação e não no conjunto limpo: no limpo todo caminho acerta
 100%, e calibrar por ele mandaria emitir 1,0 em tudo. O conjunto cego tem formas
@@ -109,9 +110,12 @@ def medir(base: BaseCanonica, pasta_txt: Path, goldenset: Path) -> dict[str, tup
                 if valor >= IOU_MIN and valor > melhor_iou:
                     melhor, melhor_iou = esperada, valor
 
-            contagem[nome][1] += 1
             if melhor is None:
-                continue  # predição espúria: conta como erro, que é o que ela é
+                # Predição sem par fica de fora, como no Brier oficial: o bônus
+                # de calibração só conta pares casados. Contá-la como erro
+                # puxava a acurácia para baixo de um valor que a métrica não vê.
+                continue
+            contagem[nome][1] += 1
             if classe != melhor[2]:
                 continue
             if classe == "real":
@@ -166,7 +170,7 @@ def main() -> None:
             total[nome][1] += t
 
     print(f"\nAcurácia por caminho de decisão — taxa {args.taxa}, {args.sementes} sementes")
-    print("(inclui o corpus limpo; predição sem par conta como erro)\n")
+    print("(inclui o corpus limpo; só pares casados, como o Brier oficial)\n")
     print(f"  {'caminho':<24} {'acertos':>9} {'total':>7} {'acurácia':>10} {'hoje':>7}")
     print("  " + "-" * 62)
     calibrado: dict[str, float] = {}

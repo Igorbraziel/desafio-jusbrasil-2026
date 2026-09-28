@@ -64,3 +64,29 @@ Fica como risco assumido para o conjunto cego, que pode ter mais pares.
 Se o `solution.csv` do Kaggle aceitar conjunto de `doc_ids` — o parser oficial
 lê o campo como conjunto separado por `:` —, o desempate deixa de importar. Não
 dá para verificar daqui; uma submissão resolve.
+
+## Revisão de 24/09/2026: desempate pela classe processual
+
+Medindo a base inteira, os números próprios que dois acórdãos dividem são de
+dois tipos: **cópias** (o mesmo texto indexado duas, três ou quatro vezes) e
+**incidentes do mesmo processo** — o recurso especial e o agravo interno nele,
+o recurso e o pedido de extensão, o recurso e os embargos de declaração. No
+segundo tipo o que separa os registros é a classe, e a citação traz a classe no
+prefixo ("AgInt no REsp", "PExt no RHC", "ED no REspe").
+
+**Decisão.** `construir_indice` grava, por registro, as marcas da classe do
+cabeçalho (`verificador.classe`), e `_resolver_processo` escolhe o candidato
+cuja classe mais concorda com a da citação — contando as marcas em comum e
+descontando os incidentes que só um dos lados tem. Só com margem sobre o
+segundo colocado o desempate vale como leitura (`real_desempate_classe`).
+
+Sem margem sobram as cópias e as classes que não distinguem. Aí fica o primeiro
+da ordem estável, como antes, com `real_desempate` em **0,5**: é uma moeda entre
+dois registros, e 0,5 é o valor que minimiza o Brier de um chute honesto.
+
+**Medido.** Nos pares de incidentes da base, citando cada um pela classe do
+próprio cabeçalho, o desempate por classe acerta 16 de 19; o por `texto_len`
+acertava 10. O único par ambíguo que o gabarito do dev cita (um agravo interno
+no recurso especial contra um agravo interno nos embargos de divergência, no
+mesmo número) passa a ser resolvido pela classe, e não mais pela sorte da
+ordenação. `tests/test_indice.py` trava oito desses casos.

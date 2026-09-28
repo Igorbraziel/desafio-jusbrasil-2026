@@ -37,27 +37,35 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 310 deles, todos passando.
+cada etapa — 556 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
-níveis, τ = 0, score 1,1000.** Leia esse número com a desconfiança que ele
+níveis, τ = 0, IoU mínimo 1,000, score 1,0999** (a confiança calibrada custa
+0,0001 num corpus em que tudo acerta). Leia esse número com a desconfiança que ele
 merece: são os mesmos 26 documentos usados para construir a solução, e
 [docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
 essa amostra não consegue medir. O leaderboard sobre o conjunto final é a
 primeira medida honesta.
 
-Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Três
+Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Cinco
 instrumentos existem para isso e são os que importam para o conjunto cego:
 
 - [tests/test_generalizacao.py](tests/test_generalizacao.py), com as formas que
   a amostra não tem;
-- `make robustez`, que degrada o corpus e repontua — hoje seis das sete classes
-  de ruído estão imunes nas cinco sementes, e as sete juntas marcam 1,0969;
+- `make robustez`, que degrada o corpus em dez classes de ruído e repontua — as
+  três últimas (`ocr_letra_digito`, `sigla_tribunal`, `ocr_curta`) medem formas
+  que o nível 2 da amostra mostra e que o arnês antes não gerava;
 - `scripts/medir_espurias.py`, que roda a detecção sobre os 996 acórdãos reais
   da base e conta spans por família, para pegar falso positivo em texto que o
-  gerador sintético não escreve.
+  gerador sintético não escreve;
+- `scripts/medir_cobertura.py`, que cita cada acórdão pelo próprio cabeçalho e
+  mede se ele volta resolvido — o índice visto do lado de quem cita;
+- [tests/test_indice.py](tests/test_indice.py), que trava as propriedades do
+  índice que valem também no conjunto cego, porque a base é a mesma: nenhuma
+  chave que seja data, ano, OAB ou número citado na ementa.
 
-Ver o [checkpoint 07](docs/checkpoints/07-familias-de-lei.md).
+Ver o [checkpoint 09](docs/checkpoints/09-revisao-final.md), com o que a revisão
+de 24/09 achou e mediu.
 
 ## Instalação
 
@@ -82,7 +90,7 @@ make indice     # constrói o índice da base canônica — uma vez, offline
 make testar     # pytest
 make rodar      # um JSON por documento em data/out/
 make avaliar    # métrica OFICIAL do Kaggle, por nível + score ponderado
-make submissao  # gera data/submission.csv para enviar no Kaggle
+make submissao  # gera e confere data/submission.csv para enviar no Kaggle
 
 make baseline   # grava o score limpo como referência do arnês
 make robustez   # degrada o corpus por classe de ruído e repontua
@@ -129,20 +137,19 @@ nada** — o que informa é o arnês e a suíte de generalização.
 
 Frentes abertas, nessa ordem de valor:
 
-1. **Submeter e ler o leaderboard do conjunto final.** O arnês está saturado —
-   `ocr_numero`, a última classe não imune, marca 1,0993 contra 1,1000 limpo. O
-   que falta saber só o conjunto cego diz.
-2. **O número sem nenhum dígito real** (`Rcl BB.gbG/RJ`), resíduo a taxa 0,30.
+1. **Submeter e ler o leaderboard do conjunto final.** `make submissao` gera e
+   confere o CSV; o que falta saber só o conjunto cego diz.
+2. **`ocr_letra_digito` a taxa 0,30** é a classe que mais perde (ver o cp 09):
+   letra trocada por dígito em palavra que não é âncora.
+3. **O número sem nenhum dígito real** (`Rcl BB.gbG/RJ`), resíduo a taxa 0,30.
    Pela forma é indistinguível de palavra; ver o checkpoint 07.
-3. **Duas classes de ruído que o arnês ainda não gera**: corrupção da sigla do
-   tribunal e do rótulo de cabeçalho.
 4. **NER de pesos abertos: medido e descartado** — sobre as regras atuais ele
    baixa o score em todos os corpora. A
    [ADR 0004](docs/decisoes/0004-ner-de-pesos-abertos.md) diz quando revisitar.
 
 Regra que vale para qualquer mudança: **o portão é o score limpo, as
-propriedades imunes e o volume nos acórdãos reais.** Nada entra se derrubar
-1,1000, quebrar uma classe imune no arnês, ou fizer uma família saltar em
+propriedades imunes e o volume nos acórdãos reais.** Nada entra se derrubar o
+F1 do dev, abrir τ, quebrar uma classe imune no arnês, ou fizer uma família saltar em
 `medir_espurias.py` sem explicação. Toda regra nova em `deteccao.py` vem com o
 caso que a motivou nos testes.
 

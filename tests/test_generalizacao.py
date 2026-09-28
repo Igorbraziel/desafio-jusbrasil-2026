@@ -43,6 +43,7 @@ def _detectar(corpo: str):
     "corpo",
     [
         "O período de 01/01/2020 a 31/12/2021 foi considerado pelo juízo.",
+        "O acórdão foi julgado na Sessão Virtual de 20.6.2025, por unanimidade.",
         "Publicado no DJe de 12/03/2021, o acórdão transitou em julgado.",
         "A sessão de 05/08/2019 confirmou o entendimento da Corte sobre o tema.",
         "Telefone (11) 98765-4321 consta dos autos do feito em análise.",
@@ -151,16 +152,16 @@ def test_numero_corrompido_resolve_para_os_digitos_certos():
 def test_primeiro_digito_corrompido_nao_muda_o_numero(primeiro):
     """A falha silenciosa: span válido, IoU bom, número errado.
 
-    O núcleo abria com `\\d` literal, então `REsp l.599.910/PR` começava no `5` e
-    devolvia `599910` — um número diferente, que não resolve na base e vira
+    O núcleo abria com `\\d` literal, então `REsp l.234.567/PR` começava no `5` e
+    devolvia `234567` — um número diferente, que não resolve na base e vira
     `inventada` com confiança alta. Medido, 79% das falhas de `ocr_numero`
     tinham o primeiro dígito corrompido.
     """
     from verificador.normalizacao import digitos_do_identificador
 
-    achados = _detectar(f"Ampara o REsp {primeiro}.599.910/PR, citado nos autos.")
+    achados = _detectar(f"Ampara o REsp {primeiro}.234.567/PR, citado nos autos.")
     assert len(achados) == 1
-    assert digitos_do_identificador(achados[0].trecho) == "1599910"
+    assert digitos_do_identificador(achados[0].trecho) == "1234567"
 
 
 @pytest.mark.parametrize(
@@ -554,3 +555,449 @@ def test_nome_em_caixa_alta_com_um_digito_nao_vira_processo():
     Na base real não há como separar os dois pela forma.
     """
     assert _detectar("Brasília, 26 de abril de 2016. MSTF 3SSIL - RELATOR do feito.") == []
+
+
+# ── O órgão julgador antes da citação ─────────────────────────────────────────
+#
+# Capitalizados, "Tribunal", "Ministro" e o nome que os segue têm forma de sigla,
+# e a cadeia de prefixo os engolia: IoU entre 0,33 e 0,39 contra o span da
+# citação, que vira FN e FP. Nos acórdãos reais, ~2% dos spans de processo.
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Conforme entendimento do Superior Tribunal de Justiça Rcl nº 12.345/SP, negou-se.",
+        "Como decidiu o Supremo Tribunal Federal Rcl nº 12.345/SP, não cabe o recurso.",
+        "Nesse sentido, o Ministro Relator Gilmar Mendes Rcl nº 12.345/SP afastou a tese.",
+        "Em Brasília, a Corte Especial Rcl nº 12.345/SP pacificou o tema em debate.",
+        "Vide jurisprudência do STF Rcl nº 12.345/SP sobre o tema em debate.",
+    ],
+)
+def test_orgao_julgador_nao_entra_no_prefixo(corpo):
+    assert [a.trecho for a in _detectar(corpo)] == ["Rcl nº 12.345/SP"]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # "Federal" também nomeia classe processual: a Intervenção Federal
+        ("Cita-se a Intervenção Federal nº 5.179/DF no ponto.", "Intervenção Federal nº 5.179/DF"),
+        ("Conforme a Justiça Federal Rcl nº 12.345/SP, negou-se.", "Rcl nº 12.345/SP"),
+    ],
+)
+def test_federal_nao_para_a_cadeia_sozinho(corpo, esperado):
+    """Quem para a cadeia é o substantivo do órgão ("Tribunal", "Justiça").
+
+    "Federal" é adjetivo e aparece também dentro do nome da classe; no léxico,
+    ele cortava "Intervenção Federal nº …" em "nº …" (IoU 0,35 — FN e FP).
+    """
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+def test_orgao_julgador_nao_leva_o_nome_da_classe_junto():
+    """O descarte do complemento para no núcleo do nome da classe."""
+    achados = _detectar("O Relator Gilmar Mendes Reclamação nº 12.345/SP afastou a tese.")
+    assert [a.trecho for a in achados] == ["Reclamação nº 12.345/SP"]
+
+
+def test_citacoes_coordenadas_nao_se_fundem():
+    achados = _detectar("No julgamento do Recurso Extraordinário e da Rcl nº 12.345/SP, decidiu.")
+    assert achados[-1].trecho.endswith("Rcl nº 12.345/SP")
+    assert "Extraordinário" not in achados[-1].trecho
+
+
+def test_e_dentro_do_nome_da_classe_continua_elo():
+    achados = _detectar(
+        "Cita-se o Agravo Interno na Suspensão de Liminar e de Sentença nº 2.883/MA no ponto."
+    )
+    assert [a.trecho for a in achados] == [
+        "Agravo Interno na Suspensão de Liminar e de Sentença nº 2.883/MA"
+    ]
+
+
+def test_sigla_de_tribunal_colada_continua_elo():
+    achados = _detectar("Conforme o processo nº TST-RR-79500-16.2009.5.15.0001, julgado.")
+    assert achados[0].trecho.startswith("processo nº TST-RR-")
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Conforme decidido no REsp 1.234.567/SP, o pedido procede.", "REsp 1.234.567/SP"),
+        ("A tese foi fixada na Reclamação nº 12.345/PE, citada.", "Reclamação nº 12.345/PE"),
+        ("A tese foi fixada no AgInt no REsp 1.234.567/RS, citado.", "AgInt no REsp 1.234.567/RS"),
+    ],
+)
+def test_conector_nao_abre_o_span(corpo, esperado):
+    """O conector é elo entre siglas, nunca a borda esquerda da citação."""
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("O art. 5º da Constituição garante a igualdade.", "art. 5º da Constituição"),
+        ("O art. 5º, II, da Constituição consagra a legalidade.", "art. 5º, II, da Constituição"),
+        ("Viola o art. 5º da constituição estadual no ponto.", "art. 5º da constituição estadual"),
+    ],
+)
+def test_verbo_depois_da_constituicao_nao_entra_no_diploma(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("O art. 186 do Código Civil trata do ato ilícito.", "art. 186 do Código Civil"),
+        ("O art. 276 do Código Eleitoral trata do recurso.", "art. 276 do Código Eleitoral"),
+        # a minúscula da lista fechada continua entrando — o CPPM precisa dela
+        (
+            "Viola o art. 312 do código de processo penal militar no ponto.",
+            "art. 312 do código de processo penal militar",
+        ),
+    ],
+)
+def test_prosa_depois_do_nome_do_codigo_nao_entra_no_diploma(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "qualificador",
+    [
+        "parágrafo único",
+        "§ único",
+        "inc. LV",
+        "incs. LIV e LV",
+        "caput e inciso LV",
+        "caput, e inciso II",
+        "parágrafo 2º",
+    ],
+)
+def test_dispositivo_com_qualificadores_correntes(qualificador):
+    corpo = f"Conforme o art. 5º, {qualificador}, da Constituição Federal, todos."
+    assert [a.trecho for a in _detectar(corpo)] == [
+        f"art. 5º, {qualificador}, da Constituição Federal"
+    ]
+
+
+def test_qualificadores_nao_explodem_em_texto_longo():
+    """Cada repetição consome texto literal: o custo continua linear."""
+    import time
+
+    inicio = time.perf_counter()
+    _detectar("art. 5º, " + "caput e inciso, " * 20000)
+    _detectar("art. 5º" + ", parágrafo" * 20000)
+    assert time.perf_counter() - inicio < 2
+
+
+# ── Ato normativo não é processo ──────────────────────────────────────────────
+#
+# O número de uma lei, decreto ou medida provisória citados soltos casava o
+# núcleo da família `processo` e virava citação `inventada` — falso positivo
+# que o gabarito não anota. O sinal é a palavra do ato logo à esquerda.
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Nos termos da Lei 8.112/90, o servidor faz jus ao adicional.",
+        "Nos termos da Lei nº 13.467, de 2017, a reforma se aplica.",
+        "Nos termos do Decreto 3.048/99, o benefício é devido.",
+        "Nos termos da Medida Provisória nº 2.200-2/2001, a assinatura vale.",
+        "Nos termos da Instrução Normativa nº 1.234, a exigência cai.",
+        "Nos termos da Portaria nº 12.345, a exigência cai.",
+        "Consta do Informativo 1.046 do STF que a tese prevaleceu.",
+    ],
+)
+def test_ato_normativo_nao_vira_processo(corpo):
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+def test_ato_normativo_nao_derruba_o_processo_vizinho():
+    """A regra olha o prefixo da própria citação, não a frase inteira."""
+    achados = _detectar("A Lei 8.112/90 foi aplicada no REsp 1.234.567/SP, citado.")
+    assert [a.trecho for a in achados] == ["REsp 1.234.567/SP"]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # em caixa alta toda palavra tem inicial maiúscula, e o nome do código
+        # engolia a prosa seguinte ("… MILITAR SE ENCONTRA")
+        (
+            "A CONDUTA DO ART. 290 DO CÓDIGO PENAL MILITAR SE ENCONTRA PROVADA.",
+            "ART. 290 DO CÓDIGO PENAL MILITAR",
+        ),
+        (
+            "A NORMA DO ART. 185 DO CÓDIGO TRIBUTÁRIO NACIONAL É ABSOLUTA.",
+            "ART. 185 DO CÓDIGO TRIBUTÁRIO NACIONAL",
+        ),
+        (
+            "VIOLOU O ART. 373 DO CÓDIGO DE PROCESSO CIVIL E DO ART. 5º DA CF.",
+            "ART. 373 DO CÓDIGO DE PROCESSO CIVIL",
+        ),
+    ],
+)
+def test_nome_do_codigo_em_caixa_alta_para_no_nome(corpo, esperado):
+    # Linha toda em caixa alta logo depois do cabeçalho é lida como título dele
+    # (`fim_do_cabecalho`); a prosa na frente põe a ementa no corpo.
+    achados = _detectar("A ementa do julgado é a seguinte.\n" + corpo)
+    assert achados[0].trecho == esperado
+
+
+# ── Letra trocada por dígito na palavra-chave ─────────────────────────────────
+#
+# O nível 2 da amostra troca letra por dígito dentro da palavra ("5úmula",
+# "C0NTROVÉRSIA"). Nas palavras-chave das expressões isso apagava a citação
+# inteira: "Súmu1a", "Re1. Min.", "Con5tituição" não casavam. Medido com a classe
+# `ocr_letra_digito` do arnês, era a maior perda de `incompleta`.
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Aplica-se a Súmu1a Vinculante 10, no ponto.", "Súmu1a Vinculante 10"),
+        ("Aplica-se a Súmula 83 do STJ, no ponto.", "Súmula 83 do STJ"),
+        (
+            "Viola o art. 5º, LV, da Con5tituição Federal, no ponto.",
+            "art. 5º, LV, da Con5tituição Federal",
+        ),
+        ("Viola o art. 186 do Códig0 Civil, no ponto.", "art. 186 do Códig0 Civil"),
+        (
+            "Viola o art. 1º da Le1 Complementar nº 64/1990.",
+            "art. 1º da Le1 Complementar nº 64/1990",
+        ),
+        (
+            "Invoca-se a Reclamação do STF, de 2025, Re1. Min. CRISTIANO ZANIN, no ponto.",
+            "Reclamação do STF, de 2025, Re1. Min. CRISTIANO ZANIN",
+        ),
+        (
+            "Invoca-se o julgad0 do STJ proferido em 2023 pela re1atoria de Sérgio Kukina.",
+            "julgad0 do STJ proferido em 2023 pela re1atoria de Sérgio Kukina",
+        ),
+    ],
+)
+def test_digito_no_lugar_da_letra_na_palavra_chave(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # o dígito colado ao ano ou à página vinha de uma palavra corrompida
+        "O fato ocorreu em 2020 5ob a vigência da lei anterior.",
+        "A decisão de 2021 s0b exame foi mantida pelo colegiado.",
+        "Consta das fls. 478/804. 5ob esse prisma, o pedido procede.",
+    ],
+)
+def test_palavra_com_digito_colada_ao_numero_nao_vira_processo(corpo):
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        (
+            "Invoca-se o julgado do 5TF proferido em 2024 pela relatoria de Dias Toffoli.",
+            "julgado do 5TF proferido em 2024 pela relatoria de Dias Toffoli",
+        ),
+        (
+            "Invoca-se a Reclamação do 5TF, de 2025, Rel. Min. CRISTIANO ZANIN, no ponto.",
+            "Reclamação do 5TF, de 2025, Rel. Min. CRISTIANO ZANIN",
+        ),
+    ],
+)
+def test_vaga_com_sigla_de_tribunal_corrompida(corpo, esperado):
+    """A sigla corrompida partia o span: ele começava no "TF" e perdia a cabeça."""
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "digitos"),
+    [
+        # grupo de milhar corrompido no fim do número: ainda é número
+        ("Invoca-se o EDcl no AgInt no ARESP 1 B21 bb3/SC, no ponto.", "1821663"),
+        ("Invoca-se o REsp 1.234 S6O/SP, no ponto.", "1234560"),
+    ],
+)
+def test_grupo_final_corrompido_continua_no_numero(corpo, digitos):
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(corpo)
+    assert len(achados) == 1
+    assert digitos_do_identificador(achados[0].trecho) == digitos
+
+
+# ── A borda direita da `vaga` e as citações coordenadas ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # o nome do relator engolia a primeira palavra da frase seguinte
+        (
+            "Invoca-se a Reclamação do STF, de 2020, Rel. Min. Celso De Mello. Antes de avançar.",
+            ["Reclamação do STF, de 2020, Rel. Min. Celso De Mello"],
+        ),
+        # e o título da seção depois de uma linha em branco
+        (
+            "Invoca-se a Rcl de 2025, Rel. Min. CÁRMEN LÚCIA.\n\nIII — DO DIREITO\n\nTexto.",
+            ["Rcl de 2025, Rel. Min. CÁRMEN LÚCIA"],
+        ),
+        # o nome continua atravessando uma quebra de linha e a inicial abreviada
+        (
+            "Invoca-se o julgado do STF proferido em 2024 pela relatoria de Cristiano\n"
+            "Zanin, no ponto.",
+            ["julgado do STF proferido em 2024 pela relatoria de Cristiano\nZanin"],
+        ),
+        (
+            "Invoca-se o julgado do STF de 2024, relator Ministro J. Otávio Noronha, no ponto.",
+            ["julgado do STF de 2024, relator Ministro J. Otávio Noronha"],
+        ),
+    ],
+)
+def test_borda_direita_da_vaga(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == esperado
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a citação seguinte, colada ao fim da `vaga`, não pode sumir
+        (
+            "Invoca-se a Rcl de 2025, Rel. Min. CÁRMEN LÚCIA. REsp 1.234.567/SP confirma.",
+            ["Rcl de 2025, Rel. Min. CÁRMEN LÚCIA", "REsp 1.234.567/SP"],
+        ),
+        # nem a coordenada a um dispositivo
+        (
+            "Invoca-se o art. 5º da CF e REsp 1.234.567/SP, no ponto.",
+            ["art. 5º da CF", "REsp 1.234.567/SP"],
+        ),
+        (
+            "Não incide o art. 219 do CPC no processo AgR-REspe nº 123-45.2012.6.13.0029, citado.",
+            ["art. 219 do CPC", "processo AgR-REspe nº 123-45.2012.6.13.0029"],
+        ),
+    ],
+)
+def test_citacao_coordenada_nao_some(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == esperado
+
+
+def test_rol_de_advogados_nao_vira_citacao():
+    """Inscrição colada à UF ("DF058845") em sequência não é processo.
+
+    Os candidatos já existiam e se anulavam por sobreposição; o resgate de
+    citação coordenada não pode ressuscitá-los. Só volta o span cujo número vem
+    logo depois de uma classe processual.
+    """
+    # A prosa na frente põe o rol no corpo: sozinha, a linha em caixa alta seria
+    # lida como parte do cabeçalho (`fim_do_cabecalho`).
+    corpo = (
+        "O acórdão recorrido registra as partes.\nADVOGADOS : JOSÉ DA SILVA - DF020779 "
+        "LUIS PRATA - DF039956 ALINE SANTOS - DF043530 GABRIELLA VENÂNCIO - DF058845 "
+        "FRANCISCO LIMA - DF069138 REQUERIDO : X"
+    )
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+def test_inscricao_sem_zero_a_esquerda_nao_vira_citacao():
+    corpo = (
+        "O acórdão recorrido registra as partes.\nADVOGADOS : LILIAN SERDOZ - SP254779 "
+        "LUCAS TIEPPO - SP413475 REQUERIDO : X"
+    )
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        # o ruído do nível 2 também cai no título do cabeçalho: `m`→`rn`,
+        # `n`→`ri`, letra→dígito, e a proporção de maiúsculas despenca
+        "MErn0RIAL",
+        "MIriISTÉR1O PÚBLIeO rn1LITAR",
+        "PODER JUDlCIÁRIO",
+    ],
+)
+def test_titulo_corrompido_continua_sendo_cabecalho(titulo):
+    """Sem isso o cabeçalho inteiro caía no corpo, e o número dos autos do
+    próprio documento — o distrator canônico — virava citação."""
+    texto = f"{titulo}\n\nProcesso nº 1234567-89.2020.5.14.1391\n\nA defesa vem interpor agravo.\n"
+    assert _detectar_bruto(texto) == []
+
+
+def _detectar_bruto(texto):
+    return [a.trecho for a in detectar(texto)]
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # o rótulo da folha com uma letra corrompida: `fls.` → `f1s.`, `fIs.`
+        "Consta a prova testemunhal às f1s. 762/872 dos autos.",
+        "Consta a prova testemunhal às fIs. 762/872 dos autos.",
+        "Consta a prova testemunhal às f1s.\n478/804 dos autos.",
+    ],
+)
+def test_referencia_de_folha_corrompida_nao_vira_processo(corpo):
+    assert [a.familia for a in _detectar(corpo)] == []
+
+
+# ── Achados da revisão final ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("corpo", "digitos"),
+    [
+        # número CNJ com os grupos separados por espaço e o último corrompido:
+        # o pedaço final não é palavra, e cortá-lo encurtava o número
+        ("Invoca-se a APL 7000380-08 2023 7 00 O0OO/DF, no ponto.", "70003800820237000000"),
+        ("Invoca-se o REspe 0600689-52 2020 6 19 OO3S, no ponto.", "06006895220206190035"),
+    ],
+)
+def test_ultimo_grupo_corrompido_de_numero_separado_por_espaco(corpo, digitos):
+    from verificador.normalizacao import digitos_do_identificador
+
+    achados = _detectar(corpo)
+    assert len(achados) == 1
+    assert digitos_do_identificador(achados[0].trecho) == digitos
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # palavra em caixa de título depois da CF, sem pontuação no meio, não é
+        # qualificador: é o começo de outra citação ou do nome do relator
+        (
+            "Viola o art. 5º da Constituição Federal Súmula 83 do STJ no ponto.",
+            ["art. 5º da Constituição Federal", "Súmula 83 do STJ"],
+        ),
+        (
+            "Viola o art. 5º da Constituição Federal Relator Ministro Fulano, no ponto.",
+            ["art. 5º da Constituição Federal"],
+        ),
+    ],
+)
+def test_qualificador_da_constituicao_para_em_outra_citacao(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == esperado
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a sigla da classe coincide com uma UF e vem colada ao número
+        ("Invoca-se o MS12345/DF, no ponto.", "MS12345/DF"),
+        ("Invoca-se o REsp nº SP1234567, no ponto.", "REsp nº SP1234567"),
+    ],
+)
+def test_sigla_de_classe_igual_a_uf_nao_e_inscricao(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+def test_inscricao_com_rotulo_oab_colado_a_uf_nao_vira_citacao():
+    """A forma do STM: "(OAB SC50542)", o rótulo antes e a UF colada ao número."""
+    corpo = (
+        "O acórdão recorrido registra as partes.\nADVOGADOS: LUANA BRUN (OAB SC50542), "
+        "FABIO HYPOLITTO (OAB: SP292401) e MARIA RUFINO (OAB DF68561). REQUERIDO: X"
+    )
+    assert [a.familia for a in _detectar(corpo)] == []

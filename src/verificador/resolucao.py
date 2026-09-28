@@ -43,7 +43,8 @@ from __future__ import annotations
 import re
 
 from .base_canonica import BaseCanonica
-from .deteccao import Achado
+from .classe import afinidade, marcas
+from .deteccao import Achado, sigla_do_tribunal
 from .normalizacao import (
     CONFUSOES_DE_LETRA,
     OCR_PARA_DIGITO,
@@ -53,8 +54,9 @@ from .normalizacao import (
 )
 
 # Confiança por caminho de decisão, **medida** por
-# ``scripts/medir_confianca.py``: acurácia do caminho sobre o corpus limpo mais
-# as sementes de perturbação, com predição sem par contando como erro.
+# ``scripts/medir_confianca.py`` (`make confianca`): acurácia do caminho sobre o
+# corpus limpo mais as sementes de perturbação, contando só os pares casados com
+# o gabarito — como o Brier oficial.
 #
 # Medir importa porque o bônus da métrica é ``b = 0,10·(1 − Brier)`` e o Brier é
 # minimizado exatamente em ``p = acurácia``. Emitir 0,83 num caminho que acerta
@@ -75,21 +77,31 @@ from .normalizacao import (
 # * **Teto de 0,99.** O arnês só mede o ruído que sabemos gerar; o conjunto cego
 #   tem formas que ele não tem. O teto custa quase nada se a acurácia for 1,0 e
 #   limita a punição quadrática se não for.
-# * **A medição é conservadora.** O Brier oficial só conta pares **casados**, e
-#   aqui predição sem par conta como erro. A acurácia que o bônus vê é pelo menos
-#   esta.
+# * **A medição conta o que a métrica conta.** O Brier oficial só vê pares
+#   casados; até o checkpoint 07 a predição sem par entrava aqui como erro, o que
+#   puxava a acurácia para baixo de um valor que o bônus não vê.
 #
-# A exceção declarada é `real_desempate`, que mantém 0,83: as 10 observações são
-# a **mesma** citação repetida pelas sementes, e a ADR 0003 registra que o
-# critério de desempate está refutado. Dez repetições de um caso não são dez
-# casos.
+# **Recalibrado na revisão de 24/09**, com as mesmas três regras, contando só
+# pares casados (como o Brier oficial) e com o arnês de dez classes, que inclui
+# as três novas de ruído de OCR. Os números abaixo são a soma de `make confianca`
+# nas duas taxas (0,15 com 5 sementes e 0,30 com 3; cada execução inclui o corpus
+# limpo), reproduzíveis pelo script do repositório. `inventada_processo` é o
+# caminho que mais erra: as classes novas geram número de `real` corrompido que
+# o reparo ainda não desfaz, e é nele que esse número cai.
+#
+# O desempate tem dois caminhos desde a mesma revisão. Com margem de classe
+# (`real_desempate_classe`), a escolha é uma leitura do prefixo da citação
+# contra o cabeçalho de cada candidato. Sem margem (`real_desempate`), sobram
+# duplicatas exatas e classes que não distinguem, e a escolha é uma moeda: com
+# dois candidatos, 0,5 é o valor que minimiza o Brier de um chute honesto.
 CONFIANCA = {
-    "real_unico": 0.99,  # 757/757
-    "real_desempate": 0.83,  # um só caso, repetido — ver acima
-    "real_tabela": 0.99,  # 188/188
-    "inventada_processo": 0.98,  # 416/421
-    "inventada_tabela": 0.99,  # 201/201
-    "inventada_tema": 0.91,  # 10/10, Laplace; a cobertura não tem tema
+    "real_unico": 0.99,  # 913/913 (junto com real_tabela)
+    "real_desempate_classe": 0.91,  # 10/10, Laplace
+    "real_desempate": 0.50,  # moeda entre cópias — ver acima
+    "real_tabela": 0.99,  # 913/913 (junto com real_unico)
+    "inventada_processo": 0.96,  # 416/432
+    "inventada_tabela": 0.98,  # 206/208
+    "inventada_tema": 0.90,  # 8/8, Laplace; a cobertura não tem tema
     "incompleta_vaga": 0.99,  # 319/319
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
@@ -130,15 +142,33 @@ CONFIANCA = {
 # dos registros nomeia esses dois diplomas. `NUMERO_DA_LEI` já os conhecia; sem
 # eles aqui, `art. 186 da Lei nº 10.406/2002` não achava diploma e virava
 # `inventada`.
+#
+# `cppm` é a sigla do CPPM e precisa vencer `cpp`, que a contém. `crfb` e `ncpc`
+# são as siglas correntes da CF/88 e do CPC vigente. A Lei Complementar casa pelo
+# marcador `lc` solto, e não mais pelo literal "lc 64": com a marca de número no
+# meio ("LC nº 64/90") o literal não casava e a citação `real` virava `inventada`.
+# O número e o ano continuam conferidos em `_diploma_confere`.
 DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
-    (("processo penal militar",), (), "CPPM_FORA"),
-    (("processo civil", "13.105", "13105", "cpc"), (), "CPC"),
+    (("processo penal militar", "cppm"), (), "CPPM_FORA"),
+    (("processo civil", "13.105", "13105", "cpc", "ncpc"), (), "CPC"),
     (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
     (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
     (("consolidacao das leis", "clt", "5.452", "5452"), (), "CLT"),
-    (("constituic", "carta magna", "cf"), (), "CF"),
-    (("lei complementar", "lc 64", "64/1990"), (), "LC64"),
+    (
+        (
+            "constituic",
+            "carta magna",
+            "lei maior",
+            "carta politica",
+            "carta da republica",
+            "cf",
+            "crfb",
+        ),
+        (),
+        "CF",
+    ),
+    (("lei complementar", "lc", "64/1990"), (), "LC64"),
     (("eleitoral", "4.737", "4737"), (), "ELEITORAL"),
     (("civil", "cc", "10.406", "10406"), (), "CC"),
 )
@@ -195,7 +225,9 @@ _ANO_DE_VERSAO = re.compile(r"(?:\bde\s+|/\s*)(\d{2,4})\b")
 # "do Brasil" entra porque, sem ano, é como a prosa corrente chama a CF/88. A
 # Constituição de 1967 também se chamava "do Brasil", mas quem a cita põe o ano,
 # e o ano é conferido antes contra `ANO_DA_LEI`.
-_QUALIFICADORES_DA_CF = ("federal", "republica", "federativa", "brasileira", "brasil")
+#
+# "Cidadã" é o apelido corrente da CF/88 ("Constituição Cidadã").
+_QUALIFICADORES_DA_CF = ("federal", "republica", "federativa", "brasileira", "brasil", "cidada")
 _CONECTORES = frozenset({"da", "do", "de", "das", "dos"})
 
 
@@ -230,9 +262,17 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
     levariam ao erro grave — Estadual, Portuguesa, Mineira — estão longe dos
     três aceitos.
     """
-    if "carta magna" in chave or re.fullmatch(r"cf(?:\s*/\s*\d{2,4})?", chave):
+    if re.fullmatch(r"(?:cf|crfb)(?:\s*/\s*\d{2,4})?", chave):
         return True
-    resto = re.sub(r"^constitui\w*", "", chave)
+    # A sigla e os apelidos saem como o nome: "cf de 1988" sobrava como "cf", e
+    # "lei maior de 1969" como "lei maior", palavras que não são qualificador.
+    # O que vier depois deles passa pela mesma regra do nome por extenso — o
+    # apelido sozinho não bastava, e "Carta da República Portuguesa" virava a CF.
+    resto = re.sub(
+        r"^(?:constitui\w*|cf|carta magna|lei maior|carta politica|carta da republica)\b",
+        "",
+        chave,
+    )
     resto = _ANO_DE_VERSAO.sub(" ", resto)  # o ano já foi conferido
     palavras = [p for p in resto.split() if p not in _CONECTORES]
     # **Toda** palavra precisa ser qualificador da CF/88 — "República Federativa
@@ -260,11 +300,16 @@ _VOCABULARIO_DE_DIPLOMA = frozenset(
 
 # O inverso de `CONFUSOES_DE_LETRA`: cada forma corrompida e as letras que ela
 # pode ter substituído. `c` pode ser `e` corrompido e `e` pode ser `c`.
-_DESFAZER = [(corrompida, original) for original, corrompida in CONFUSOES_DE_LETRA.items()] + [
-    ("ri", "n"),
-    ("ii", "u"),
-    ("rn", "m"),
-]
+#
+# Entram também as trocas de letra por dígito (`Con5tituição`, `Civi1`,
+# `Códig0`): a detecção passou a atravessá-las nas palavras-chave, e sem o
+# inverso aqui a citação `real` era achada e saía `inventada`. A chave já vem em
+# minúsculas, então cada dígito desfaz para a letra minúscula que ele imita.
+_DESFAZER = (
+    [(corrompida, original) for original, corrompida in CONFUSOES_DE_LETRA.items()]
+    + [("ri", "n"), ("ii", "u"), ("rn", "m")]
+    + [(digito, letra.lower()) for letra, digito in OCR_PARA_DIGITO.items()]
+)
 
 
 def _variantes(palavra: str) -> set[str]:
@@ -319,6 +364,36 @@ def _contem_marcador(chave: str, marcador: str) -> bool:
     return re.search(rf"(?<![a-z0-9]){re.escape(marcador)}(?![a-z0-9])", chave) is not None
 
 
+_LEI_DE_OUTRO_ENTE = re.compile(r"\blei\s+(?:complementar\s+)?(?:estadual|municipal|distrital)\b")
+
+
+def _chave_do_diploma(diploma: str) -> str:
+    """O nome do diploma com o ruído de letra desfeito e o número reparado.
+
+    Os dois reparos precisam de lados diferentes do texto. O nome é desfeito
+    palavra a palavra contra o vocabulário fechado, e antes do reparo do número:
+    numa palavra com um dígito perdido ("Mi1itar") o reparo alastra, `m111tar`
+    já não volta a `militar`, e o CPPM passava por CPP. O número da lei é
+    reparado sobre o texto **original**, com a caixa preservada: a tabela de OCR
+    distingue `G`→6 de `g`→9 e `B`→8 de `b`→6, e reparar depois de passar para
+    minúsculas lia "Lei Complementar nº G4/1990" como a lei 94 e "LC nº B4/1990"
+    (a lei 84) como a LC 64.
+    """
+    nomes = _desfazer_ruido_de_letra(chave_textual(diploma)).split()
+    numeros = chave_textual(_corrigir_ocr(diploma)).split()
+    if len(nomes) != len(numeros):
+        return " ".join(numeros)
+
+    def e_numero(palavra: str) -> bool:
+        # Número da lei tem mais dígito que letra ("g4/1990", "b.078/1990");
+        # palavra do nome com um dígito perdido ("con5tituicao") tem o contrário.
+        return sum(c.isdigit() for c in palavra) > sum(c.isalpha() for c in palavra)
+
+    return " ".join(
+        numero if e_numero(numero) else nome for nome, numero in zip(nomes, numeros, strict=True)
+    )
+
+
 def _codigo_do_diploma(diploma: str | None) -> str | None:
     """Reduz o nome citado do diploma à chave da tabela curada.
 
@@ -327,11 +402,12 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
     """
     if not diploma:
         return None
-    # O reparo de OCR vem antes: o número da lei também chega corrompido
-    # (`Lei Complementar nº b4/1990`), e sem ele não confere com a cobertura.
-    # `_corrigir_ocr` só converte letra colada a dígito, então o nome do diploma
-    # passa intacto.
-    chave = _desfazer_ruido_de_letra(chave_textual(_corrigir_ocr(diploma)))
+    chave = _chave_do_diploma(diploma)
+    # Lei de outro ente federativo com o número de uma lei federal da cobertura
+    # ("Lei Estadual nº 10.406/2002") é outro diploma: conferir só o número a
+    # resolvia para o Código Civil — `inventada` → `real`.
+    if _LEI_DE_OUTRO_ENTE.search(chave):
+        return None
     for marcadores, exclusoes, codigo in DIPLOMAS:
         if not any(_contem_marcador(chave, marcador) for marcador in marcadores):
             continue
@@ -397,18 +473,49 @@ def _inteiro(valor: str | None) -> int | None:
 _ORDINAL = re.compile(rf"^([1-9])\s*[ºo°ª](?![\d{''.join(sorted(set(OCR_PARA_DIGITO)))}])")
 
 
+# Artigo com sufixo de letra (`896-A`, `373-A`) é outro artigo, acrescentado
+# depois ao código. Nenhum dos 13 da cobertura tem sufixo, e descartar a letra
+# fazia o `896-A` resolver para o art. 896 — `inventada` → `real`.
+_SUFIXO_DE_ARTIGO = re.compile(r"\d\s*[-‐]\s*[A-Za-z]\s*$")
+
+# Número que nenhum artigo tem: devolvido para o artigo com sufixo, ele passa
+# pela consulta à tabela curada e sai `inventada`, que é a resposta certa.
+ARTIGO_FORA_DA_COBERTURA = -1
+
+
 def _numero_de_artigo(valor: str | None) -> int | None:
+    if valor and _SUFIXO_DE_ARTIGO.search(valor):
+        return ARTIGO_FORA_DA_COBERTURA
     if valor and (ordinal := _ORDINAL.match(valor)):
         return int(ordinal.group(1))
     return _inteiro(valor)
+
+
+def _tribunal_da_sumula(dados: dict[str, str]) -> str | None:
+    """A sigla do tribunal, venha ela como sigla ou pelo nome por extenso.
+
+    A detecção tem um grupo por forma — `_SUMULA` não pode repetir o nome do
+    grupo —, e o extenso já chega com a sigla no nome do grupo (`ext_STJ`).
+    """
+    for grupo in ("tribunal", "tribunal_par", "tribunal_do"):
+        if dados.get(grupo):
+            return sigla_do_tribunal(dados[grupo])
+    for grupo in dados:
+        if grupo.startswith("ext_"):
+            return grupo.removeprefix("ext_")
+    return None
 
 
 def _resolver_sumula(dados: dict[str, str], base: BaseCanonica) -> tuple[str, int | None, float]:
     numero = _inteiro(dados.get("numero"))
     if numero is None:
         return "incompleta", None, CONFIANCA["incompleta_sem_numero"]
-    vinculante = bool(dados.get("vinculante"))
-    tribunal = (dados.get("tribunal") or "").upper() or None
+    vinculante = bool(dados.get("vinculante") or dados.get("sv"))
+    tribunal = _tribunal_da_sumula(dados)
+    if dados.get("enunciado") and tribunal != "TST":
+        # "Enunciado" é como o TST chama as próprias súmulas; de outro tribunal,
+        # ou sem tribunal, não identifica súmula da cobertura.
+        return "inventada", None, CONFIANCA["inventada_tabela"]
     id_canonico = base.sumula(tribunal, vinculante, numero)
     if id_canonico is None:
         return "inventada", None, CONFIANCA["inventada_tabela"]
@@ -419,7 +526,7 @@ def _resolver_dispositivo(
     dados: dict[str, str], base: BaseCanonica
 ) -> tuple[str, int | None, float]:
     artigo = _numero_de_artigo(dados.get("artigo"))
-    diploma = dados.get("diploma")
+    diploma = dados.get("diploma") or dados.get("diploma_sigla")
     codigo = _codigo_do_diploma(diploma)
 
     if artigo is None or not diploma:
@@ -449,15 +556,24 @@ def _resolver_processo(achado: Achado, base: BaseCanonica) -> tuple[str, int | N
     if len(candidatos) == 1:
         return "real", candidatos[0].id_canonico, CONFIANCA["real_unico"]
 
-    # Empate. Pegamos o primeiro da ordenação de `candidatos_por_numero`, que é
-    # determinística mas **arbitrária**: ela ordena por maior `texto_len`, e a
-    # ADR 0003 registra que esse critério foi refutado pela distribuição de
-    # 15/09 — o único par ambíguo que sobrou resolve para o candidato mais curto.
-    # A ordem serve para estabilidade, não como preferência.
+    # Empate. Dois acórdãos distintos com o mesmo número próprio são incidentes
+    # do mesmo processo — o recurso e o agravo interno nele, o recurso e os
+    # embargos de declaração —, e o que os separa é a classe, que a citação traz
+    # no prefixo. Ganha o candidato cuja classe mais concorda com a da citação
+    # (ver `classe.afinidade`); só com margem sobre o segundo o desempate é
+    # uma leitura, e não um chute.
     #
-    # O que continua valendo é a aritmética: chutar domina desistir. Link errado
-    # num par `real`×`real` custa só `fp[real]`; rebaixar para `incompleta`
-    # custaria o `fn[real]` **e** o `fp[incompleta]`. Ver a nota no topo do módulo.
+    # Sem margem — duplicata exata, ou classe que não distingue —, fica o
+    # primeiro da ordem estável de `candidatos_por_numero`, que é arbitrária
+    # (ADR 0003). O que continua valendo é a aritmética: chutar domina desistir.
+    # Link errado num par `real`×`real` custa só `fp[real]`; rebaixar para
+    # `incompleta` custaria o `fn[real]` **e** o `fp[incompleta]`.
+    da_citacao = marcas(achado.trecho)
+    pontos = [afinidade(da_citacao, c.classe) for c in candidatos]
+    melhor = max(range(len(candidatos)), key=lambda i: pontos[i])
+    segundo = max(p for i, p in enumerate(pontos) if i != melhor)
+    if pontos[melhor] > segundo:
+        return "real", candidatos[melhor].id_canonico, CONFIANCA["real_desempate_classe"]
     return "real", candidatos[0].id_canonico, CONFIANCA["real_desempate"]
 
 

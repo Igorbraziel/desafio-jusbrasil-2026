@@ -81,7 +81,15 @@ def _p(padrao: str, *, i: bool = False) -> re.Pattern[str]:
 
 # A fórmula de abertura do voto. "estes autos" quer dizer *estes*: é o que
 # distingue o processo próprio dos que o acórdão apenas cita.
-_ESTES_AUTOS = _p(r"(?:Vistos,?\s+relatados|[Ee]st[eo]s\s+autos)")
+#
+# A fórmula completa ("Vistos, relatados e discutidos") vem primeiro, e o
+# "estes autos de <Classe>" solto exige fronteira de palavra e a classe em
+# seguida. Sem isso a âncora casava "de*stes autos*" e "ne*stes autos*" na
+# ementa do TST, a zona caía no lugar errado e o número próprio de nove
+# acórdãos ficava fora do índice — cinco deles sem chave nenhuma.
+_ESTES_AUTOS = _p(
+    r"(?:Vistos,?\s+relatados\s+e\s+discutidos|\b[Ee]st[eo]s\s+autos\s+de\s+(?=[A-ZÀ-Ú]))"
+)
 
 _EMENTA = _p(r"\bEMENTA\b")
 _RELATORIO = _p(r"\bRELAT[ÓO]RIO\b")

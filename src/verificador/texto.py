@@ -15,8 +15,19 @@ from pathlib import Path
 
 
 def carregar(caminho: Path) -> str:
-    """Lê um .txt de entrada e devolve o texto em NFC."""
-    return unicodedata.normalize("NFC", caminho.read_text(encoding="utf-8"))
+    """Lê um .txt de entrada e devolve o texto em NFC.
+
+    Byte que não é UTF-8 vira U+FFFD em vez de exceção: o arquivo fora do
+    contrato ainda é processado, e em texto UTF-8 válido nada muda — nenhum
+    offset se desloca.
+
+    A quebra de linha é lida como está (`newline=""`): a leitura padrão traduz
+    `\\r\\n` em `\\n`, e num arquivo CRLF cada linha deslocaria em um todos os
+    offsets seguintes. O contrato manda LF; o arquivo que vier fora dele ainda
+    tem os offsets do próprio arquivo.
+    """
+    with caminho.open(encoding="utf-8", errors="replace", newline="") as arquivo:
+        return unicodedata.normalize("NFC", arquivo.read())
 
 
 def documento_id(caminho: Path) -> str:
@@ -93,7 +104,29 @@ def _e_linha_de_cabecalho(linha: str) -> bool:
     letras = [c for c in despida if c.isalpha()]
     if letras and sum(c.isupper() for c in letras) / len(letras) >= 0.8:
         return True
-    return False
+    return _e_titulo_corrompido(despida)
+
+
+# O ruído de OCR que o nível 2 aplica à prosa também cai no título do cabeçalho,
+# e derruba a proporção de maiúsculas: `MEMORIAL` vira `MErn0RIAL` (`m`→`rn`,
+# `O`→`0`), `MINISTÉRIO` vira `MIriISTÉR1O`. Com o título lido como prosa, o
+# cabeçalho inteiro caía no corpo e o número dos autos do próprio documento — o
+# distrator canônico — virava citação. As trocas que o OCR faz (`rn`, `ri`, `ii`,
+# o dígito no lugar da letra, a minúscula confundível) são desfeitas antes de
+# medir, **só** em linha curta sem pontuação de prosa, que é a forma do título.
+_TROCAS_DE_TITULO = str.maketrans({"0": "O", "1": "I", "5": "S", "8": "B", "6": "G", "2": "Z"})
+_LIGADURAS_DE_OCR = re.compile(r"rn|ri|ii")
+
+
+def _e_titulo_corrompido(linha: str) -> bool:
+    if len(linha) > 80 or re.search(r"[,;:.!?]", linha):
+        return False
+    palavras = linha.split()
+    if not palavras or len(palavras) > 8:
+        return False
+    desfeito = _LIGADURAS_DE_OCR.sub("M", linha.translate(_TROCAS_DE_TITULO))
+    letras = [c for c in desfeito if c.isalpha()]
+    return bool(letras) and sum(c.isupper() for c in letras) / len(letras) >= 0.8
 
 
 def fim_do_cabecalho(texto: str) -> int:
