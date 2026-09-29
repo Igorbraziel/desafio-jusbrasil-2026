@@ -32,6 +32,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
 
 from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.cli import _carregar_base  # noqa: E402
 from verificador.pipeline import processar_texto  # noqa: E402
 
 UFS_POR_EXTENSO = {
@@ -125,7 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--detalhar", action="store_true", help="lista os que não voltam certos")
     args = p.parse_args(argv)
 
-    contagem, falhas = medir(args.db, BaseCanonica.de_arquivo(args.indice))
+    # O mesmo carregamento do CLI: banco primeiro, JSON só de reserva.
+    contagem, falhas = medir(args.db, _carregar_base(args.indice, args.db))
     for grupo in ("unico", "duplicata"):
         total = sum(n for (g, _), n in contagem.items() if g == grupo)
         print(f"\n── acórdãos {'únicos' if grupo == 'unico' else 'com cópia exata'} ({total})")

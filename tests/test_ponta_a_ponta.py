@@ -9,7 +9,7 @@ número.
 import json
 import sys
 
-from conftest import DEV, GOLDENSET, INDICE, RAIZ, sem_dados, sem_indice
+from conftest import DEV, GOLDENSET, RAIZ, sem_dados, sem_indice
 
 from verificador.contrato import validar
 from verificador.pipeline import processar_pasta
@@ -81,5 +81,4 @@ def test_nenhum_span_do_gabarito_fica_perto_do_corte_de_iou(base_canonica, tmp_p
 
 
 def test_indice_cobre_toda_a_base(base_canonica):
-    assert INDICE.exists()
     assert len(base_canonica._registros) == 996

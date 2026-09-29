@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from perturbar import CLASSES, gerar_corpus  # noqa: E402
 
 from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.cli import _carregar_base  # noqa: E402
 from verificador.deteccao import detectar  # noqa: E402
 from verificador.resolucao import CONFIANCA, resolver  # noqa: E402
 from verificador.texto import carregar  # noqa: E402
@@ -136,10 +137,8 @@ def main() -> None:
     parser.add_argument("--saida", type=Path, default=None)
     args = parser.parse_args()
 
-    if not args.indice.exists():
-        raise SystemExit(f"índice não encontrado: {args.indice} (rode `make indice`)")
-
-    base = BaseCanonica.de_arquivo(args.indice)
+    # O mesmo carregamento do CLI: banco primeiro, JSON só de reserva.
+    base = _carregar_base(args.indice, args.db)
     trabalho = RAIZ / "data/tmp/confianca"
     if trabalho.exists():
         shutil.rmtree(trabalho)
