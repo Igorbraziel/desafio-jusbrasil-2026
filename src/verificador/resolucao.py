@@ -94,15 +94,26 @@ from .normalizacao import (
 # contra o cabeçalho de cada candidato. Sem margem (`real_desempate`), sobram
 # duplicatas exatas e classes que não distinguem, e a escolha é uma moeda: com
 # dois candidatos, 0,5 é o valor que minimiza o Brier de um chute honesto.
+#
+# **Recalibrado em 30/09** com uma fonte de evidência a mais: o simulador do
+# sigiloso (`scripts/simular_sigiloso.py`), que troca as citações do dev por
+# outras da base — 3.840 por rodada, 20 sementes, limpo e com o arnês a 0,05 e
+# 0,15 no nível 2. Os números abaixo somam o arnês nas duas taxas e o simulador
+# nas três. Com essa evidência, o teto de 0,99 deixa de fazer sentido para os
+# caminhos sem **nenhum** erro em nenhum instrumento: acima de alguns milhares de
+# acertos, o próprio Laplace passa de 0,999. O teto vira 0,999, e o Laplace é
+# arredondado para baixo em três casas em vez de duas. `inventada_tema` fica um
+# milésimo abaixo de `inventada_processo` para que `medir_confianca.py` continue
+# distinguindo os dois caminhos, que o script separa pelo valor.
 CONFIANCA = {
-    "real_unico": 0.99,  # 913/913 (junto com real_tabela)
-    "real_desempate_classe": 0.91,  # 10/10, Laplace
+    "real_unico": 0.999,  # 6.643/6.643 (junto com real_tabela)
+    "real_desempate_classe": 0.916,  # 10/10, Laplace; o simulador não gera empate
     "real_desempate": 0.50,  # moeda entre cópias — ver acima
-    "real_tabela": 0.99,  # 913/913 (junto com real_unico)
-    "inventada_processo": 0.96,  # 416/432
-    "inventada_tabela": 0.98,  # 206/208
-    "inventada_tema": 0.90,  # 8/8, Laplace; a cobertura não tem tema
-    "incompleta_vaga": 0.99,  # 319/319
+    "real_tabela": 0.999,  # 6.643/6.643 (junto com real_unico)
+    "inventada_processo": 0.985,  # 2.936/2.978
+    "inventada_tabela": 0.998,  # 1.460/1.461
+    "inventada_tema": 0.984,  # 66/66, Laplace; a cobertura não tem tema
+    "incompleta_vaga": 0.999,  # 2.239/2.239
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
     # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
