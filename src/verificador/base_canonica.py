@@ -43,47 +43,91 @@ from pathlib import Path
 from .classe import marcas
 from .deteccao import _e_numero_de_processo
 from .estrutura import tribunal_do_texto, zonas_de_identificacao
+from .leis import codigo_da_lei
 from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO, sem_acento
 
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
 MINIMO_DIGITOS = 4
 
 # ---------------------------------------------------------------------------
-# Súmulas e dispositivos: tabelas curadas.
+# Súmulas e dispositivos: lidos do banco recebido.
 #
-# O mapeamento abaixo foi levantado à mão quando o texto desses registros era só
-# o enunciado, sem dizer qual súmula era nem de que código vinha o artigo. Desde
-# 15/09/2026 cada um abre com a própria identificação, então a tabela virou
-# derivável da base — continua correta, e os testes a conferem contra o banco.
-# Como a cobertura é congelada, ela é completa: qualquer súmula ou artigo fora
-# dela é, por definição, inventada.
+# Até 30/09/2026 esta era uma tabela curada à mão, com os ids do banco de
+# desenvolvimento. A avaliação final usa **outro** banco, e uma tabela fixa erra
+# nas duas direções: a súmula que o banco novo tem e a tabela não sai
+# `inventada`, e a que a tabela tem e o banco novo não sai `real` — o erro grave
+# da métrica. Medido com um banco modificado: Súmula 83/STJ e art. 14 do CDC,
+# retirados do banco, continuavam saindo `real`.
+#
+# Cada registro dessas naturezas abre com a própria identificação ("Súmula n. 83
+# do STJ", "Artigo 186 da Lei nº 10.406, de 10 de janeiro de 2002"), e a tabela
+# é montada dessa linha. A cobertura continua fechada: fora da tabela, é
+# `inventada`. O que liga a lei ao nome do diploma na prosa está em
+# :mod:`verificador.leis`, que é fato de direito e não depende da base.
 # ---------------------------------------------------------------------------
 
-# (tribunal, é_vinculante, número) -> id canônico
-SUMULAS: dict[tuple[str, bool, int], int] = {
-    ("STJ", False, 83): 1289710642,
-    ("STJ", False, 211): 1289710776,
-    ("STJ", False, 443): 1289711022,
-    ("STF", True, 10): 1289712966,
-    ("TST", False, 331): 1431369957,
-}
+_SUMULA_DO_REGISTRO = re.compile(
+    r"^\s*S[úu]mula\s+(?P<vinculante>Vinculante\s+)?(?:n\s*[º°o.]?\s*)?(?P<numero>\d+)"
+    r"(?:\s*,?\s*d[oa]\s+(?P<tribunal>STF|STJ|TST|TSE|STM)\b)?",
+    re.IGNORECASE,
+)
+_ARTIGO_DO_REGISTRO = re.compile(
+    r"^\s*Art(?:igo|\.)\s+(?P<artigo>\d+(?:\.\d{3})*)\s*[º°o]?\s*(?:[-‐]\s*(?P<sufixo>[A-Z])\b)?"
+    r"\s+d[aoe]s?\s+(?P<diploma>[^\n]+)",
+    re.IGNORECASE,
+)
+_LEI_DO_REGISTRO = re.compile(
+    r"(?P<tipo>Lei\s+Complementar|Decreto[-‐\s]*Lei|Lei)\s+n\s*[º°o.]?\s*(?P<numero>\d+(?:\.\d{3})*)"
+    r"(?:[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
+    re.IGNORECASE,
+)
+_CF_DO_REGISTRO = re.compile(
+    r"Constitui[çc][ãa]o\s+(?:Federal|da\s+Rep[úu]blica)(?:[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
+    re.IGNORECASE,
+)
 
-# (código, artigo) -> id canônico
-DISPOSITIVOS: dict[tuple[str, int], int] = {
-    ("CF", 5): 10641516,
-    ("CF", 7): 10641213,
-    ("CF", 93): 10626510,
-    ("CPC", 373): 28893055,
-    ("CC", 186): 10718759,
-    ("CPP", 312): 10652044,
-    ("CPM", 290): 10590194,
-    ("CDC", 14): 10606184,
-    ("CLT", 477): 10710324,
-    ("CLT", 818): 10647746,
-    ("CLT", 896): 10637358,
-    ("ELEITORAL", 276): 10577194,
-    ("LC64", 1): 11304039,
-}
+
+def chave_de_artigo(numero: str, sufixo: str | None = None) -> str:
+    """A chave do artigo na tabela: "896", "896-A". O milhar sai: "1.021" -> "1021"."""
+    base = str(int(numero.replace(".", "")))
+    return f"{base}-{sufixo.upper()}" if sufixo else base
+
+
+def sumula_do_registro(texto: str, tribunal: str | None) -> tuple[str, bool, int] | None:
+    """(tribunal, vinculante, número) da primeira linha do registro, ou None."""
+    m = _SUMULA_DO_REGISTRO.match(texto)
+    if m is None:
+        return None
+    vinculante = bool(m.group("vinculante"))
+    sigla = (m.group("tribunal") or tribunal or ("STF" if vinculante else "")).upper()
+    if not sigla:
+        return None
+    return sigla, vinculante, int(m.group("numero"))
+
+
+def dispositivo_do_registro(texto: str) -> tuple[str, str, str | None, int | None] | None:
+    """(código, artigo, número da lei, ano) da primeira linha do registro, ou None.
+
+    Só a Constituição **Federal** entra como `CF`; constituição estadual ou de
+    outro ano não é identificada e fica fora da tabela — é o lado seguro.
+    """
+    m = _ARTIGO_DO_REGISTRO.match(texto)
+    if m is None:
+        return None
+    artigo = chave_de_artigo(m.group("artigo"), m.group("sufixo"))
+    diploma = m.group("diploma")
+    if (cf := _CF_DO_REGISTRO.match(diploma)) is not None:
+        ano = int(cf.group("ano")) if cf.group("ano") else None
+        if ano not in (None, 1988):
+            return None
+        return "CF", artigo, None, 1988
+    lei = _LEI_DO_REGISTRO.match(diploma)
+    if lei is None:
+        return None
+    tipo = re.sub(r"[-‐\s]+", " ", lei.group("tipo").lower()).replace("decreto lei", "decreto-lei")
+    numero = lei.group("numero").replace(".", "")
+    ano = int(lei.group("ano")) if lei.group("ano") else None
+    return codigo_da_lei(tipo, numero), artigo, numero, ano
 
 
 @dataclass(frozen=True)
@@ -474,8 +518,12 @@ def _build_index(linhas: Iterator[_Row], metodo: str) -> dict:
     registros: dict[str, dict] = {}
     assinaturas: dict[str, str] = {}
 
+    # Súmulas e dispositivos saem da mesma varredura: a leitura robusta é uma só,
+    # e uma segunda consulta ao banco não passaria pelo retry imutável.
+    outras: list[_Row] = []
     for linha in linhas:
         if linha.nature != "acordao":
+            outras.append(linha)
             continue
         documento_id, texto, tribunal = linha.document_id, linha.text, linha.court
         registros[documento_id] = {
@@ -489,6 +537,8 @@ def _build_index(linhas: Iterator[_Row], metodo: str) -> dict:
         for numero in numeros_proprios(regiao):
             numeros.setdefault(numero, []).append(documento_id)
 
+    tabelas = _tabelas_de_sumulas_e_dispositivos(outras)
+
     def donos(numero: str, documentos: list[str]) -> int:
         if len(numero) >= DIGITOS_NUMERO_LONGO:
             return len({assinaturas[d] for d in documentos})
@@ -501,7 +551,46 @@ def _build_index(linhas: Iterator[_Row], metodo: str) -> dict:
         for numero, documentos in numeros.items()
         if donos(numero, documentos) <= MAXIMO_REGISTROS_POR_NUMERO
     }
-    return {"numeros": numeros, "registros": registros}
+    return {"numeros": numeros, "registros": registros, **tabelas}
+
+
+def _tabelas_de_sumulas_e_dispositivos(linhas: list[_Row]) -> dict:
+    """As súmulas e os dispositivos do banco, lidos da primeira linha de cada um.
+
+    Registro que não se deixa ler fica fora da tabela — a citação dele sai
+    `inventada` — e é avisado em stderr, porque é perda silenciosa de cobertura.
+    Registro repetido fica com o primeiro na ordem de `documento_id`.
+    """
+    sumulas: dict[tuple[str, bool, int], int] = {}
+    dispositivos: dict[tuple[str, str], int] = {}
+    leis: dict[str, list[str | int | None]] = {}
+    ilegiveis = []
+    for linha in sorted(linhas, key=lambda r: r.document_id):
+        if linha.nature == "sumula":
+            chave = sumula_do_registro(linha.text, linha.court)
+            if chave is None:
+                ilegiveis.append(linha.document_id)
+                continue
+            sumulas.setdefault(chave, linha.canonical_id)
+        elif linha.nature == "dispositivo":
+            lido = dispositivo_do_registro(linha.text)
+            if lido is None:
+                ilegiveis.append(linha.document_id)
+                continue
+            codigo, artigo, numero, ano = lido
+            dispositivos.setdefault((codigo, artigo), linha.canonical_id)
+            leis.setdefault(codigo, [numero, ano])
+    if ilegiveis:
+        print(
+            f"aviso: {len(ilegiveis)} súmula(s) ou dispositivo(s) sem identificação legível "
+            f"ficam fora da cobertura: {', '.join(ilegiveis[:5])}",
+            file=sys.stderr,
+        )
+    return {
+        "sumulas": [[t, v, n, i] for (t, v, n), i in sorted(sumulas.items())],
+        "dispositivos": [[c, a, i] for (c, a), i in sorted(dispositivos.items())],
+        "leis": leis,
+    }
 
 
 def salvar_indice(indice: dict, caminho: Path) -> None:
@@ -523,6 +612,17 @@ class BaseCanonica:
                 classe=frozenset(dados.get("classe", ())),
             )
             for documento_id, dados in indice["registros"].items()
+        }
+        # Índice sem as tabelas (JSON antigo, ou a base vazia dos testes) não
+        # tem súmula nem dispositivo: tudo o que citar um deles é `inventada`.
+        self._sumulas: dict[tuple[str, bool, int], int] = {
+            (t, bool(v), int(n)): int(i) for t, v, n, i in indice.get("sumulas", [])
+        }
+        self._dispositivos: dict[tuple[str, str], int] = {
+            (c, str(a)): int(i) for c, a, i in indice.get("dispositivos", [])
+        }
+        self._leis: dict[str, tuple[str | None, int | None]] = {
+            c: (n, a) for c, (n, a) in indice.get("leis", {}).items()
         }
 
     @classmethod
@@ -560,12 +660,24 @@ class BaseCanonica:
             # ignorar o tribunal a resolvia para a SV 10 — `inventada` → `real`.
             if tribunal not in (None, "STF"):
                 return None
-            return SUMULAS.get(("STF", True, numero))
+            return self._sumulas.get(("STF", True, numero))
         if tribunal is None:
             return None
-        return SUMULAS.get((tribunal, False, numero))
+        return self._sumulas.get((tribunal, False, numero))
 
-    def dispositivo(self, codigo: str | None, artigo: int | None) -> int | None:
+    def dispositivo(self, codigo: str | None, artigo: str | None) -> int | None:
         if codigo is None or artigo is None:
             return None
-        return DISPOSITIVOS.get((codigo, artigo))
+        return self._dispositivos.get((codigo, artigo))
+
+    def lei(self, codigo: str) -> tuple[str | None, int | None] | None:
+        """(número, ano) do diploma como o banco o declara, se ele tiver algum artigo."""
+        return self._leis.get(codigo)
+
+    @property
+    def sumulas(self) -> dict[tuple[str, bool, int], int]:
+        return dict(self._sumulas)
+
+    @property
+    def dispositivos(self) -> dict[tuple[str, str], int]:
+        return dict(self._dispositivos)
