@@ -1055,3 +1055,18 @@ def test_tribunal_depois_do_tema_entra_no_span(corpo, esperado):
 )
 def test_numero_nao_engole_a_palavra_da_frase_seguinte(corpo, esperado):
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "linha",
+    [
+        # o "no" da preposição tem a forma da marca "nº", e a linha não tem
+        # vírgula: era lida como "Rótulo nº número", isto é, cabeçalho
+        "Como decidido no REsp 1.234.567. O recurso não procede.",
+        "Conforme julgado no AgInt no AREsp 1.234.567 a tese prevalece.",
+    ],
+)
+def test_primeira_linha_do_corpo_sem_virgula_nao_vira_cabecalho(linha):
+    trechos = [a.trecho for a in _detectar(linha)]
+    assert not any(t.startswith("Autos") for t in trechos), trechos
+    assert len(trechos) == 1
