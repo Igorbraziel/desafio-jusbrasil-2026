@@ -111,7 +111,7 @@ velocidade. Para comparar com um checkpoint, rode
 ### No contrato de execução da organização
 
 ```bash
-make docker
+docker build -t verificador-citacoes:latest .
 
 docker run --rm --network none \
   -v $PWD/data/dev/txt:/data/in:ro \
@@ -121,7 +121,11 @@ docker run --rm --network none \
 ```
 
 Pesos e dados ficam fora da imagem, como exige o regulamento — a base canônica
-entra por volume, e o container roda sem rede.
+entra por volume, e o container roda sem rede. O build não precisa de `uv` no
+host: o `requirements.txt` versionado já é o que `make requirements` exporta do
+`uv.lock` (`make docker` faz os dois passos). A saída do container é idêntica,
+byte a byte, à de `make rodar` em Python 3.12, a versão fixada em
+`.python-version` e na imagem.
 
 ## Por onde continuar
 
