@@ -153,7 +153,7 @@ DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
     (("processo civil", "13.105", "13105", "cpc", "ncpc"), (), "CPC"),
     (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
-    (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
+    (("defesa do consumidor", "codigo do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
     (("consolidacao das leis", "clt", "5.452", "5452"), (), "CLT"),
     (
         (
@@ -290,11 +290,16 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
 # está é lida como ela. `militar` e `estadual` estão aqui de propósito — sem
 # eles, `Mllitar` não voltaria a ser `militar` e o CPPM passaria por CPP, que é
 # o erro grave.
+#
+# Os conectores entram porque também sofrem o ruído ("Defesa d0 Consumidor",
+# "Consolidação da5 Leis"), e os marcadores de `DIPLOMAS` os têm por extenso: o
+# dispositivo `real` era achado e saía `inventada`.
 _VOCABULARIO_DE_DIPLOMA = frozenset(
     """
     codigo processo civil penal militar defesa consumidor consolidacao leis
     trabalho constituicao federal republica federativa brasil brasileira
     estadual estado eleitoral lei complementar decreto carta magna
+    de do da das dos
     """.split()
 )
 
