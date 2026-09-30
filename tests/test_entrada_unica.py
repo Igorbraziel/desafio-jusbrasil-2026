@@ -259,6 +259,79 @@ def test_python_indicado_invalido_para_com_mensagem(ambiente):
     assert "PYTHON=/nao/existe/python" in resultado.stderr
 
 
+def _docker_falso(tmp_path: Path, entrypoint: str) -> tuple[Path, Path]:
+    """Um `docker` que só registra as chamadas: testa o ramo do Docker sem Docker.
+
+    `image inspect` devolve ``entrypoint``; vazio simula a imagem ausente.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for ferramenta in ("bash", "id", "mkdir"):
+        (bin_dir / ferramenta).symlink_to(shutil.which(ferramenta))
+    registro = tmp_path / "docker.log"
+    docker = bin_dir / "docker"
+    docker.write_text(
+        f"#!{shutil.which('bash')}\n"
+        f'printf "%s\\n" "$@" --- >> "{registro}"\n'
+        'if [ "$1 $2" = "image inspect" ]; then\n'
+        f"  [ -n '{entrypoint}' ] || exit 1\n"
+        f"  printf '%s\\n' '{entrypoint}'\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    return bin_dir, registro
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "constroi"),
+    [
+        ("", True),
+        ('["python","-m","verificador.cli"]', True),
+        ('["bash","/app/run.sh"]', False),
+    ],
+    ids=["imagem-ausente", "imagem-de-versao-anterior", "imagem-da-entrega"],
+)
+def test_ramo_do_docker_monta_os_volumes_e_reconstroi_imagem_alheia(
+    ambiente, tmp_path, entrypoint, constroi
+):
+    clone, chamador, banco = ambiente
+    bin_dir, registro = _docker_falso(tmp_path, entrypoint)
+    resultado = subprocess.run(
+        [str(bin_dir / "bash"), str(clone / "run.sh")]
+        + ["base.db", "pareceres do lote", "saida docker/sub.csv"],
+        cwd=chamador,
+        env={"PATH": str(bin_dir), "VERIFICADOR_DOCKER": "1", "VERIFICADOR_IMAGEM": "img:teste"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+
+    blocos = registro.read_text(encoding="utf-8").split("---\n")
+    chamadas = [bloco.splitlines() for bloco in blocos if bloco]
+    construcoes = [chamada for chamada in chamadas if chamada[0] == "build"]
+    assert construcoes == ([["build", "-t", "img:teste", str(clone.resolve())]] if constroi else [])
+    assert chamadas[-1] == [
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        "-v",
+        f"{banco.resolve()}:/dados/base.db:ro",
+        "-v",
+        f"{(chamador / 'pareceres do lote').resolve()}:/dados/txt:ro",
+        "-v",
+        f"{(chamador / 'saida docker').resolve()}:/saida",
+        "img:teste",
+        "/dados/base.db",
+        "/dados/txt",
+        "/saida/sub.csv",
+    ]
+
+
 def test_sem_python_nem_docker_para_com_mensagem(ambiente, tmp_path):
     # PATH só com o bash: nenhum Python e nenhum Docker à vista.
     clone, chamador, _ = ambiente

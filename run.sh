@@ -116,12 +116,22 @@ run_python() {
   exec "$1" -m verificador.cli "--db=$db" "--input=$txt" "--csv=$out"
 }
 
+# A imagem com o nome pedido só serve se o ENTRYPOINT for este script. Uma
+# construída de uma versão anterior do repositório chamava a CLI direto e
+# quebrava com erro de argumento, sem CSV; ela é reconstruída.
+image_is_current() {
+  local entrypoint
+  entrypoint="$(docker image inspect --format '{{json .Config.Entrypoint}}' "$1" 2>/dev/null)" ||
+    return 1
+  [ "$entrypoint" = '["bash","/app/run.sh"]' ]
+}
+
 run_docker() {
   local image="${VERIFICADOR_IMAGEM:-verificador-citacoes:latest}"
   command -v docker >/dev/null 2>&1 ||
     die "é preciso Python ≥ 3.10 com sqlite3 ou Docker, e nenhum dos dois foi encontrado (defina PYTHON=/caminho/do/python3)"
   docker info >/dev/null 2>&1 || die "o Docker não responde (daemon parado ou sem permissão)"
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
+  if ! image_is_current "$image"; then
     printf 'run.sh: construindo a imagem %s a partir de %s\n' "$image" "$DIR" >&2
     docker build -t "$image" "$DIR" >&2 || die "não consegui construir a imagem $image"
   fi
