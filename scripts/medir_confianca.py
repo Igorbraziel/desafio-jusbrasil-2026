@@ -29,6 +29,7 @@ import json
 import shutil
 import sys
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -88,8 +89,30 @@ def _caminho_de_decisao(familia: str, classe: str, confianca: float) -> str:
     return f"{familia}:{classe}:{confianca}"
 
 
+@contextmanager
+def _valores_distintos():
+    """Troca, durante a medição, cada valor de `CONFIANCA` por um sentinela único.
+
+    O caminho é reconhecido pelo valor emitido, e dois caminhos da mesma classe
+    com o mesmo valor ficavam indistinguíveis — `real_unico` e `real_tabela`
+    sempre saíram como AMBÍGUO, e com a tabela em 1,0 as três `inventada` se
+    fundiam. Os sentinelas tornam a medição independente dos valores da tabela.
+    """
+    originais = dict(CONFIANCA)
+    CONFIANCA.update({nome: i / 1000 for i, nome in enumerate(originais, start=1)})
+    try:
+        yield
+    finally:
+        CONFIANCA.update(originais)
+
+
 def medir(base: BaseCanonica, pasta_txt: Path, goldenset: Path) -> dict[str, tuple[int, int]]:
     """Devolve ``{caminho: (acertos, total)}`` sobre um corpus já perturbado."""
+    with _valores_distintos():
+        return _medir(base, pasta_txt, goldenset)
+
+
+def _medir(base: BaseCanonica, pasta_txt: Path, goldenset: Path) -> dict[str, tuple[int, int]]:
     gold = _ler_goldenset(goldenset)
     contagem: dict[str, list[int]] = defaultdict(lambda: [0, 0])
 
@@ -182,7 +205,7 @@ def main() -> None:
         atual = CONFIANCA.get(nome)
         print(
             f"  {nome:<24} {acertos:>9} {n:>7} {taxa_acerto:>10.3f} "
-            f"{(f'{atual:.2f}' if atual is not None else '—'):>7}"
+            f"{(f'{atual:.3f}' if atual is not None else '—'):>7}"
         )
 
     nao_exercidos = sorted(set(CONFIANCA) - set(calibrado))
