@@ -11,9 +11,11 @@ A tarefa é construir o verificador automático que falta nesse fluxo.
 
 ## A tarefa
 
-Entrada: um `.txt` por parecer. Saída: um JSON por parecer, com uma entrada por
-citação — o span, o trecho literal, o tipo e a classe. Ver
-[contrato.md](contrato.md).
+Entrada: um `.txt` por parecer e a base canônica em `.db`. Saída: uma linha por
+parecer no CSV de submissão, com o span, a classe, o `id_canonico` e a confiança
+de cada citação. O JSON do contrato, com uma entrada por citação — o span, o
+trecho literal, o tipo e a classe —, continua definido e é gerado sob pedido.
+Ver [contrato.md](contrato.md).
 
 | Classe | Definição |
 |---|---|
@@ -37,7 +39,61 @@ O nível 2 pesa o dobro: é onde as soluções se diferenciam.
 ## Avaliação
 
 100% automática, por script público de referência contra um gabarito interno.
-Ver [avaliacao.md](avaliacao.md).
+A nota oficial sai da execução do código submetido, pela organização, sobre o
+conjunto final (ver a seção seguinte). Ver [avaliacao.md](avaliacao.md).
+
+## A entrega final (e-mail de 29/09/2026)
+
+Em 29/09 a organização mudou a forma da avaliação final. É isto que vale agora.
+
+**A nota vem da execução do código.** A organização roda o código submetido
+sobre um **`.db` novo e um conjunto novo de documentos**, no mesmo formato da
+amostra de desenvolvimento, aos quais as equipes não têm acesso. A métrica e os
+scripts de avaliação são os mesmos ([avaliacao.md](avaliacao.md)). Não há
+comparação entre CSVs, e o leaderboard do Kaggle não entra no ranking final.
+Pequenas diferenças em `confianca` por variação de hardware são aceitas; a
+organização recomenda fixar seeds e evitar amostragem não determinística.
+
+**O que enviar**, para desafio-bracis@jusbrasil.com.br, até **01/10/2026, 23h59
+(Brasília)** — horário em que o repositório com a versão final também precisa
+estar disponível para a organização:
+
+- nome da equipe e dos integrantes;
+- link do repositório: público, ou privado com acesso de leitura para os
+  usuários GitHub `dvianna`, `guardiaum`, `marinaramalhete`, `resendeacm` e
+  `vickyaires`;
+- o **hash do commit da versão final**, que identifica o que será executado.
+
+**O que o repositório precisa conter**, e onde está neste:
+
+| exigência | neste repositório |
+|---|---|
+| código completo | [`src/verificador/`](../src/verificador/), só biblioteca padrão em runtime |
+| README com a abordagem e o passo a passo de execução | [README](../README.md), seções *Execução da avaliação final* e *Abordagem* |
+| ambiente declarado (Docker) | [Dockerfile](../Dockerfile), com Python 3.12 fixado por digest |
+| pesos dos modelos, incluídos ou referenciados em revisão fixa | não há pesos — [MANIFESTO_MODELO.md](../MANIFESTO_MODELO.md) |
+| ponto de entrada único: recebe o `.db` e a pasta dos `.txt` e gera a saída no formato das submissões | [`run.sh`](../run.sh), na forma que a organização sugeriu: `bash run.sh <caminho_db> <pasta_txt> <arquivo_saida>` |
+
+**Regras de execução**, somadas às da seção seguinte:
+
+- GPU de até 24 GB de VRAM. Modelos usados só no desenvolvimento ficam fora
+  desse limite.
+- Offline: sem internet nem API externa.
+- Do zero, em máquina limpa: sem caminho absoluto, passo manual ou arquivo que
+  só exista na máquina da equipe.
+- Enriquecer o `.db` é permitido, mas o código que gera o enriquecimento tem de
+  rodar sobre o `.db` novo.
+- Disco: bom senso, com ~100 GB de referência.
+
+**O que isso mudou aqui.** Até 29/09 a entrega era o CSV enviado ao Kaggle, e o
+bundle reproduzível só seria cobrado das finalistas. A leitura era que a base
+do conjunto final seria a mesma do dev, e o código a supunha em um ponto:
+súmulas e dispositivos eram tabelas fixas, com os ids da base de 15/09. Com um
+`.db` novo, uma tabela fixa erra em silêncio. O [checkpoint 11](checkpoints/11-entrega-final.md) mede o problema e
+a correção, e a [ADR 0005](decisoes/0005-base-nova-no-conjunto-cego.md)
+registra a decisão: tudo o que é conteúdo da base sai do `.db` recebido, em
+cada execução, e fixo no código fica só conhecimento jurídico público. O
+enriquecimento que a regra permite é esse, feito pelo próprio `run.sh`.
 
 ## Regras de modelo e ambiente
 
@@ -49,10 +105,13 @@ Ver [avaliacao.md](avaliacao.md).
   offline a partir do repositório submetido.
 - **Envelope de execução.** 1 GPU de 24 GB de VRAM (L4 / A10 / RTX 4090), ~8
   vCPUs, 32 GB de RAM. Média ≤ 60 s/documento, teto de 4 h no teste completo.
-  Pipeline que não couber é considerado não-reproduzível e desclassificado.
+  Pipeline que não couber é considerado não-reproduzível e desclassificado. O
+  e-mail de 29/09 reafirma o limite de 24 GB de VRAM e acrescenta disco de ~100
+  GB como referência.
 - **Offline.** O container roda sem rede. Nenhuma dependência de chamada externa
   em runtime. Como a base de referência é fechada, consultar sites oficiais ao
-  vivo não faz sentido nem é permitido.
+  vivo não faz sentido nem é permitido. A base da avaliação final é o `.db`
+  novo que a organização monta no momento da execução.
 - **Fine-tuning** é permitido, mas os pesos resultantes precisam ser publicados
   e executáveis pela organização.
 - **Bibliotecas** de NER, regex e embeddings de pesos abertos são livres.
@@ -60,26 +119,31 @@ Ver [avaliacao.md](avaliacao.md).
 
 ## Submissão e reprodutibilidade
 
-Submissão ao leaderboard: `.zip` com as saídas (via `submission.csv` gerado por
-`json_to_submission.py`, ver acima). Múltiplas submissões são permitidas
-durante todo o período, respeitando o teto diário por **equipe**.
+Submissão ao leaderboard do Kaggle (01 a 30/09): `submission.csv` gerado por
+`json_to_submission.py` a partir das saídas. Múltiplas submissões eram
+permitidas, respeitando o teto diário por **equipe**. Desde o e-mail de 29/09 o
+leaderboard **não entra no ranking final**; ele serviu para validar o pipeline
+de ponta a ponta.
 
-**Bundle reproduzível — exigido das equipes finalistas** (não de toda
-submissão): repositório com o código, README, referência dos modelos (link +
-revisão), ambiente (requirements/Dockerfile), o comando exato que reproduz as
-saídas submetidas, e configuração de decodificação determinística quando
-aplicável (ex.: `temperature=0`, seed fixa). Solução não reprodutível não entra
-no ranking.
+**Bundle reproduzível — exigido de todas as equipes.** Pelas regras originais,
+só as finalistas precisariam dele. Desde o e-mail de 29/09 ele é a própria
+entrega: repositório com o código, README, referência dos modelos (link +
+revisão), ambiente (Dockerfile), o ponto de entrada único que gera a saída a
+partir do `.db` e dos `.txt`, e configuração de decodificação determinística
+quando aplicável (ex.: `temperature=0`, seed fixa). Solução não reprodutível não
+entra no ranking.
 
-Verificação: re-execução das top-N mais uma amostra, após o encerramento das
-submissões, com janela de recurso após a divulgação preliminar do resultado —
-depois dela, as decisões da organização são finais. Não rodar, não bater o
-score ou violar a regra de ferramentas abertas desclassifica.
+Verificação: entre 01 e 10/10 a organização executa o código no conjunto final
+e confere a reprodutibilidade. As regras originais previam janela de recurso
+após a divulgação preliminar do resultado, depois da qual as decisões da
+organização são finais. Não rodar ou violar a regra de ferramentas abertas
+desclassifica.
 
-Neste repositório: [../Dockerfile](../Dockerfile),
-[../MANIFESTO_MODELO.md](../MANIFESTO_MODELO.md) e a seção *Uso* do
-[README](../README.md) — já preparados para servir de bundle reproduzível
-quando chegarmos à fase final.
+Neste repositório o bundle é o [`run.sh`](../run.sh), o
+[Dockerfile](../Dockerfile), o [MANIFESTO_MODELO.md](../MANIFESTO_MODELO.md) e
+as seções *Execução da avaliação final* e *Abordagem* do
+[README](../README.md). A conferência em clone limpo, no container e em quatro
+versões de Python está no [checkpoint 11](checkpoints/11-entrega-final.md).
 
 ## Cronograma
 
@@ -88,11 +152,15 @@ quando chegarmos à fase final.
 | Envio dos dados por e-mail aos inscritos | 25/08/2026 |
 | Webinar de tira-dúvidas (gravação disponível) | 28/08/2026 |
 | Plataforma de submissão (Kaggle), script de avaliação e goldenset atualizado | 01/09/2026 |
-| Distribuição final do dataset — não haverá novas versões | 15/09/2026 |
-| Período de submissões, leaderboard público ao vivo | 01/09 a 30/09/2026 |
-| Fechamento das submissões | 30/09/2026, 23h59 (BRT) |
-| Avaliação no conjunto privado, verificação e ranking final | 01/10 a 10/10/2026 |
+| Distribuição final da amostra de desenvolvimento — não haverá novas versões | 15/09/2026 |
+| Período de submissões ao Kaggle (leaderboard referencial, fora do ranking) | 01/09 a 30/09/2026 |
+| E-mail da organização com as regras da entrega final | 29/09/2026 |
+| **Fechamento das submissões: repositório e hash do commit final** | **01/10/2026, 23h59 (Brasília)** |
+| Execução no conjunto final, verificação de reprodutibilidade e ranking | 01/10 a 10/10/2026 |
 | Apresentação das melhores soluções (BRACIS 2026, Cuiabá-MT) | 19 a 22/10/2026 |
+
+O fechamento era 30/09 no cronograma original; o e-mail de 29/09 o levou para
+01/10, 23h59.
 
 ## A competição no Kaggle
 
@@ -113,13 +181,14 @@ A plataforma de submissão é o Kaggle:
   saídas do pipeline e enviar em *Submit Prediction*. Qualquer integrante pode
   submeter — o limite é **5 submissões/dia por equipe** (soma de todos os
   integrantes), não por pessoa.
-- **Leaderboard em duas fases.** Enquanto o conjunto de avaliação final está em
-  construção, o leaderboard roda sobre a amostra de treino/desenvolvimento
-  (gabarito aberto) e é **referencial** — serve para validar o pipeline de
-  ponta a ponta, e **submissões desta fase não contam para o ranking final**.
-  Quando o conjunto final for ativado, o leaderboard **reinicia** e passa a
-  usar a parte pública dele (40%); o ranking final é calculado sobre os 60%
-  privados restantes, mantidos em sigilo até o encerramento.
+- **Leaderboard referencial, fora do ranking.** O leaderboard rodou sobre a
+  amostra de treino/desenvolvimento (gabarito aberto) e serviu para validar o
+  pipeline de ponta a ponta; **submissões ao Kaggle não contam para o ranking
+  final**. O plano original previa uma segunda fase, com o leaderboard
+  reiniciado sobre 40% do conjunto final e o ranking nos 60% privados. O e-mail
+  de 29/09 a substituiu: o conjunto final não passa pelo Kaggle, e a nota sai
+  da execução do código pela organização (ver
+  [A entrega final](#a-entrega-final-e-mail-de-29092026)).
 
 ### Distribuição final do dataset (15/09/2026)
 
@@ -129,6 +198,10 @@ a solução precisa lidar. Mudaram as três frentes: gabarito (192 citações), 
 canônica (1.014 registros) e três dos 26 `.txt`. Ver
 [dados.md § Atualização final](dados.md#atualização-final-15092026) para o diff
 completo, levantado pelo próprio `make dados`.
+
+Isso continua valendo para a **amostra de desenvolvimento**. O conjunto final é
+outra coisa: vem com um `.db` próprio, que as equipes não veem. A base do dev
+é um exemplo do formato, não a base em que a solução será avaliada.
 
 Houve uma revisão anterior em 01/09, que endureceu o critério de `incompleta` —
 ver [dados.md § Atualização do goldenset](dados.md#atualização-do-goldenset-01092026).
@@ -149,7 +222,9 @@ enviar representante) à sessão de encerramento.
 
 **Desclassifica a equipe:** tentar extrair ou inferir o conjunto de teste
 privado, plágio de solução de terceiros sem crédito, ou violar a regra de
-ferramentas abertas (pesos/serviços fechados ou pagos em runtime).
+ferramentas abertas (pesos/serviços fechados ou pagos em runtime). E, pela regra
+de reprodutibilidade, a solução que não roda fica fora do ranking; o e-mail de
+29/09 especifica que ela precisa rodar do zero, em máquina limpa.
 
 **Publicação:** as melhores soluções são apresentadas no BRACIS 2026, e o
 desafio é liberado como benchmark público depois da conferência — o que
