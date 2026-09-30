@@ -1113,6 +1113,11 @@ def _sentencas(corpo: str) -> list[tuple[int, int]]:
 # O último pedaço do núcleo, depois de um espaço: `5ob` em "2020 5ob".
 _PEDACO_FINAL = re.compile(rf"[ \t\xa0\n]+({_DIGITOIDE}+)$")
 
+# O pedaço depois de um ponto final e de espaço: `O` em "REsp 1.234.567. O
+# recurso", `Isso` em "…567. Isso basta". São palavras que abrem a frase seguinte
+# e só têm letra que o OCR confunde com dígito.
+_PEDACO_APOS_PONTO = re.compile(rf"\.[ \t\xa0\n]+({_DIGITOIDE}+)$")
+
 
 def _sem_palavra_corrompida(numero: str) -> str:
     """O núcleo sem o pedaço final que é palavra com uma letra virada dígito.
@@ -1126,7 +1131,15 @@ def _sem_palavra_corrompida(numero: str) -> str:
     Grupo de milhar corrompido no fim ("1 B21 bb3", "1.234 S6O") também tem mais
     letra que dígito, mas vem depois de outro grupo e tem exatamente três
     caracteres: ali o pedaço é número, e cortá-lo encurtava o identificador.
+
+    Depois de ponto final e espaço, o pedaço sem **nenhum** dígito real sai
+    sempre, com o ponto: é a primeira palavra da frase seguinte ("O", "Os",
+    "Isso"), que o núcleo engolia quando a citação fecha a frase. O grupo legítimo
+    depois de ". " (`1. 234.567`, `123-45. 2012`) tem dígito real.
     """
+    apos_ponto = _PEDACO_APOS_PONTO.search(numero)
+    if apos_ponto is not None and not any(c.isdigit() for c in apos_ponto.group(1)):
+        return numero[: apos_ponto.start()]
     pedaco = _PEDACO_FINAL.search(numero)
     if pedaco is None:
         return numero

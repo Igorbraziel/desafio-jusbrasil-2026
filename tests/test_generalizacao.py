@@ -1038,3 +1038,20 @@ def test_tribunal_da_sumula_por_extenso_atravessa_a_quebra(corpo, esperado):
 )
 def test_tribunal_depois_do_tema_entra_no_span(corpo, esperado):
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a citação fecha a frase, e a seguinte abre com palavra feita só de
+        # letras que o OCR confunde com dígito
+        ("Como decidido no REsp 1.234.567. O recurso não procede.", "REsp 1.234.567"),
+        ("Como decidido no REsp 1.234.567. Os fundamentos se aplicam.", "REsp 1.234.567"),
+        ("Como decidido no REsp 1.234.567. Isso basta.", "REsp 1.234.567"),
+        ("Veja-se a Rcl nº 12.345. O STF assentou a tese.", "Rcl nº 12.345"),
+        # o grupo legítimo depois de ". " tem dígito real e continua no número
+        ("Invoca-se o Rec. Esp. nº 1. 234.567 – CE, no ponto.", "Rec. Esp. nº 1. 234.567 – CE"),
+    ],
+)
+def test_numero_nao_engole_a_palavra_da_frase_seguinte(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
