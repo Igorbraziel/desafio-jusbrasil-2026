@@ -12,6 +12,9 @@ conjunto em avaliação tem.
 - confiança, quando presente, está em [0, 1];
 - nenhum par de citações do mesmo documento tem IoU ≥ 0,5.
 
+As checagens moram em `verificador.submissao`, que o `run.sh` da entrega também
+usa: a conferência daqui e a da entrega não têm como divergir.
+
 Uso:
     python scripts/conferir_submissao.py data/submission.csv data/dev/sample_submission.csv
 """
@@ -22,60 +25,15 @@ import csv
 import sys
 from pathlib import Path
 
-CLASSES = {"real", "inventada", "incompleta"}
-IOU_MIN = 0.5
+RAIZ = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(RAIZ / "src"))
 
-
-def _iou(a: tuple[int, int], b: tuple[int, int]) -> float:
-    inter = max(0, min(a[1], b[1]) - max(a[0], b[0]))
-    return inter / ((a[1] - a[0]) + (b[1] - b[0]) - inter) if inter else 0.0
-
-
-def _conferir_celula(documento: str, celula: str) -> list[str]:
-    problemas: list[str] = []
-    celula = (celula or "").strip()
-    if celula in ("", "-"):
-        return problemas
-    spans: list[tuple[int, int]] = []
-    for i, bloco in enumerate(celula.split("|"), start=1):
-        campos = [c.strip() for c in bloco.split(",")]
-        onde = f"{documento} citação {i}"
-        if len(campos) != 5:
-            problemas.append(f"{onde}: {len(campos)} campos, esperados 5")
-            continue
-        inicio, fim, classe, id_canonico, confianca = campos
-        if not (inicio.isdigit() and fim.isdigit()) or int(fim) <= int(inicio):
-            problemas.append(f"{onde}: span inválido ({inicio}, {fim})")
-            continue
-        if classe not in CLASSES:
-            problemas.append(f"{onde}: classe inválida {classe!r}")
-        if classe == "real" and not id_canonico.isdigit():
-            problemas.append(f"{onde}: real sem id_canonico numérico ({id_canonico!r})")
-        if confianca not in ("", "-"):
-            try:
-                valor = float(confianca)
-            except ValueError:
-                problemas.append(f"{onde}: confiança não numérica {confianca!r}")
-            else:
-                if not 0.0 <= valor <= 1.0:
-                    problemas.append(f"{onde}: confiança fora de [0, 1] ({valor})")
-        spans.append((int(inicio), int(fim)))
-    for a in range(len(spans)):
-        for b in range(a + 1, len(spans)):
-            if _iou(spans[a], spans[b]) >= IOU_MIN:
-                problemas.append(f"{documento}: citações {a + 1} e {b + 1} com IoU ≥ {IOU_MIN}")
-    return problemas
+from verificador.submissao import check_submission  # noqa: E402
 
 
 def conferir(submissao: Path, esperados: set[str]) -> list[str]:
     """Devolve a lista de problemas; vazia quando a submissão pode ser enviada."""
-    with submissao.open(encoding="utf-8", newline="") as arquivo:
-        linhas = list(csv.DictReader(arquivo))
-    presentes = {linha["documento_id"] for linha in linhas}
-    problemas = [f"documento sem linha: {d}" for d in sorted(esperados - presentes)]
-    for linha in linhas:
-        problemas.extend(_conferir_celula(linha["documento_id"], linha["citacoes"]))
-    return problemas
+    return check_submission(submissao, esperados)
 
 
 def main(argv: list[str] | None = None) -> int:
