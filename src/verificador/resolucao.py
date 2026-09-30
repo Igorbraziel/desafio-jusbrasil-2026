@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import re
 
-from .base_canonica import BaseCanonica
+from .base_canonica import BaseCanonica, chave_de_artigo
 from .classe import afinidade, marcas
 from .deteccao import Achado, sigla_do_tribunal
+from .leis import ANO_DA_LEI, NUMERO_DA_LEI, codigo_da_lei
 from .normalizacao import (
     CONFUSOES_DE_LETRA,
     OCR_PARA_DIGITO,
@@ -173,8 +174,14 @@ CONFIANCA = {
 # marcador `lc` solto, e não mais pelo literal "lc 64": com a marca de número no
 # meio ("LC nº 64/90") o literal não casava e a citação `real` virava `inventada`.
 # O número e o ano continuam conferidos em `_diploma_confere`.
+#
+# **Desde 30/09 nenhuma entrada é "fora da cobertura" por nome.** Quem decide se
+# o artigo está na cobertura é a tabela lida do banco recebido: o CPPM, que era
+# recusado pelo nome, resolve se o banco novo tiver o artigo dele, e o Código
+# Penal, o CTN, o ECA e o CTB entram pelo mesmo motivo. O CP vem depois de
+# CPPM, CPP e CPM, que o contêm.
 DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
-    (("processo penal militar", "cppm"), (), "CPPM_FORA"),
+    (("processo penal militar", "cppm"), (), "CPPM"),
     (("processo civil", "13.105", "13105", "cpc", "ncpc"), (), "CPC"),
     (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
@@ -196,39 +203,14 @@ DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
     (("lei complementar", "lc", "64/1990"), (), "LC64"),
     (("eleitoral", "4.737", "4737"), (), "ELEITORAL"),
     (("civil", "cc", "10.406", "10406"), (), "CC"),
+    (("codigo penal", "cp", "2.848", "2848"), ("militar", "processo"), "CP"),
+    (("tributario nacional", "ctn", "5.172", "5172"), (), "CTN"),
+    (("crianca e do adolescente", "eca", "8.069", "8069"), (), "ECA"),
+    (("transito brasileiro", "ctb", "9.503", "9503"), (), "CTB"),
 )
 
-# Número da lei que cada chave da tabela curada aceita. Quando a citação nomeia o
-# número — "Lei Complementar nº 123/2006" —, ele é conferido contra esta tabela em
-# vez de se confiar só no nome do diploma. Os números saem da primeira linha
-# autodeclarada dos 13 registros de natureza `dispositivo`, desde 15/09/2026.
-NUMERO_DA_LEI: dict[str, str] = {
-    "CPC": "13105",
-    "CPP": "3689",
-    "CPM": "1001",
-    "CDC": "8078",
-    "CLT": "5452",
-    "LC64": "64",
-    "ELEITORAL": "4737",
-    "CC": "10406",
-}
-
-# Ano de cada diploma da cobertura, da mesma primeira linha autodeclarada
-# ("Artigo 186 da Lei nº 10.406, de 10 de janeiro de 2002"). Serve para recusar
-# a versão revogada: `Código Civil de 1916` e `CPC/73` têm os mesmos números de
-# artigo da versão vigente, e sem conferir o ano resolviam para ela.
-# `tests/test_base_canonica.py` confere as duas tabelas contra o banco.
-ANO_DA_LEI: dict[str, int] = {
-    "CF": 1988,
-    "CPC": 2015,
-    "CPP": 1941,
-    "CPM": 1969,
-    "CDC": 1990,
-    "CLT": 1943,
-    "LC64": 1990,
-    "ELEITORAL": 1965,
-    "CC": 2002,
-}
+# O número e o ano de cada diploma nomeado estão em :mod:`verificador.leis`, que é
+# fato de direito e vale para qualquer base.
 
 # O número de uma lei citada pelo número — "lei no 13.105/2015", "lc 64/90",
 # "decreto-lei no 5.452/1943" —, com o ano opcional depois da barra.
@@ -424,11 +406,19 @@ def _chave_do_diploma(diploma: str) -> str:
     )
 
 
-def _codigo_do_diploma(diploma: str | None) -> str | None:
-    """Reduz o nome citado do diploma à chave da tabela curada.
+def _codigo_do_diploma(diploma: str | None, base: BaseCanonica | None = None) -> str | None:
+    """Reduz o nome citado do diploma ao código da tabela de dispositivos.
 
-    Devolve ``None`` quando o diploma está nomeado mas fora da cobertura — o que
-    o chamador traduz em `inventada`, não em falta de informação.
+    Devolve ``None`` quando o diploma não é identificável ou é outro que não o
+    citado (versão revogada, lei de outro ente, constituição estrangeira) — o que
+    o chamador traduz em `inventada`. Se o artigo está na cobertura, quem decide
+    é a tabela do banco.
+
+    **O número da lei, quando citado, manda.** "Lei nº 9.504/1997" vira
+    `LEI_9504` e "LC 135/2010" vira `LC_135`, com ou sem nome conhecido: com
+    uma tabela vinda do banco novo, qualquer lei pode estar na cobertura. Antes,
+    o marcador genérico `lc` levava a LC 135 à LC 64 e o número conflitante a
+    recusava.
     """
     if not diploma:
         return None
@@ -438,17 +428,49 @@ def _codigo_do_diploma(diploma: str | None) -> str | None:
     # resolvia para o Código Civil — `inventada` → `real`.
     if _LEI_DE_OUTRO_ENTE.search(chave):
         return None
+    lei = _LEI_NUMERADA.search(chave)
+    if lei is not None:
+        codigo = codigo_da_lei(_tipo_da_lei(chave[: lei.start(1)]), lei.group(1))
+        ano = lei.group(2)
+        if ano is None:
+            versao = _ANO_DE_VERSAO.search(chave, lei.end(1))
+            ano = versao.group(1) if versao else None
+        return codigo if _ano_confere(ano, codigo, base) else None
     for marcadores, exclusoes, codigo in DIPLOMAS:
         if not any(_contem_marcador(chave, marcador) for marcador in marcadores):
             continue
         if any(exclusao in chave for exclusao in exclusoes):
             return None
-        if codigo.endswith("_FORA"):
-            # Diploma reconhecido e sabidamente fora da cobertura. Existe como
-            # entrada para vencer o marcador mais genérico que o capturaria.
-            return None
         return codigo if _diploma_confere(chave, codigo) else None
     return None
+
+
+# O tipo da lei com o ruído de letra do nível 2: "Dccreto-Lei", "Decret0-Lei",
+# "Lci Complementar". A palavra com hífen não passa por `_desfazer_ruido_de_letra`
+# (que corrige palavra a palavra), e sem a tolerância aqui o decreto-lei corrompido
+# virava uma "lei" de mesmo número — a CLT citada como "Dccreto-Lei nº 5.452/1943"
+# saía `inventada`. Medido no simulador, a 0,05.
+_DECRETO_LEI = re.compile(r"\bd[eco][eco]r[eco]t[o0]\b")
+_LEI_COMPLEMENTAR = re.compile(r"\b(?:l[eci1][il1]\s+c[o0]mpl[eco]m[eco]nt[aã]r|lc)\b")
+
+
+def _tipo_da_lei(antes_do_numero: str) -> str:
+    """O tipo da lei — lei complementar, decreto-lei ou lei — pelo que vem antes do número."""
+    if _LEI_COMPLEMENTAR.search(antes_do_numero):
+        return "lei complementar"
+    if _DECRETO_LEI.search(antes_do_numero):
+        return "decreto-lei"
+    return "lei"
+
+
+def _ano_confere(ano: str | None, codigo: str, base: BaseCanonica | None) -> bool:
+    """O ano citado, se houver, é o do diploma — pelo fato de direito ou pelo banco?"""
+    if ano is None:
+        return True
+    esperado = ANO_DA_LEI.get(codigo)
+    if esperado is None and base is not None and (declarado := base.lei(codigo)):
+        esperado = declarado[1]
+    return esperado is None or _ano(ano) == esperado
 
 
 def _diploma_confere(chave: str, codigo: str) -> bool:
@@ -504,21 +526,24 @@ _ORDINAL = re.compile(rf"^([1-9])\s*[ºo°ª](?![\d{''.join(sorted(set(OCR_PARA_
 
 
 # Artigo com sufixo de letra (`896-A`, `373-A`) é outro artigo, acrescentado
-# depois ao código. Nenhum dos 13 da cobertura tem sufixo, e descartar a letra
-# fazia o `896-A` resolver para o art. 896 — `inventada` → `real`.
-_SUFIXO_DE_ARTIGO = re.compile(r"\d\s*[-‐]\s*[A-Za-z]\s*$")
-
-# Número que nenhum artigo tem: devolvido para o artigo com sufixo, ele passa
-# pela consulta à tabela curada e sai `inventada`, que é a resposta certa.
-ARTIGO_FORA_DA_COBERTURA = -1
+# depois ao código. Descartar a letra fazia o `896-A` resolver para o art. 896 —
+# `inventada` → `real`. A chave leva o sufixo, e o artigo com sufixo resolve só se
+# o banco o tiver.
+_SUFIXO_DE_ARTIGO = re.compile(r"^(?P<numero>.*?\d)\s*[-‐]\s*(?P<letra>[A-Za-z])\s*$")
 
 
-def _numero_de_artigo(valor: str | None) -> int | None:
-    if valor and _SUFIXO_DE_ARTIGO.search(valor):
-        return ARTIGO_FORA_DA_COBERTURA
-    if valor and (ordinal := _ORDINAL.match(valor)):
-        return int(ordinal.group(1))
-    return _inteiro(valor)
+def _chave_de_artigo(valor: str | None) -> str | None:
+    """A chave do artigo citado na tabela de dispositivos: "5", "896", "896-A"."""
+    if not valor:
+        return None
+    sufixo = None
+    if (com_sufixo := _SUFIXO_DE_ARTIGO.match(valor)) is not None:
+        valor, sufixo = com_sufixo.group("numero"), com_sufixo.group("letra")
+    if (ordinal := _ORDINAL.match(valor)) is not None:
+        numero: int | None = int(ordinal.group(1))
+    else:
+        numero = _inteiro(valor)
+    return None if numero is None else chave_de_artigo(str(numero), sufixo)
 
 
 def _tribunal_da_sumula(dados: dict[str, str]) -> str | None:
@@ -555,9 +580,9 @@ def _resolver_sumula(dados: dict[str, str], base: BaseCanonica) -> tuple[str, in
 def _resolver_dispositivo(
     dados: dict[str, str], base: BaseCanonica
 ) -> tuple[str, int | None, float]:
-    artigo = _numero_de_artigo(dados.get("artigo"))
+    artigo = _chave_de_artigo(dados.get("artigo"))
     diploma = dados.get("diploma") or dados.get("diploma_sigla")
-    codigo = _codigo_do_diploma(diploma)
+    codigo = _codigo_do_diploma(diploma, base)
 
     if artigo is None or not diploma:
         # Sem artigo ou sem diploma nomeado não dá para formular a consulta.
