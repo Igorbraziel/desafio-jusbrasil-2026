@@ -12,18 +12,12 @@ Três estruturas de resolução, uma por natureza de registro:
     separa "este documento *é* o processo" de "este documento apenas o *cita*" é
     a posição. Ver ``docs/investigacao.md``.
 
-``sumula`` (5) e ``dispositivo`` (13)
-    Poucos demais para indexar por texto. Resolvemos por tabela curada,
-    conferida contra o banco em ``tests/test_base_canonica.py``.
-
-    A distribuição de 15/09/2026 mudou o terreno aqui: esses mesmos 18
-    registros ganharam uma primeira linha que se autodeclara, no formato
-    ``Súmula n. <número> do <tribunal>`` e ``Artigo <número> da <lei por
-    extenso>``. Antes o texto era só o enunciado, e a tabela abaixo teve de ser
-    levantada à mão. Ela continua correta e continua sendo o caminho de
-    resolução, mas agora é **derivável da base**, e o cabeçalho também dá o
-    número da lei por extenso, que o repertório de siglas não tinha. Ver
-    ``docs/dados.md``.
+``sumula`` e ``dispositivo``
+    Poucos demais para indexar por texto. Resolvemos por tabela, **lida do banco
+    recebido**: cada registro abre com a própria identificação ("Súmula n. 83
+    do STJ", "Artigo 186 da Lei nº 10.406, de 10 de janeiro de 2002"). Até
+    30/09/2026 a tabela era curada à mão com os ids do banco de desenvolvimento;
+    a avaliação final usa outro banco — ver a seção de súmulas e dispositivos.
 
 Não confunda as duas colunas de id: ``documento_id`` (``doc_0201``) é a chave
 interna do acervo; ``id`` é o doc_id do Jusbrasil, e é ele que vai em

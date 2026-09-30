@@ -13,6 +13,35 @@ A distinção entre `inventada` e `incompleta` é o ponto da tarefa: a inventada
 alucinação ativa de um LLM e deve ser bloqueada; a incompleta é evasiva e vai
 para revisão humana.
 
+## Execução na avaliação final
+
+Ponto de entrada único: recebe o banco e a pasta de `.txt` e escreve o CSV no
+formato da submissão (`documento_id,citacoes`).
+
+```bash
+bash run.sh <caminho_db> <pasta_txt> <arquivo_saida.csv>
+```
+
+Só usa a biblioteca padrão do Python (3.10 ou mais novo; medido em 3.12). Não
+precisa de rede, GPU nem pesos de modelo, e o resultado é determinístico. O
+mesmo comando no ambiente declarado (Docker):
+
+```bash
+docker build -t verificador-citacoes .
+docker run --rm --network none \
+  -v /caminho/base.db:/in/base.db:ro \
+  -v /caminho/txt:/in/txt:ro \
+  -v /caminho/saida:/out \
+  verificador-citacoes /in/base.db /in/txt /out/submission.csv
+```
+
+**Toda a cobertura sai do banco recebido, a cada execução.** O índice dos
+números próprios dos acórdãos é montado com o parser estrutural de cada
+tribunal, e as tabelas de súmulas e dispositivos, da primeira linha de cada
+registro. Esse é o "enriquecimento da base": é código do repositório, roda
+sobre qualquer `.db` no formato original e leva cerca de um segundo. Nada
+depende do banco de desenvolvimento.
+
 ## Arquitetura
 
 ```
@@ -37,7 +66,7 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 591 deles, todos passando.
+cada etapa — 626 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
 níveis, τ = 0, IoU mínimo 1,000, score 1,1000** (com confiança 1,0 nos caminhos
@@ -69,9 +98,10 @@ instrumentos existem para isso e são os que importam para o conjunto cego:
   índice que valem também no conjunto cego, porque a base é a mesma: nenhuma
   chave que seja data, ano, OAB ou número citado na ementa.
 
-Ver os checkpoints [09](docs/checkpoints/09-revisao-final.md) e
-[10](docs/checkpoints/10-validacao-final.md), com o que as revisões de 24/09 e
-30/09 acharam e mediram.
+Ver os checkpoints [09](docs/checkpoints/09-revisao-final.md),
+[10](docs/checkpoints/10-validacao-final.md) e
+[11](docs/checkpoints/11-banco-novo.md), com o que as revisões de 24/09 e 30/09
+acharam e mediram.
 
 ## Instalação
 
@@ -116,21 +146,18 @@ velocidade. Para comparar com um checkpoint, rode
 
 ### No contrato de execução da organização
 
-```bash
-docker build -t verificador-citacoes:latest .
+Ver [Execução na avaliação final](#execução-na-avaliação-final). Com os dados
+de desenvolvimento:
 
-docker run --rm --network none \
-  -v $PWD/data/dev/txt:/data/in:ro \
-  -v $PWD/data/out:/data/out \
-  -v $PWD/data/dev/desafio1_bracis.db:/data/base/desafio1_bracis.db:ro \
-  verificador-citacoes:latest --input /data/in --output /data/out
+```bash
+bash run.sh data/dev/desafio1_bracis.db data/dev/txt data/submission.csv
 ```
 
 Pesos e dados ficam fora da imagem, como exige o regulamento — a base canônica
 entra por volume, e o container roda sem rede. O build não precisa de `uv` no
 host: o `requirements.txt` versionado já é o que `make requirements` exporta do
-`uv.lock` (`make docker` faz os dois passos). A saída do container é idêntica,
-byte a byte, à de `make rodar` em Python 3.12, a versão fixada em
+`uv.lock` (`make docker` faz os dois passos). O CSV do container é idêntico,
+byte a byte, ao de `bash run.sh` em Python 3.12, a versão fixada em
 `.python-version` e na imagem.
 
 ## Por onde continuar

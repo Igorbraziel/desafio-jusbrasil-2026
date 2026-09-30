@@ -27,3 +27,4 @@ Cada checkpoint traz:
 | [08](08-pente-fino.md) | Pente fino com sondas fora da amostra | regressão da CF do cp 07 desfeita · órgão julgador fora do prefixo · IoU mín. 0,8125 → 0,854 · arnês igual ao `main` (ganho fora da amostra) |
 | [09](09-revisao-final.md) | Revisão final: τ, índice, desempate e ruído de OCR | chaves do índice 2.001 → 1.190 · sem número 25 → 1 · IoU mín. 0,854 → 1,000 · três classes novas no arnês · container conferido |
 | [10](10-validacao-final.md) | Validação final: simulador do sigiloso e entrega | simulador N2 (0,05) 0,9910 → 0,9969 · todas (10) a 0,30 1,0593 → 1,0655 · container idêntico · dev 1,1000 |
+| [11](11-banco-novo.md) | O banco novo da avaliação final e o ponto de entrada | súmulas e dispositivos lidos do `.db` recebido · `run.sh` com CSV idêntico ao oficial · container conferido com banco modificado |
