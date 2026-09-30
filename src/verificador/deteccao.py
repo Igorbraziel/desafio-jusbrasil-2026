@@ -498,7 +498,8 @@ _QUALIFICADOR_SEGUINTE = (
 _DIPLOMA = (
     r"(?:"
     rf"{_tolerante('Lei')}(?:\s+(?:{_QUALIFICADOR_DE_LEI}))?{_NUMERO_DE_LEI}"
-    rf"|{_tolerante('Consolidação')}\s+das\s+{_tolerante('Leis')}\s+d[oe]\s+{_tolerante('Trabalho')}"
+    rf"|{_tolerante('Consolidação')}\s+d[aã0c][s5]\s+{_tolerante('Leis')}\s+{_CONECTOR_DE_NOME}\s+"
+    rf"{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
     # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
     # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
@@ -533,7 +534,8 @@ _DIPLOMA = (
     # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
     # corrente da Lei Complementar. Sem as duas alternativas a citação sumia — e
     # os marcadores "lc 64" em `resolucao.DIPLOMAS` eram inalcançáveis.
-    rf"|Decreto[-‐\s]*Lei{_NUMERO_DE_LEI}"
+    # As duas palavras toleram o ruído de letra ("Deereto-Lci", "Decret0-Lei").
+    rf"|{_tolerante('Decreto')}[-‐\s]*{_tolerante('Lei')}{_NUMERO_DE_LEI}"
     rf"|LC{_NUMERO_DE_LEI}"
     # `CPC/73` e `CC/16` são os códigos revogados; o ano vai junto para a
     # resolução decidir. `CF/88` é o caso particular que já existia.
@@ -567,12 +569,23 @@ _ROMANO = r"[IVXLC]{1,8}"
 # (`caput e inciso LV`, `caput, e inciso II`) são formas correntes que faziam a
 # citação sumir inteira. Continuam dentro da mesma regra: toda alternativa
 # consome texto literal, e cada repetição começa por vírgula.
-_INCISO = rf"(?:incisos?|incs?\.)\s+{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+#
+# As palavras do qualificador sofrem o mesmo ruído de letra que as âncoras
+# ("iriciso", "eaput", "parágraf0 únic0", "alínca"), e com a palavra escrita
+# literal o dispositivo inteiro sumia: no simulador do sigiloso eram 5% dos
+# dispositivos do nível 2 a taxa 0,05, e 16% a 0,15 — a maior perda medida.
+# Mesma política de `_tolerante`: vale só para as palavras fixas.
+_INCISO = (
+    rf"(?:{_tolerante('inciso')}[s5]?|{_tolerante('inc')}[s5]?\.)\s+{_ROMANO}"
+    rf"(?:\s+e\s+{_ROMANO})?"
+)
 _QUALIFICADORES = (
     rf"(?:\s*,\s*(?:§+\s*{_DIGITOIDE}+[ºo°]?(?:\s*-\s*[A-Z])?(?:\s+e\s+\d+[ºo°]?)?"
     rf"|(?:e\s+)?{_INCISO}"
-    rf"|par[áa]grafo\s+(?:[úu]nico|{_DIGITOIDE}+[ºo°]?)|§\s*[úu]nico"
-    rf"|al[íi]nea\s+[a-z]\)?|caput(?:\s+e\s+{_INCISO})?|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+    rf"|{_tolerante('parágrafo')}\s+(?:{_tolerante('único')}|{_DIGITOIDE}+[ºo°]?)"
+    rf"|§\s*{_tolerante('único')}"
+    rf"|{_tolerante('alínea')}\s+['\"]?[a-z]['\"]?\)?"
+    rf"|{_tolerante('caput')}(?:\s+e\s+{_INCISO})?|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
     r"|['\"]?[a-z]['\"]?\)?))"
     r"{0,5}"
 )

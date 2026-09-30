@@ -1070,3 +1070,27 @@ def test_primeira_linha_do_corpo_sem_virgula_nao_vira_cabecalho(linha):
     trechos = [a.trecho for a in _detectar(linha)]
     assert not any(t.startswith("Autos") for t in trechos), trechos
     assert len(trechos) == 1
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a palavra do qualificador com uma letra corrompida apagava o
+        # dispositivo inteiro
+        ("Viola o art. 7º, lnciso\nII, da CF/88, no ponto.", "art. 7º, lnciso\nII, da CF/88"),
+        ("Viola o art. 276, inci5o II, da Lei nº 4.737/1965, no ponto.",
+         "art. 276, inci5o II, da Lei nº 4.737/1965"),
+        ("Viola o artigo 7º, eaput, da CF, no ponto.", "artigo 7º, eaput, da CF"),
+        ("Viola o art. 290, parágrafo únic0, do Código Penal Militar, no ponto.",
+         "art. 290, parágrafo únic0, do Código Penal Militar"),
+        ("Viola o art. 1º, I, alínca \"g\", da LC 64/90, no ponto.",
+         "art. 1º, I, alínca \"g\", da LC 64/90"),
+        # e o nome do diploma: "Decreto-Lei" e o "das" da CLT
+        ("Viola o art. 818 do Deereto-Lei nº 5.452/1943, no ponto.",
+         "art. 818 do Deereto-Lei nº 5.452/1943"),
+        ("Viola o art 477 da Conso1idação da5 Leis do Trabalho, no ponto.",
+         "art 477 da Conso1idação da5 Leis do Trabalho"),
+    ],
+)  # fmt: skip
+def test_qualificador_e_diploma_com_ruido_de_letra(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
