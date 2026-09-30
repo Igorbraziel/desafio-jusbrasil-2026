@@ -1,8 +1,12 @@
-# Imagem de submissão. Segue o contrato de execução da organização:
+# Imagem da entrega. Roda o mesmo run.sh da execução no host:
 #
-#   docker run --network none \
-#     -v <txt>:/data/in -v <saida>:/data/out -v <base.db>:/data/base/desafio1_bracis.db \
-#     verificador-citacoes:latest --input /data/in --output /data/out
+#   docker build -t verificador-citacoes .
+#   docker run --rm --network none \
+#     -v "$DB":/dados/base.db:ro -v "$TXT":/dados/txt:ro -v "$SAIDA_DIR":/saida \
+#     verificador-citacoes /dados/base.db /dados/txt /saida/submission.csv
+#
+# Funciona também com `--user $(id -u):$(id -g)` e `--read-only`: nada é escrito
+# fora de /saida (e da pasta de JSONs, se passada como quarto argumento).
 #
 # Sem pesos e sem dados dentro da imagem, como exige o regulamento: a base
 # canônica entra por volume. Sem rede em runtime — o pipeline é determinístico e
@@ -12,12 +16,13 @@
 # que as medições foram feitas.
 FROM python:3.12.3-slim@sha256:afc139a0a640942491ec481ad8dda10f2c5b753f5c969393b12480155fe15a63
 
-# Sem bytecode residual e sem buffer, para que a saída do container apareça na hora.
+# O run.sh exporta as mesmas variáveis; repeti-las aqui cobre quem chamar o
+# módulo direto na imagem (`--entrypoint python`).
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONHASHSEED=0 \
-    VERIFICADOR_DB=/data/base/desafio1_bracis.db \
-    VERIFICADOR_INDICE=/data/base/indice_cabecalhos.json
+    PYTHONUTF8=1 \
+    PYTHONPATH=/app/src
 
 WORKDIR /app
 
@@ -27,9 +32,9 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY run.sh ./
 COPY src/ ./src/
-COPY scripts/ ./scripts/
 
-ENV PYTHONPATH=/app/src
-
-ENTRYPOINT ["python", "-m", "verificador.cli"]
+# Exec form com o bash explícito: não depende do bit de execução do run.sh, que
+# se perde num checkout que não o preserva.
+ENTRYPOINT ["bash", "/app/run.sh"]
