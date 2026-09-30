@@ -1232,6 +1232,235 @@ _ATO_NORMATIVO = re.compile(
     re.IGNORECASE,
 )
 
+# ── Número da prosa que não é número de processo ──────────────────────────────
+#
+# O núcleo da família `processo` casa qualquer número de quatro dígitos, e o
+# gerador dos pareceres escreve prosa com quantidade, prazo, pena e valor: "pena
+# de <n> dias-multa", "<n> gramas", "cerca de <n> eleitores". Medido por sonda,
+# cada uma dessas frases virava citação `inventada` — e "de <n> dias" e "<n>
+# metros quadrados" viravam `real` quando o número coincidia com o número próprio
+# curto de um acórdão do dev (o índice tem 15 chaves de quatro dígitos e 221 de
+# cinco). É a forma do erro que chega mais perto de τ, e com base nova o conjunto
+# das coincidências muda: não há como conferir número a número. O que dá para
+# reconhecer é a prosa em volta.
+#
+# Os filtros daqui valem só para a detecção. `_e_numero_de_processo` continua
+# sendo o que o índice (`base_canonica.numeros_proprios`) e a exclusão da `vaga`
+# usam, e fica como estava: mudá-lo mexeria nas chaves do índice e na contagem de
+# constituintes da `vaga`, que nenhuma medição daqui cobre.
+
+# O número de artigo, tema ou súmula que a família específica não reconheceu:
+# "art. <n> do Regimento Interno" (o diploma não está em `_DIPLOMA`) e "arts.
+# 1.036 e 1.037 do CPC" (o plural não casa `_DISPOSITIVO`). Sem este rótulo o
+# número vazava para `processo`, e na sonda o artigo do regimento resolvia para
+# um acórdão do dev. Tema e súmula nus já perdiam para a própria família pela
+# precedência; o que escapava era o segundo número da enumeração ("Temas 1.046 e
+# 1.191"). É o mesmo rótulo que `base_canonica._ROTULO_NAO_PROPRIO` recusa ao
+# montar o índice, com a enumeração a mais.
+#
+# Os elementos da enumeração são só número e separador, então o rótulo não
+# alcança a citação vizinha que tem classe: em "art. 5º e REsp 1.234.567" o
+# "REsp" interrompe a lista, e o REsp continua citação.
+_ENUMERATED_NUMBER = rf"(?=[^\s,]*\d){_DIGITOIDE}[{_DIGITOIDE[1:-1]}.]*[ºo°ª]?(?:[-‐][A-Za-z])?"
+_NON_PROCESS_LABEL = re.compile(
+    rf"\b(?:{_tolerante('art')}(?:{_tolerante('igo')})?|{_tolerante('Tema')}"
+    rf"|{_tolerante('Súmula')})[s5]?\.?\s*(?:{_NUMERO}\s*)?"
+    rf"(?:{_ENUMERATED_NUMBER}\s*(?:,|(?:,\s*)?(?:e|a|ao|ou|at[ée])(?![\wÀ-ú]))\s*)*$",
+    re.IGNORECASE,
+)
+
+# A janela do rótulo cabe uma enumeração de meia dúzia de artigos ("arts. 1.036,
+# 1.037, 1.038, 1.039, 1.040 e 1.041" tem 50 caracteres).
+_LABEL_WINDOW = 120
+
+# A unidade ou o substantivo de quantidade logo **depois** do número. Lista
+# fechada, sem distinção de caixa, com as quantidades que o gerador e os
+# acórdãos da base escrevem (medido nos 996: votos, litros, munições, pessoas,
+# eleitores, kWh e hectares são as mais frequentes).
+#
+# O começo da expressão cobre três vícios do núcleo. O dígito que ele larga para
+# trás quando a unidade vem colada: em "12.500kg" o freio contra letra no fim
+# devolve só `12.50`, e o `0` fica aqui. A faixa ("1.000 a 2.000 pessoas"), em
+# que a unidade só aparece depois do segundo número. E o número por extenso
+# entre parênteses, que é como a peça escreve pena e valor ("1.460 (mil
+# quatrocentos e sessenta) dias-multa").
+#
+# As unidades de uma letra só valem em minúscula, menos o "L" de litro:
+# maiúscula solta depois de número é mais provável que seja sigla. O "mg" também
+# só vale em minúscula — "MG" é a UF de Minas Gerais ("ARE 123456 MG", forma
+# medida nos acórdãos da base), e o miligrama em caixa alta é raro demais para
+# pagar esse risco.
+#
+# A vírgula só entra como decimal, seguida de dígito ("2.000,5 litros"). Solta,
+# ela é pontuação da frase, e atravessá-la levava a unidade para longe do
+# número: em "Ações Diretas de Inconstitucionalidade ns. <n> e <n>, processos nos
+# quais…" (medido nos acórdãos da base) o número da ADI era recusado.
+_QUANTITY_UNIT = re.compile(
+    r"\d*(?:,\d+)?"
+    r"(?:[ \t\xa0]*\n?[ \t\xa0]*(?:a|à|at[ée]|e|ou|[-–])[ \t\xa0]*\n?[ \t\xa0]*"
+    r"\d[\d.]*(?:,\d+)?)?"
+    r"(?:[ \t\xa0]*\([^()\d\n]{1,80}\))?"
+    r"[ \t\xa0]*\n?[ \t\xa0]*"
+    r"(?:dias(?:[-‐ ]multa)?|meses|anos|semanas|horas|minutos|segundos"
+    r"|metros(?:[ \t\xa0]+(?:quadrados|c[úu]bicos))?|quil[ôo]metros|cent[íi]metros"
+    r"|mil[íi]metros|hectares|alqueires|gramas|quilogramas|quilos|toneladas|litros"
+    r"|mililitros|m[²³23]|km[²2]?|cm|mm|ha|kg|(?-i:mg)|ml|kwh|(?-i:m|g|l|L)"
+    r"|reais|d[óo]lares|euros|sal[áa]rios(?:[-‐ ]m[íi]nimos?)?|mil|milh[õo]es|bilh[õo]es"
+    r"|%|por[ \t\xa0]+cento|pontos[ \t\xa0]+percentuais"
+    r"|pessoas|eleitores|votos|habitantes|vezes|unidades|p[áa]ginas|folhas|exemplares"
+    r"|muni[çc][õo]es|cabe[çc]as|processos)"
+    r"(?![A-Za-zÀ-ÿ0-9])",
+    re.IGNORECASE,
+)
+
+# O grama abreviado, que o núcleo engole porque `g` é digitoide: "2.500 g" e
+# "2.500g" chegam aqui inteiros, e o `g` virava o dígito 9 no reparo. Só depois
+# de espaço ou de um grupo de milhar completo — "1.234.56g" é o 9 corrompido de
+# um número de processo, e continua número. O `l` de litro fica de fora: a base
+# tem o ruído que repete a última letra ("Código Penal l"), e depois de um número
+# ele apagaria a citação.
+_SWALLOWED_UNIT = re.compile(r"(?:\d[ \t\xa0]|\.\d{3})g$")
+
+# Quantidade não tem dez dígitos. Acima disso o número é CNJ ou número único do
+# STJ, e nenhuma das duas regras de quantidade vale para ele: "até" e "entre"
+# também introduzem processo ("suspensos até 0801234-56…"), e perder uma citação
+# de número completo custa mais do que qualquer quantia que passasse.
+_LONG_NUMBER_DIGITS = 10
+
+# O quantificador **imediatamente antes** do número. Quando ele encosta no
+# número não sobra lugar para classe entre os dois, então esta regra dispensa o
+# teste de `_names_class_or_marker`. "R$" já está em `_ROTULO_DISTRATOR`.
+_QUANTIFIER = re.compile(
+    r"(?:\b(?:cerca\s+de|aproximadamente|mais\s+de|menos\s+de|at[ée]|entre|quase|apenas"
+    r"|somente|total\s+de|pelo\s+menos|ao\s+menos|no\s+m[áa]ximo|no\s+m[íi]nimo"
+    r"|acima\s+de|abaixo\s+de|superior(?:es)?\s+a|inferior(?:es)?\s+a"
+    r"|em\s+torno\s+d[eoa]s?|por\s+volta\s+de)|US\$)\s*$",
+    re.IGNORECASE,
+)
+
+# A marca que antecede o número de processo mesmo sem classe: "nº 1234",
+# "processo 1234", "autos nº", e o plural "ns." / "nºs" da enumeração ("ADIs ns.
+# <n> e <n>"). O "no" fica aqui e não entre as palavras de ligação: é a
+# grafia de "nº" que a própria base usa, e na dúvida o número continua citação.
+# "recurso" em minúscula não tem forma de elo, e por isso precisa estar na lista.
+_PROCESS_MARKER = re.compile(
+    r"n\s*[.ºo°0]{0,2}|n[º°]?s\.?|[º°]|processos?|autos|recursos?|feitos?|n[úu]meros?",
+    re.IGNORECASE,
+)
+
+# Palavra de ligação que encosta no número na prosa: "pena de <n>", "PENA DE
+# <n>", "eleito com <n> votos", "Foram <n> eleitores". Nome de classe não
+# termina nela — o conector fica **dentro** do nome ("Mandado de Segurança"), e o
+# que encosta no número é o substantivo, a sigla ou a marca. A lista existe
+# porque as curtas, em caixa alta ou abrindo a frase ("DE", "Os", "Com"), têm a
+# forma de uma sigla de três letras como "Rcl".
+#
+# "se" fica de fora de propósito: em caixa alta é a sigla da Sentença
+# Estrangeira ("SE 5.206"), e ali a palavra nomeia a classe.
+_FUNCTION_WORDS = (
+    frozenset(
+        """
+    a o as os ao aos um uma uns umas de da do das dos em na nas nos num numa
+    e ou que com por pela pelo pelas pelos para sem sob sobre entre ate apos
+    desde contra como cerca mais menos quase cada seu sua seus suas todos todas
+    mas nem so foi foram sao era eram sera serao seria ha houve havia tem teve tinha
+    """.split()
+    )
+    | _PALAVRA_DE_PROSA
+)
+
+
+def _looks_like_class(token: str) -> bool:
+    """O token tem forma de sigla processual ou é núcleo de nome de classe?
+
+    Mais estreito que `_e_elo`, de propósito. Na cadeia de prefixo, qualquer
+    palavra capitalizada é elo, e a palavra que abre a frase também é —
+    "Compareceram 5.130 pessoas", "Apreenderam-se 6.240 kg". Aqui o que conta
+    como classe é a sigla (caixa mista, como `REsp` e `AgInt`; caixa alta curta,
+    como `RESP` e `HC`; ou curta com ponto, como `Rcl` e `Recl.`) e o núcleo do
+    nome por extenso ("Recurso", "Reclamação"). `_elo_corrompido` também fica de
+    fora: ele lê o `c` inicial como `E` corrompido, e "Foram consumidos 2.417
+    litros" passava por "Eonsumidos".
+
+    A sigla composta ("TST-E-ED-RR-", "AGR-RESPE", "EMB.DECL.") é julgada pedaço
+    a pedaço, porque o tamanho do todo não diz nada sobre ela.
+    """
+    letras = [c for c in token if c.isalpha()]
+    if not letras or not letras[0].isupper():
+        return False
+    if chave_textual(token.strip(".")) in _NUCLEO_DE_CLASSE:
+        return True
+    pedacos = [p for p in re.split(r"[-‐.]", token) if any(c.isalpha() for c in p)]
+    return all(_is_acronym(p) for p in pedacos)
+
+
+def _is_acronym(piece: str) -> bool:
+    """Caixa mista (`REsp`, `AgInt`), caixa alta curta (`RESP`, `HC`) ou curta (`Rcl`)."""
+    letras = [c for c in piece if c.isalpha()]
+    maiusculas = sum(c.isupper() for c in letras)
+    if 2 <= maiusculas < len(letras):
+        return True
+    if maiusculas == len(letras):
+        return len(letras) <= 6
+    return letras[0].isupper() and len(letras) <= 4
+
+
+def _names_class_or_marker(before: str) -> bool:
+    """A palavra colada à esquerda do número nomeia classe processual ou é marca?
+
+    É a exceção da regra de unidade: "Rcl 12.345" e "processo nº 1234" continuam
+    citação mesmo com uma unidade depois. Quem decide é o vizinho imediato, com
+    a mesma política de quebra de linha de `_expandir_prefixo` — uma quebra é
+    continuação, duas são fim de parágrafo. A cadeia inteira não serve como
+    primeiro teste: ela engole prosa capitalizada ("Cerca de 30.000", "PENA DE
+    1.460"), e aí qualquer número da frase teria "classe".
+
+    A cadeia só entra quando o vizinho é uma palavra por extenso que não é de
+    ligação: "Recurso Especial 1.234.567", "Habeas Corpus 123.456", "Mandado de
+    Segurança 12.345" terminam num adjetivo ou complemento, e o que nomeia a
+    classe é o núcleo mais à esquerda. Ali só o núcleo conta, não qualquer
+    palavra capitalizada — é o que mantém "Compareceram 5.130 pessoas" recusado.
+    """
+    recuo = len(before)
+    quebras = 0
+    while recuo > 0 and before[recuo - 1] in " \t\xa0\n":
+        if before[recuo - 1] == "\n":
+            quebras += 1
+        recuo -= 1
+    if quebras > 1:
+        return False
+    fim_token = recuo
+    while recuo > 0 and not before[recuo - 1].isspace():
+        recuo -= 1
+    token = before[recuo:fim_token].strip("(),;:")
+    if not token:
+        return False
+    if _PROCESS_MARKER.fullmatch(token):
+        return True
+    if chave_textual(token.rstrip(".")) in _FUNCTION_WORDS:
+        return False
+    if _looks_like_class(token):
+        return True
+    cadeia = before[_expandir_prefixo(before, len(before)) :].split()
+    return any(chave_textual(t.strip(".,;:()")) in _NUCLEO_DE_CLASSE for t in cadeia)
+
+
+def _is_prose_number(number: str, text: str, start: int, end: int) -> bool:
+    """O número é quantidade da prosa, ou de artigo, e não número de processo?
+
+    ``start`` e ``end`` delimitam o número em ``text``. Só as janelas vizinhas
+    são lidas, para o custo não crescer com o tamanho do documento.
+    """
+    before = text[max(0, start - _LABEL_WINDOW) : start]
+    if _NON_PROCESS_LABEL.search(before):
+        return True
+    if _digitos(_corrigir_ocr(number)) >= _LONG_NUMBER_DIGITS:
+        return False
+    if _QUANTIFIER.search(before[-_JANELA_ROTULO:]):
+        return True
+    unit = _QUANTITY_UNIT.match(text, end) or _SWALLOWED_UNIT.search(number)
+    return unit is not None and not _names_class_or_marker(before)
+
 
 def _forma_canonica(numero: str) -> str:
     """O número sem ruído de superfície, mas com a pontuação que o estrutura.
@@ -1594,6 +1823,8 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
         if not _digitos_suficientes(numero, corpo, m.start()):
             continue
         if not _e_numero_de_processo(numero, corpo[: m.start()], corpo[fim_numero:]):
+            continue
+        if _is_prose_number(numero, corpo, m.start(), fim_numero):
             continue
         inicio = _expandir_prefixo(corpo, m.start())
         fim = fim_numero
