@@ -35,13 +35,15 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from .classe import marcas
 from .deteccao import _e_numero_de_processo
 from .estrutura import tribunal_do_texto, zonas_de_identificacao
-from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO
+from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO, sem_acento
 
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
 MINIMO_DIGITOS = 4
@@ -331,34 +333,161 @@ def classe_do_cabecalho(texto: str, tribunal: str | None) -> str:
     return inicio[: fim.start()] if fim else inicio
 
 
+# ---------------------------------------------------------------------------
+# Leitura do banco.
+#
+# A avaliação final roda o nosso código sobre um banco que não vimos, montado
+# num volume que pode ser somente leitura. Tudo aqui existe porque uma falha na
+# leitura acontece **antes** do laço por documento, onde não há proteção: uma
+# exceção derruba o lote inteiro e nenhum JSON é escrito.
+# ---------------------------------------------------------------------------
+
+# Todas as naturezas de uma vez, e a comparação fica em Python: sem caixa, sem
+# espaço e sem acento ("Acordao ", "acórdão"). Sem `ORDER BY` de propósito: a
+# varredura segue a ordem do arquivo, que é determinística e é a mesma da
+# consulta antiga, e ordenar ~90 MB de texto no SQLite pediria arquivo temporário
+# — que um container somente leitura pode não ter.
+_CONSULTA_DOCUMENTOS = (
+    "SELECT documento_id, id, tribunal, natureza, texto, texto_len FROM documentos"
+)
+
+
+@dataclass(frozen=True)
+class _Row:
+    """Uma linha da tabela `documentos`, já normalizada e utilizável."""
+
+    document_id: str
+    canonical_id: int
+    court: str | None
+    nature: str
+    text: str
+    text_len: int
+
+
+def _decode_text(valor: bytes) -> str:
+    """Texto do banco com byte inválido trocado, em vez de exceção.
+
+    O `sqlite3` decodifica TEXT como UTF-8 estrito e, num registro com byte
+    inválido, levanta `OperationalError` no meio da varredura — o índice inteiro
+    se perdia por um registro. Para UTF-8 válido o resultado é o mesmo.
+    """
+    return valor.decode("utf-8", errors="replace")
+
+
+def _as_int(valor: object) -> int | None:
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, int):
+        return valor
+    if isinstance(valor, float) and valor.is_integer():
+        return int(valor)
+    if isinstance(valor, str) and valor.strip().isdigit():
+        return int(valor.strip())
+    return None
+
+
+def _normalize_nature(valor: object) -> str:
+    return re.sub(r"\s", "", sem_acento(str(valor or ""))).lower()
+
+
+def _normalize_row(linha: tuple) -> _Row | None:
+    """A linha pronta para indexar, ou ``None`` se ela não tiver como responder.
+
+    Sem texto não há o que indexar nem de onde tirar a identificação, e sem
+    ``id`` não há o que pôr em ``id_canonico``: a linha fica de fora, e a citação
+    que a buscaria sai ``inventada`` — nunca ``real`` com um id vazio.
+    """
+    documento_id, id_canonico, tribunal, natureza, texto, texto_len = linha
+    id_canonico = _as_int(id_canonico)
+    if id_canonico is None or not isinstance(texto, str) or not texto.strip():
+        return None
+    tribunal = str(tribunal).strip().upper() if tribunal is not None else ""
+    tamanho = _as_int(texto_len)
+    return _Row(
+        document_id=str(documento_id) if documento_id is not None else str(id_canonico),
+        canonical_id=id_canonico,
+        court=tribunal or None,
+        nature=_normalize_nature(natureza),
+        text=texto,
+        text_len=tamanho if tamanho is not None else len(texto),
+    )
+
+
+def _iter_rows(caminho_db: Path, immutable: bool) -> Iterator[_Row]:
+    """As linhas utilizáveis do banco, abrindo-o só para leitura.
+
+    O caminho vai numa URI escapada: com o caminho cru interpolado, um diretório
+    com espaço, ``?`` ou ``#`` no nome mudava o significado da URI.
+    """
+    uri = Path(caminho_db).resolve().as_uri() + "?mode=ro" + ("&immutable=1" if immutable else "")
+    conexao = sqlite3.connect(uri, uri=True)
+    conexao.text_factory = _decode_text
+    descartadas = 0
+    try:
+        for linha in conexao.execute(_CONSULTA_DOCUMENTOS):
+            normalizada = _normalize_row(linha)
+            if normalizada is None:
+                descartadas += 1
+                continue
+            yield normalizada
+    finally:
+        conexao.close()
+    if descartadas:
+        print(
+            f"aviso: {descartadas} registro(s) sem texto ou sem id ignorados em {caminho_db}",
+            file=sys.stderr,
+        )
+
+
+def _read_with_fallback(caminho_db: Path, consumir):
+    """Aplica ``consumir`` às linhas do banco; se a leitura falhar, repete imutável.
+
+    Banco em modo WAL num volume somente leitura dá "attempt to write a readonly
+    database" na primeira leitura: o SQLite precisa criar o ``-shm`` ao lado, e
+    não pode. Reproduzido, derrubava o lote inteiro. ``immutable=1`` dispensa o
+    ``-shm``, mas também **ignora** um ``-wal`` presente — o que ainda não foi
+    consolidado no arquivo principal sumiria em silêncio —, então só entra
+    depois que a leitura normal falhou. A varredura recomeça do zero: nada do
+    que a primeira tentativa acumulou é reaproveitado.
+    """
+    try:
+        return consumir(_iter_rows(caminho_db, immutable=False))
+    except sqlite3.OperationalError as erro:
+        print(
+            f"aviso: leitura de {caminho_db} falhou ({erro}); repetindo com immutable=1",
+            file=sys.stderr,
+        )
+        return consumir(_iter_rows(caminho_db, immutable=True))
+
+
 def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
     """Varre a base uma vez e devolve o índice de números próprios.
 
     Feito offline: em runtime só carregamos o JSON. O material do desafio
     recomenda explicitamente esse caminho em vez de varrer o FTS a cada citação.
     """
-    conexao = sqlite3.connect(f"file:{caminho_db}?mode=ro", uri=True)
+    return _read_with_fallback(caminho_db, lambda linhas: _build_index(linhas, metodo))
+
+
+def _build_index(linhas: Iterator[_Row], metodo: str) -> dict:
     numeros: dict[str, list[str]] = {}
     registros: dict[str, dict] = {}
     assinaturas: dict[str, str] = {}
 
-    consulta = (
-        "SELECT documento_id, id, tribunal, texto, texto_len "
-        "FROM documentos WHERE natureza = 'acordao'"
-    )
-    for documento_id, id_canonico, tribunal, texto, texto_len in conexao.execute(consulta):
+    for linha in linhas:
+        if linha.nature != "acordao":
+            continue
+        documento_id, texto, tribunal = linha.document_id, linha.text, linha.court
         registros[documento_id] = {
-            "id": id_canonico,
+            "id": linha.canonical_id,
             "tribunal": tribunal,
-            "texto_len": texto_len,
+            "texto_len": linha.text_len,
             "classe": sorted(marcas(classe_do_cabecalho(texto, tribunal))),
         }
         assinaturas[documento_id] = _ESPACOS.sub(" ", texto[:LIMITE_ASSINATURA])
         regiao = regiao_de_identificacao(texto, tribunal, metodo)
         for numero in numeros_proprios(regiao):
             numeros.setdefault(numero, []).append(documento_id)
-
-    conexao.close()
 
     def donos(numero: str, documentos: list[str]) -> int:
         if len(numero) >= DIGITOS_NUMERO_LONGO:
