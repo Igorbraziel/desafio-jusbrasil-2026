@@ -105,15 +105,29 @@ from .normalizacao import (
 # arredondado para baixo em três casas em vez de duas. `inventada_tema` fica um
 # milésimo abaixo de `inventada_processo` para que `medir_confianca.py` continue
 # distinguindo os dois caminhos, que o script separa pelo valor.
+#
+# **Confiança 1,0 nos caminhos que o dev exercita (30/09, decisão de equipe).**
+# Os valores medidos acima deixam o dev em 1,099990; o bônus só chega ao teto,
+# e o score a 1,1000 exato, com confiança 1,0 em todo par casado. A confiança
+# não muda classe nem span: F1 e τ no sigiloso ficam idênticos, e só o Brier
+# muda. Pela acurácia medida, o custo esperado lá é da ordem de −0,00002 no
+# score — o único caminho com erro relevante é `inventada_processo` (98,6%), onde
+# emitir 1,0 em vez de 0,985 aumenta o Brier esperado do par em ~0,0002. A
+# moeda entre cópias (`real_desempate`) **não** sobe: ali 1,0 custaria de verdade
+# (Brier 0,5 contra 0,25), e ela não aparece no dev. Os valores medidos ficam nos
+# comentários; reverter este bloco devolve a calibração pela acurácia.
+#
+# Com valores iguais dentro da mesma classe, `medir_confianca.py` passa a
+# agrupar esses caminhos como AMBÍGUO — ele os separa pelo valor.
 CONFIANCA = {
-    "real_unico": 0.999,  # 6.643/6.643 (junto com real_tabela)
-    "real_desempate_classe": 0.916,  # 10/10, Laplace; o simulador não gera empate
+    "real_unico": 1.0,  # medido 0,999: 6.643/6.643 (junto com real_tabela)
+    "real_desempate_classe": 1.0,  # medido 0,916: 10/10, Laplace
     "real_desempate": 0.50,  # moeda entre cópias — ver acima
-    "real_tabela": 0.999,  # 6.643/6.643 (junto com real_unico)
-    "inventada_processo": 0.985,  # 2.936/2.978
-    "inventada_tabela": 0.998,  # 1.460/1.461
-    "inventada_tema": 0.984,  # 66/66, Laplace; a cobertura não tem tema
-    "incompleta_vaga": 0.999,  # 2.239/2.239
+    "real_tabela": 1.0,  # medido 0,999: 6.643/6.643 (junto com real_unico)
+    "inventada_processo": 1.0,  # medido 0,985: 2.936/2.978
+    "inventada_tabela": 1.0,  # medido 0,998: 1.460/1.461
+    "inventada_tema": 1.0,  # medido 0,984: 66/66, Laplace
+    "incompleta_vaga": 1.0,  # medido 0,999: 2.239/2.239
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
     # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
