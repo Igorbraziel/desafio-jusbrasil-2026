@@ -1,15 +1,21 @@
 """Ponto de entrada no contrato de execução da organização.
 
-    docker run <img> --input /data/in --output /data/out
+    bash run.sh <caminho_db> <pasta_txt> <arquivo_saida.csv>
 
-Tudo é determinístico e local: nenhuma chamada de rede, nenhum peso de modelo.
-O container roda offline.
+que chama
+
+    python -m verificador.cli --db <caminho_db> --input <pasta_txt> --csv <arquivo_saida.csv>
+
+A saída é o CSV no formato da submissão (ver :mod:`verificador.submissao`); com
+`--output`, os JSONs do contrato também ficam gravados. Tudo é determinístico e
+local: nenhuma chamada de rede, nenhum peso de modelo.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import tempfile
 from pathlib import Path
 
 from .base_canonica import BaseCanonica
@@ -42,19 +48,28 @@ def _carregar_base(indice: Path, db: Path) -> BaseCanonica:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Verificador de citações jurídicas")
     p.add_argument("--input", dest="entrada", type=Path, required=True, help="pasta com .txt")
-    p.add_argument("--output", dest="saida", type=Path, required=True, help="pasta dos JSONs")
+    p.add_argument("--output", dest="saida", type=Path, help="pasta dos JSONs")
+    p.add_argument("--csv", type=Path, help="arquivo da saída no formato da submissão")
     p.add_argument("--indice", type=Path, default=PADRAO_INDICE)
     p.add_argument("--db", type=Path, default=PADRAO_DB)
     args = p.parse_args(argv)
 
     if not args.entrada.is_dir():
         raise SystemExit(f"pasta de entrada não encontrada: {args.entrada}")
+    if args.saida is None and args.csv is None:
+        raise SystemExit("informe --output (JSONs), --csv (submissão) ou os dois")
 
     from .pipeline import processar_pasta
+    from .submissao import escrever_csv
 
     base = _carregar_base(args.indice, args.db)
-    escritos = processar_pasta(args.entrada, args.saida, base)
-    print(f"{len(escritos)} documentos processados -> {args.saida}")
+    with tempfile.TemporaryDirectory() as temporaria:
+        pasta = args.saida or Path(temporaria)
+        escritos = processar_pasta(args.entrada, pasta, base)
+        print(f"{len(escritos)} documentos processados -> {pasta if args.saida else 'CSV'}")
+        if args.csv is not None:
+            escrever_csv(escritos, args.csv)
+            print(f"submissão -> {args.csv}")
     return 0
 
 
