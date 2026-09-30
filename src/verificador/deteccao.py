@@ -323,12 +323,6 @@ _SIGLA_DE_TRIBUNAL = (
 # "d0", "dc", "dã" no lugar de "do", "de", "da".
 _CONECTOR = r"d[oaeã0c]s?"
 
-
-def sigla_do_tribunal(texto: str) -> str:
-    """A sigla do tribunal sem o ruído de OCR: `5TJ` → `STJ`."""
-    return texto.upper().replace("5", "S")
-
-
 # As palavras do nome atravessam uma quebra de linha, como o resto da citação: o
 # texto do gerador é quebrado em ~100 colunas, e "Súmula 345 do Superior
 # Tribunal\nde Justiça" perdia o tribunal inteiro — o span parava em "Súmula
@@ -344,6 +338,188 @@ _TRIBUNAL_POR_EXTENSO = "|".join(
         ("STM", "Superior Tribunal Militar"),
     )
 )
+
+# O separador dos nomes longos — o do diploma citado pelo nome e o do tribunal
+# regional da súmula —, com a mesma quebra de linha de `_ENTRE_PALAVRAS_DO_NOME`.
+# A quebra é um grupo à parte, e não um `\n?` entre dois `[ \t]*`: com essa
+# ambiguidade, um trecho longo de espaços depois de "art. 5º da Lei" custava
+# tempo quadrático em cada um dos nomes que começam por "Lei".
+_NAME_SEPARATOR = r"(?:[ \t\xa0]+(?:\n[ \t\xa0]*)?|\n[ \t\xa0]*)"
+
+
+def _tolerant_name(nome: str) -> str:
+    """As palavras de um nome longo com o ruído do nível 2, como as âncoras.
+
+    A palavra passa por `_tolerante` ("Lci", "Execucão", "Rcgião"). O conector
+    aceita o ruído e a troca entre si, como o de `_NOME_DE_CODIGO` ("dc", "d0";
+    "Normas de Direito" ao lado de "Normas do Direito"), e o plural com o `s`
+    lido como `5` ("da5").
+    """
+    return _NAME_SEPARATOR.join(
+        r"d[aeoc0ã][s5]?" if palavra in ("de", "da", "do", "das", "dos") else _tolerante(palavra)
+        for palavra in nome.split()
+    )
+
+
+# O tribunal da súmula fora dos cinco superiores: TRF1 a TRF6, TRT1 a TRT24, TJ,
+# TRE e TJM com a UF, e a TNU. Sem ele, "Súmula 7 do TJSP" saía com o span
+# "Súmula 7" e sem tribunal — `inventada` mesmo que a base tivesse o registro —,
+# e com o nome por extenso ("Súmula 7 do Tribunal de Justiça de São Paulo") o IoU
+# contra o span da citação caía a 0,18, abaixo do corte: FN e FP de uma vez. A
+# base do conjunto de avaliação é nova e pode ter súmula de tribunal regional.
+#
+# Fica num padrão só da súmula: `_SIGLA_DE_TRIBUNAL` é também a âncora de `tema`
+# e `vaga`, que continuam nos cinco superiores.
+#
+# A sigla é a maiúscula, fora do IGNORECASE de `_SUMULA`: em caixa baixa ela
+# seria prosa. O separador entre a sigla e a UF ou a região vem nas grafias dos
+# acórdãos da base: "TRE/SP" (a forma mais comum do regional eleitoral, 170
+# ocorrências), "TJ-MS", "TJSP", "TRF-1", "TRT/<n>ª Região", "TRT da <n>a Região",
+# "TRT <n>". Entre a sigla e a UF não cabe espaço solto: em caixa alta, "SÚMULA 7
+# DO TJ SE APLICA" leria "TJ SE" como o tribunal de Sergipe.
+#
+# A UF é o conjunto fechado de `UFS`, mais o `DFT` do TJDFT, tolerante ao ruído
+# como as palavras-chave ("TJ5P"). A região é o número, ou o ordinal por extenso
+# ("da Sexta Região"), a forma dos cabeçalhos de peça. Aceitar a região que não
+# existe ("TRF9") é de propósito: ela não resolve e sai `inventada`, que é a
+# resposta certa, com o span inteiro.
+_UFS_DA_SIGLA = ("DFT", *sorted(UFS))
+_UNIDADES_DA_REGIAO = (
+    "Primeira", "Segunda", "Terceira", "Quarta", "Quinta", "Sexta", "Sétima", "Oitava", "Nona",
+)  # fmt: skip
+_UNIDADE_DA_REGIAO = "|".join(_tolerante(u) for u in _UNIDADES_DA_REGIAO)
+_ORDINAL_DA_REGIAO = (
+    rf"(?:(?:{_tolerante('Décima')}|{_tolerante('Vigésima')})"
+    rf"(?:{_NAME_SEPARATOR}(?:{_UNIDADE_DA_REGIAO}))?|{_UNIDADE_DA_REGIAO})"
+)
+_NUMERO_DA_REGIAO = r"\d{1,2}(?!\d)[ªºa°^]?"
+_DA_REGIAO = (
+    rf"d[aã]{_NAME_SEPARATOR}(?:{_NUMERO_DA_REGIAO}|{_ORDINAL_DA_REGIAO})"
+    rf"{_NAME_SEPARATOR}{_tolerante('Região')}"
+)
+# O separador entre a sigla e a UF ou a região: nada, espaço, ou um sinal com
+# espaço opcional dos dois lados. Cada forma tem um caminho só — com `[ \t]*`
+# dos dois lados de um sinal opcional, "TRF" seguido de um trecho longo de
+# espaços custava tempo quadrático.
+_SEPARADOR_DA_SIGLA = r"(?:[ \t]*[-–/][ \t]*|[ \t]+)?"
+_REGIONAL_DA_SUMULA = (
+    r"(?:(?-i:TR[FT])"
+    rf"(?:{_SEPARADOR_DA_SIGLA}{_NUMERO_DA_REGIAO}(?:{_NAME_SEPARATOR}{_tolerante('Região')})?"
+    rf"|{_NAME_SEPARATOR}{_DA_REGIAO})?"
+    rf"|(?-i:TJM|TRE|TJ)(?:[ \t]*[-–/][ \t]*)?"
+    rf"(?-i:{'|'.join(_tolerante(uf) for uf in _UFS_DA_SIGLA)})"
+    r"|(?-i:TJM|TRE|TJ|TNU)"
+    r")(?![A-Za-zÀ-ÿ\d])"
+)
+
+# O regional pelo nome por extenso, que a prosa usa tanto quanto a sigla: "Tribunal
+# de Justiça de São Paulo", "Tribunal Regional Federal da 1ª Região", "Turma
+# Nacional de Uniformização". Só com o que identifica o tribunal — o estado ou a
+# região: "Súmula 21 do Tribunal Regional" não diz qual, e fica de fora como antes.
+#
+# Do nome mais longo para o mais curto: com "Mato Grosso" antes, o "do Sul" de
+# "Mato Grosso do Sul" ficaria fora do span, e o tribunal seria o de outro estado.
+_ESTADOS_POR_EXTENSO = {
+    "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM", "Bahia": "BA",
+    "Ceará": "CE", "Distrito Federal e dos Territórios": "DFT", "Distrito Federal": "DF",
+    "Espírito Santo": "ES", "Goiás": "GO", "Maranhão": "MA", "Mato Grosso do Sul": "MS",
+    "Mato Grosso": "MT", "Minas Gerais": "MG", "Pará": "PA", "Paraíba": "PB",
+    "Paraná": "PR", "Pernambuco": "PE", "Piauí": "PI", "Rio de Janeiro": "RJ",
+    "Rio Grande do Norte": "RN", "Rio Grande do Sul": "RS", "Rondônia": "RO",
+    "Roraima": "RR", "Santa Catarina": "SC", "São Paulo": "SP", "Sergipe": "SE",
+    "Tocantins": "TO",
+}  # fmt: skip
+_ESTADOS_EM_ORDEM = sorted(_ESTADOS_POR_EXTENSO, key=len, reverse=True)
+_DO_ESTADO = (
+    rf"d[aeoc0ã]{_NAME_SEPARATOR}"
+    rf"(?:{_tolerante('Estado')}{_NAME_SEPARATOR}d[aeoc0ã]{_NAME_SEPARATOR})?"
+    rf"(?:{'|'.join(_tolerant_name(e) for e in _ESTADOS_EM_ORDEM)})"
+)
+# (sigla, nome, o que vem depois do nome e identifica o tribunal)
+_REGIONAIS_POR_EXTENSO = (
+    ("TRF", "Tribunal Regional Federal", f"{_NAME_SEPARATOR}{_DA_REGIAO}"),
+    ("TRT", "Tribunal Regional do Trabalho", f"{_NAME_SEPARATOR}{_DA_REGIAO}"),
+    ("TRE", "Tribunal Regional Eleitoral", f"{_NAME_SEPARATOR}{_DO_ESTADO}"),
+    ("TJM", "Tribunal de Justiça Militar", f"{_NAME_SEPARATOR}{_DO_ESTADO}"),
+    ("TJ", "Tribunal de Justiça", f"{_NAME_SEPARATOR}{_DO_ESTADO}"),
+    (
+        "TNU",
+        "Turma Nacional de Uniformização",
+        f"(?:{_NAME_SEPARATOR}{_tolerant_name('dos Juizados Especiais Federais')})?",
+    ),
+)
+_REGIONAL_POR_EXTENSO = (
+    "(?:"
+    + "|".join(_tolerant_name(nome) + resto for _, nome, resto in _REGIONAIS_POR_EXTENSO)
+    + r")(?![\wÀ-ú])"
+)
+_SIGLA_DE_TRIBUNAL_DA_SUMULA = (
+    rf"(?:{_SIGLA_DE_TRIBUNAL}|{_REGIONAL_DA_SUMULA}|{_REGIONAL_POR_EXTENSO})"
+)
+
+# As peças que `sigla_do_tribunal` lê para escrever a sigla do regional.
+_REGIONAL_NAMES = tuple(
+    (sigla, re.compile(_tolerant_name(nome), re.IGNORECASE))
+    for sigla, nome, _ in _REGIONAIS_POR_EXTENSO
+)
+_STATE_NAMES = tuple(
+    (
+        _ESTADOS_POR_EXTENSO[nome],
+        re.compile(rf"(?<![\wÀ-ú]){_tolerant_name(nome)}(?![\wÀ-ú])", re.IGNORECASE),
+    )
+    for nome in _ESTADOS_EM_ORDEM
+)
+_STATE_ACRONYMS = tuple((uf, re.compile(_tolerante(uf))) for uf in _UFS_DA_SIGLA)
+_TENS_OF_REGION = (
+    (10, re.compile(_tolerante("Décima"), re.IGNORECASE)),
+    (20, re.compile(_tolerante("Vigésima"), re.IGNORECASE)),
+)
+_UNITS_OF_REGION = tuple(
+    (valor, re.compile(rf"(?<![\wÀ-ú]){_tolerante(nome)}(?![\wÀ-ú])", re.IGNORECASE))
+    for valor, nome in enumerate(_UNIDADES_DA_REGIAO, start=1)
+)
+
+
+def _region_number(texto: str) -> int | None:
+    """A região, escrita com algarismo ("1ª", "15a") ou por extenso ("Quarta")."""
+    algarismo = re.search(r"\d{1,2}", texto)
+    if algarismo:
+        return int(algarismo.group())
+    dezena = next((valor for valor, expr in _TENS_OF_REGION if expr.search(texto)), 0)
+    unidade = next((valor for valor, expr in _UNITS_OF_REGION if expr.search(texto)), 0)
+    return (dezena + unidade) or None
+
+
+def sigla_do_tribunal(texto: str) -> str:
+    """A sigla do tribunal sem o ruído de OCR: `5TJ` → `STJ`.
+
+    O tribunal regional da súmula chega como o texto o escreveu ("TRF-1", "TJ/SP",
+    "TJ5P", "TRF da 1ª Região", "Tribunal de Justiça de São Paulo") e sai numa
+    forma só, sem separador: `TRF1`, `TJSP`, `TREMG`, `TNU`. A troca do `5` por
+    `S` vale só para a letra — no regional o número é a região, e "TRT-5" não
+    pode virar "TRT-S".
+    """
+    for sigla, nome in _REGIONAL_NAMES:
+        inicio = nome.match(texto)
+        if inicio is None:
+            continue
+        resto = texto[inicio.end() :]
+        if sigla in ("TRF", "TRT"):
+            return f"{sigla}{_region_number(resto) or ''}"
+        return sigla + next((uf for uf, estado in _STATE_NAMES if estado.search(resto)), "")
+    if texto[:3] in ("TRF", "TRT"):
+        return f"{texto[:3]}{_region_number(texto[3:]) or ''}"
+    # "TJMG" é o TJ de Minas, e "TJMSP" o TJM de São Paulo: a sigla mais longa só
+    # fica se o que sobra depois dela for uma UF.
+    for prefixo in ("TJM", "TRE", "TJ"):
+        if texto.startswith(prefixo):
+            resto = re.sub(r"^[ \t]*[-–/]?[ \t]*", "", texto[len(prefixo) :])
+            uf = next((uf for uf, expr in _STATE_ACRONYMS if expr.fullmatch(resto)), None)
+            if uf:
+                return f"{prefixo}{uf}"
+    return texto.upper().replace("5", "S")
+
+
 #
 # Formas correntes que a amostra não tem e o texto jurídico usa: a sigla da
 # súmula vinculante ("SV 10"), "Enunciado" (como o TST chama as próprias
@@ -351,6 +527,10 @@ _TRIBUNAL_POR_EXTENSO = "|".join(
 # antes do tribunal ("do C. STJ", "do E. STJ", "do col. TST"). Sem elas a súmula
 # da cobertura sumia ou saía sem tribunal — `inventada`. O "Enunciado" é marcado
 # no grupo `enunciado` para a resolução só o aceitar do TST.
+#
+# O tribunal regional vem nos mesmos grupos da sigla (`tribunal`,
+# `tribunal_par`, `tribunal_do`), o nome por extenso inclusive, e
+# `sigla_do_tribunal` o devolve na forma canônica.
 _HONORIFICO = r"(?:(?:C|E|Col|Colendo|Egr[ée]gio|Eg)\.?\s+)"
 _ITEM_DA_SUMULA = r"(?:\s*,\s*(?:item\s+|inciso\s+)?[IVXLC]{1,8}\s*,)"
 _SUMULA = re.compile(
@@ -361,10 +541,10 @@ _SUMULA = re.compile(
     r")"
     rf"\s*(?:{_NUMERO}\s*)?(?P<numero>{_NUMERO_DE_SUMULA})"
     r"(?:"
-    rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL})"
-    rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL})\s*\)"
+    rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL_DA_SUMULA})"
+    rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL_DA_SUMULA})\s*\)"
     rf"|{_ITEM_DA_SUMULA}?\s*,?\s*{_CONECTOR}\s*{_HONORIFICO}?"
-    rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL})|{_TRIBUNAL_POR_EXTENSO})"
+    rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL_DA_SUMULA})|{_TRIBUNAL_POR_EXTENSO})"
     r")?",
     re.IGNORECASE,
 )
@@ -438,6 +618,105 @@ _PALAVRA_DO_NOME = (
     rf"(?:{_PALAVRA_TITULO}|{_PALAVRA_DE_CODIGO_MINUSCULA}))"
 )
 _NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,4}}{_ANO_DE_VERSAO}"
+
+# Os diplomas federais citados pelo nome, e não pelo número: "art. 5º da Lei de
+# Execução Penal", "art. 98 do Estatuto da Criança e do Adolescente". Nenhuma
+# outra alternativa de `_DIPLOMA` casa "Lei de …" ou "Estatuto …", e a citação
+# sumia inteira. O conjunto de avaliação roda sobre uma base nova, que pode ter
+# o artigo de qualquer lei federal; nos 996 acórdãos da base de hoje, "Lei de
+# Introdução" aparece em 72, "Lei das Eleições" em 70 e "Lei de Licitações" em 51.
+#
+# A lista é **fechada**, pelo mesmo motivo de `_PALAVRA_DE_CODIGO_MINUSCULA`:
+# "Lei de <qualquer coisa>" faria de "art. 5º da Lei de regência" uma citação. A
+# detecção só entrega o nome inteiro no grupo `diploma`; quem o leva a (tipo,
+# número, ano), ou o recusa, é a resolução.
+#
+# Cada entrada é o nome e os complementos que podem vir depois dele. O
+# complemento que muda a identidade do diploma precisa entrar no span para
+# chegar à resolução, como o qualificador da Constituição: "Federais" e "da
+# Fazenda Pública" nomeiam outras duas leis de juizados, e sem eles `art. 3º da
+# Lei dos Juizados Especiais Federais` chegaria como a lei dos juizados
+# estaduais. "Nova" antes de "Lei de Licitações" separa a de 2021 da de 1993.
+#
+# Os complementos vão do mais longo para o mais curto: a alternância fica com o
+# primeiro que casa, e "Cíveis" antes de "Cíveis e Criminais" deixaria o "e
+# Criminais" fora do diploma.
+_STATUTE_NAMES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Estatuto da Criança e do Adolescente", ()),
+    ("Estatuto do Idoso", ()),
+    ("Estatuto da Pessoa Idosa", ()),
+    ("Estatuto da Advocacia", ("e da Ordem dos Advogados do Brasil", "e da OAB")),
+    ("Estatuto da Ordem dos Advogados do Brasil", ()),
+    ("Estatuto da OAB", ()),
+    ("Estatuto do Desarmamento", ()),
+    ("Estatuto da Pessoa com Deficiência", ()),
+    ("Lei de Execução Penal", ()),
+    ("Lei de Introdução às Normas do Direito Brasileiro", ()),
+    ("Lei de Introdução ao Direito Brasileiro", ()),
+    ("Lei de Introdução ao Código Civil", ()),
+    ("Lei Maria da Penha", ()),
+    ("Lei de Drogas", ()),
+    ("Lei Antidrogas", ()),
+    ("Lei das Eleições", ()),
+    ("Lei de Improbidade", ("Administrativa",)),
+    (
+        "Lei dos Juizados Especiais",
+        ("Cíveis e Criminais", "da Fazenda Pública", "Federais", "Criminais", "Cíveis"),
+    ),
+    ("Lei da Ação Civil Pública", ()),
+    ("Lei do Mandado de Segurança", ()),
+    ("Lei de Execução Fiscal", ()),
+    ("Lei de Execuções Fiscais", ()),
+    ("Lei dos Crimes Hediondos", ()),
+    ("Nova Lei de Licitações", ("e Contratos Administrativos", "e Contratos")),
+    ("Lei de Licitações", ("e Contratos Administrativos", "e Contratos")),
+    ("Lei das Inelegibilidades", ()),
+    ("Lei de Inelegibilidade", ()),
+    ("Lei da Ficha Limpa", ()),
+    ("Lei Orgânica da Magistratura Nacional", ()),
+    ("Lei de Responsabilidade Fiscal", ()),
+)
+
+
+def _statute_pattern(nome: str, complementos: tuple[str, ...]) -> str:
+    """A expressão de uma entrada de `_STATUTE_NAMES`, tolerante como as âncoras.
+
+    A fronteira no fim impede que o nome termine dentro de uma palavra — "Lei de
+    Inelegibilidade" não pode parar antes do "s" de "Inelegibilidades".
+    """
+    expressao = _tolerant_name(nome)
+    if complementos:
+        opcoes = "|".join(_tolerant_name(c) for c in complementos)
+        expressao += f"(?:{_NAME_SEPARATOR}(?:{opcoes}))?"
+    return expressao + r"(?![\wÀ-ú])"
+
+
+# O ano entra pelo mesmo motivo que em `_NOME_DE_CODIGO`: "Lei de Licitações de
+# 1993" e a Nova Lei de Licitações têm os mesmos números de artigo, e só com o ano
+# no diploma a resolução consegue separá-las.
+_NAMED_STATUTE = (
+    "(?:"
+    + "|".join(_statute_pattern(nome, extra) for nome, extra in _STATUTE_NAMES)
+    + f"){_ANO_DE_VERSAO}"
+)
+
+# As siglas de diploma, dentro de `_DIPLOMA` e depois de vírgula
+# (`_SIGLA_DE_DIPLOMA`). `CRFB` e `NCPC` são grafias correntes da CF/88 e do CPC
+# vigente; `CP`, `CTN`, `CTB`, `ECA` e `CPPM` estão fora da cobertura de hoje e
+# entram para que a citação exista.
+#
+# `LEP`, `LINDB`, `LICC`, `LOMAN`, `LRF` e `LEF` são as siglas dos diplomas de
+# `_STATUTE_NAMES` que a prosa usa sozinhas depois do artigo ("art. 47 da LEF"):
+# nos 996 acórdãos da base, as seis aparecem nessa forma. `LIDB` também — é a
+# abreviação da Lei de Introdução em 46 deles.
+#
+# A mais longa vem antes da que ela contém (`CPPM` antes de `CPP`), e quem
+# termina a sigla é a fronteira que cada uso põe depois dela: sem isso `CPPM`
+# casava `CPP` e o "M" ficava de fora.
+_DIPLOMA_ACRONYMS = (
+    r"(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA"
+    r"|LINDB|LIDB|LICC|LOMAN|LEP|LRF|LEF|CF|CC|CP)"
+)
 # O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
 # lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
 # e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
@@ -501,6 +780,7 @@ _DIPLOMA = (
     rf"|{_tolerante('Consolidação')}\s+d[aã0c][s5]\s+{_tolerante('Leis')}\s+{_CONECTOR_DE_NOME}\s+"
     rf"{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
+    rf"|{_NAMED_STATUTE}"
     # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
     # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
     # ("Constituição da República", "Constituição Fedcral"), e parar em
@@ -542,10 +822,9 @@ _DIPLOMA = (
     #
     # A sigla precisa terminar ali: sem a fronteira, `CPPM` casava `CPP` e o "M"
     # ficava de fora — o Código de Processo Penal Militar, fora da cobertura,
-    # resolvia para o art. 312 do CPP. As siglas fora da cobertura (`CP`, `CTN`,
-    # `CTB`, `ECA`, `CPPM`) entram para que a citação exista e saia `inventada`;
-    # `CRFB` e `NCPC` são grafias correntes da CF/88 e do CPC vigente.
-    rf"|(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA|CF|CC|CP)(?![A-Za-zÀ-ÿ])"
+    # resolvia para o art. 312 do CPP. As siglas fora da cobertura entram para que
+    # a citação exista e saia `inventada`. Ver `_DIPLOMA_ACRONYMS`.
+    rf"|{_DIPLOMA_ACRONYMS}(?![A-Za-zÀ-ÿ])"
     rf"{_ANO_DE_VERSAO}"
     r")"
 )
@@ -624,10 +903,7 @@ _NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-
 # CF"), forma corrente em peça jurídica. Só a sigla, e só com vírgula: nome por
 # extenso sem conector seria prosa.
 _ADJETIVO_DE_DIPLOMA = r"(?:(?:novo|atual|vigente)\s+)"
-_SIGLA_DE_DIPLOMA = (
-    r"(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA|CF|CC|CP)(?![A-Za-zÀ-ÿ])"
-    r"(?:\s*/\s*\d{2,4})?"
-)
+_SIGLA_DE_DIPLOMA = rf"{_DIPLOMA_ACRONYMS}(?![A-Za-zÀ-ÿ])" r"(?:\s*/\s*\d{2,4})?"
 _DISPOSITIVO = re.compile(
     rf"\b{_tolerante('art')}(?:{_tolerante('igo')}|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"
     rf"{_QUALIFICADORES}"
