@@ -1,7 +1,13 @@
+# A imagem só leva run.sh, src/ e requirements.txt. Os dados entram por volume,
+# nunca no contexto de build — o .db tem 93 MB e não pode ir para a imagem.
 data/
 .git/
 .venv/
+.claude/
 docs/
 tests/
+scripts/
 __pycache__/
 *.pyc
+*.db
+*.csv

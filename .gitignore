@@ -1,6 +1,8 @@
 # Dados do desafio — enviados por e-mail apenas aos inscritos, não são de download
 # público. O .db tem 93 MB. Nada de data/ entra no git. Ver docs/dados.md.
-data/
+# Ancorado na raiz: sem a barra inicial, qualquer pasta chamada data em qualquer
+# nível seria ignorada em silêncio.
+/data/
 
 # Artefatos derivados dos dados
 *.sqlite
