@@ -329,8 +329,13 @@ def sigla_do_tribunal(texto: str) -> str:
     return texto.upper().replace("5", "S")
 
 
+# As palavras do nome atravessam uma quebra de linha, como o resto da citação: o
+# texto do gerador é quebrado em ~100 colunas, e "Súmula 345 do Superior
+# Tribunal\nde Justiça" perdia o tribunal inteiro — o span parava em "Súmula
+# 345" (IoU 0,24 contra o gabarito) e a súmula da cobertura saía `inventada`.
+_ENTRE_PALAVRAS_DO_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
 _TRIBUNAL_POR_EXTENSO = "|".join(
-    rf"(?P<ext_{sigla}>{r'[ \t]+'.join(_tolerante(p) for p in nome.split())})"
+    rf"(?P<ext_{sigla}>{_ENTRE_PALAVRAS_DO_NOME.join(_tolerante(p) for p in nome.split())})"
     for sigla, nome in (
         ("STF", "Supremo Tribunal Federal"),
         ("STJ", "Superior Tribunal de Justiça"),
@@ -378,7 +383,12 @@ _TEMA = re.compile(
     rf"|{_tolerante('Repetitivo')}|RG)\s+)?"
     rf"(?:{_NUMERO}\s*)?"
     rf"(?P<numero>{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*)(?![A-Za-zÀ-ÿ])"
-    rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?",
+    rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?"
+    # O tribunal depois do número faz parte da citação, como na súmula: "Tema
+    # 1.046 do STF", "Tema Repetitivo 1.076 do STJ". Sem ele o span parava no
+    # número e o IoU ficava entre 0,53 e 0,59 — na beira do corte, onde qualquer
+    # ruído a mais derruba o casamento e custa FN e FP de uma vez.
+    rf"(?:\s*(?:[/\-–]|,?\s*{_CONECTOR})\s*{_SIGLA_DE_TRIBUNAL})?",
     re.IGNORECASE,
 )
 
@@ -488,7 +498,8 @@ _QUALIFICADOR_SEGUINTE = (
 _DIPLOMA = (
     r"(?:"
     rf"{_tolerante('Lei')}(?:\s+(?:{_QUALIFICADOR_DE_LEI}))?{_NUMERO_DE_LEI}"
-    rf"|{_tolerante('Consolidação')}\s+das\s+{_tolerante('Leis')}\s+d[oe]\s+{_tolerante('Trabalho')}"
+    rf"|{_tolerante('Consolidação')}\s+d[aã0c][s5]\s+{_tolerante('Leis')}\s+{_CONECTOR_DE_NOME}\s+"
+    rf"{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
     # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
     # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
@@ -523,7 +534,8 @@ _DIPLOMA = (
     # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
     # corrente da Lei Complementar. Sem as duas alternativas a citação sumia — e
     # os marcadores "lc 64" em `resolucao.DIPLOMAS` eram inalcançáveis.
-    rf"|Decreto[-‐\s]*Lei{_NUMERO_DE_LEI}"
+    # As duas palavras toleram o ruído de letra ("Deereto-Lci", "Decret0-Lei").
+    rf"|{_tolerante('Decreto')}[-‐\s]*{_tolerante('Lei')}{_NUMERO_DE_LEI}"
     rf"|LC{_NUMERO_DE_LEI}"
     # `CPC/73` e `CC/16` são os códigos revogados; o ano vai junto para a
     # resolução decidir. `CF/88` é o caso particular que já existia.
@@ -557,12 +569,23 @@ _ROMANO = r"[IVXLC]{1,8}"
 # (`caput e inciso LV`, `caput, e inciso II`) são formas correntes que faziam a
 # citação sumir inteira. Continuam dentro da mesma regra: toda alternativa
 # consome texto literal, e cada repetição começa por vírgula.
-_INCISO = rf"(?:incisos?|incs?\.)\s+{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+#
+# As palavras do qualificador sofrem o mesmo ruído de letra que as âncoras
+# ("iriciso", "eaput", "parágraf0 únic0", "alínca"), e com a palavra escrita
+# literal o dispositivo inteiro sumia: no simulador do sigiloso eram 5% dos
+# dispositivos do nível 2 a taxa 0,05, e 16% a 0,15 — a maior perda medida.
+# Mesma política de `_tolerante`: vale só para as palavras fixas.
+_INCISO = (
+    rf"(?:{_tolerante('inciso')}[s5]?|{_tolerante('inc')}[s5]?\.)\s+{_ROMANO}"
+    rf"(?:\s+e\s+{_ROMANO})?"
+)
 _QUALIFICADORES = (
     rf"(?:\s*,\s*(?:§+\s*{_DIGITOIDE}+[ºo°]?(?:\s*-\s*[A-Z])?(?:\s+e\s+\d+[ºo°]?)?"
     rf"|(?:e\s+)?{_INCISO}"
-    rf"|par[áa]grafo\s+(?:[úu]nico|{_DIGITOIDE}+[ºo°]?)|§\s*[úu]nico"
-    rf"|al[íi]nea\s+[a-z]\)?|caput(?:\s+e\s+{_INCISO})?|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
+    rf"|{_tolerante('parágrafo')}\s+(?:{_tolerante('único')}|{_DIGITOIDE}+[ºo°]?)"
+    rf"|§\s*{_tolerante('único')}"
+    rf"|{_tolerante('alínea')}\s+['\"]?[a-z]['\"]?\)?"
+    rf"|{_tolerante('caput')}(?:\s+e\s+{_INCISO})?|{_ROMANO}(?:\s+e\s+{_ROMANO})?"
     r"|['\"]?[a-z]['\"]?\)?))"
     r"{0,5}"
 )
@@ -625,7 +648,9 @@ _DISPOSITIVO = re.compile(
 # medidas no checkpoint 06, o maior bloco daquela classe. Ver `_tolerante`.
 _RELATOR = (
     rf"(?:[Rr]{_tolerante('el')}(?:{_tolerante('at')}[0oaã]r[ilaã]?[aã]?)?\.?\s*"
-    rf"(?:Min\.?|{_tolerante('Ministr')}[ao])?\.?"
+    # "Min" aceita o ponto trocado por grau ("Min°", "Min º"), como a marca de
+    # número; sem isso o "Min" virava o nome do relator e o nome ficava de fora.
+    rf"(?:Mi[nN]\s?[.°º]?|{_tolerante('Ministr')}[ao])?\.?"
     rf"|{_tolerante('relatoria')}\s+d[eoc])"
 )
 
@@ -637,7 +662,13 @@ _RELATOR = (
 _CABECA_VAGA = (
     rf"(?:{_tolerante('julgad')}[oaã0]|{_tolerante('acórdão')}|{_tolerante('precedente')}"
     rf"|{_tolerante('decisão')}"
-    r"|[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}(?:\s+(?:em\s+|de\s+|do\s+|da\s+)?[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}){0,3}"
+    # O incidente antes da classe ("AgInt no AREsp", "EDcl nos EDcl") só entra
+    # quando tem forma de sigla — duas maiúsculas —, para que a prosa capitalizada
+    # ("Como no REsp") não abra o span. "com" liga a classe por extenso
+    # ("Recurso Extraordinário com Agravo"), que antes começava em "Agravo".
+    r"|(?:[A-ZÀ-Ú][a-zà-ú]*[A-ZÀ-Ú][\wÀ-ú.\-]*\s+n[oa]s?\s+)*"
+    r"[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}"
+    r"(?:\s+(?:em\s+|de\s+|do\s+|da\s+|com\s+)?[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}){0,3}"
     r")"
 )
 
@@ -649,7 +680,11 @@ _CABECA_VAGA = (
 # depois da linha em branco ("… LÚCIA.\n\nIII"), e roubava a sobreposição da
 # citação que viesse logo depois ("… LÚCIA. REsp 1.234.567/SP" perdia o REsp).
 _SEPARADOR_DE_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
-_PALAVRA_DE_NOME = r"[A-ZÀ-Ú](?:[\wÀ-ú']+|\.)"
+# A inicial também sofre o ruído: "rnAURO" (M→rn) e, em nome todo em caixa
+# alta, a maiúscula lida como minúscula confundível ("eARLOS", "eRISTIANO").
+# Só nessas duas formas — minúscula seguida de duas maiúsculas, ou o "rn" —,
+# para que a palavra de prosa minúscula não entre no nome.
+_PALAVRA_DE_NOME = r"(?:[A-ZÀ-Ú]|rn(?=[\wÀ-ú])|[a-zà-ú](?=[A-ZÀ-Ú]{2}))(?:[\wÀ-ú']+|\.)"
 _NOME_PROPRIO = (
     rf"{_PALAVRA_DE_NOME}"
     rf"(?:{_SEPARADOR_DE_NOME}(?:d[aeo]s?{_SEPARADOR_DE_NOME})?{_PALAVRA_DE_NOME}){{0,4}}"
@@ -668,7 +703,7 @@ _ANO_TOLERANTE = (
 
 _VAGA = re.compile(
     rf"{_CABECA_VAGA}"
-    rf"(?:\s*,?\s*{_CONECTOR}\s+{_SIGLA_DE_TRIBUNAL})?"
+    rf"(?:\s*,?\s*{_CONECTOR}\s+(?:{_SIGLA_DE_TRIBUNAL}|{_TRIBUNAL_POR_EXTENSO}))?"
     rf"\s*,?\s*(?:{_tolerante('proferid')}[oaã0]|{_tolerante('julgad')}[oaã0])?\s*(?:d[ec]|[ec]rn|[ec]m)\s*\n?\s*"
     rf"{_ANO_TOLERANTE}"
     r"[^.]{0,30}?"
@@ -1103,6 +1138,11 @@ def _sentencas(corpo: str) -> list[tuple[int, int]]:
 # O último pedaço do núcleo, depois de um espaço: `5ob` em "2020 5ob".
 _PEDACO_FINAL = re.compile(rf"[ \t\xa0\n]+({_DIGITOIDE}+)$")
 
+# O pedaço depois de um ponto final e de espaço: `O` em "REsp 1.234.567. O
+# recurso", `Isso` em "…567. Isso basta". São palavras que abrem a frase seguinte
+# e só têm letra que o OCR confunde com dígito.
+_PEDACO_APOS_PONTO = re.compile(rf"\.[ \t\xa0\n]+({_DIGITOIDE}+)$")
+
 
 def _sem_palavra_corrompida(numero: str) -> str:
     """O núcleo sem o pedaço final que é palavra com uma letra virada dígito.
@@ -1116,7 +1156,15 @@ def _sem_palavra_corrompida(numero: str) -> str:
     Grupo de milhar corrompido no fim ("1 B21 bb3", "1.234 S6O") também tem mais
     letra que dígito, mas vem depois de outro grupo e tem exatamente três
     caracteres: ali o pedaço é número, e cortá-lo encurtava o identificador.
+
+    Depois de ponto final e espaço, o pedaço sem **nenhum** dígito real sai
+    sempre, com o ponto: é a primeira palavra da frase seguinte ("O", "Os",
+    "Isso"), que o núcleo engolia quando a citação fecha a frase. O grupo legítimo
+    depois de ". " (`1. 234.567`, `123-45. 2012`) tem dígito real.
     """
+    apos_ponto = _PEDACO_APOS_PONTO.search(numero)
+    if apos_ponto is not None and not any(c.isdigit() for c in apos_ponto.group(1)):
+        return numero[: apos_ponto.start()]
     pedaco = _PEDACO_FINAL.search(numero)
     if pedaco is None:
         return numero

@@ -83,7 +83,15 @@ _LINHA_NUMERADA = re.compile(
     # dígito também (`Protocolo` -> `Prot0colo`), e exigir só letras reabre a
     # brecha que esta expressão fecha.
     r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.0-9]{2,19}(?:\s+[A-Za-zÀ-ÿ.0-9]{1,15}){0,2}"
-    r"\s+[nN]\s*[.ºo°O]{0,2}\s*[\w][\w.\-/ ]*$"
+    r"\s+[nN]\s*[.ºo°O]{0,2}\s*"
+    # O valor é identificador, não prosa: sem palavra minúscula de quatro letras
+    # ou mais. Sem esta guarda, "Como decidido no REsp 1.234.567. O recurso não
+    # procede." casava — o "no" da preposição lido como a marca "nº" —, e a
+    # primeira linha do corpo sem vírgula virava cabeçalho: as citações dela se
+    # perdiam, e num corpo de uma linha o corte caía a 0 e o número dos autos
+    # vazava como citação.
+    r"(?!.*(?<![\wÀ-ÿ])[a-zà-ÿ]{4,}(?![\wÀ-ÿ]))"
+    r"[\w][\w.\-/ ]*$"
 )
 
 

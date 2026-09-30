@@ -1,10 +1,9 @@
 # Avaliação
 
-> ⚠️ **O script oficial está em `data/dev/ferramentas/kaggle_metric.py`.** A
-> descrição abaixo foi lida dele, não do material de divulgação — e em três
-> pontos ele **diverge** do que [`scripts/avaliar.py`](../scripts/avaliar.py)
-> assumia. Enquanto `make avaliar` não apontar para o oficial, o número que ele
-> imprime não é o do leaderboard.
+> O script oficial está em `data/dev/ferramentas/kaggle_metric.py`, e
+> [`scripts/avaliar.py`](../scripts/avaliar.py) (`make avaliar`) o carrega de lá:
+> o número local é o do leaderboard. A descrição abaixo foi lida dele, não do
+> material de divulgação — em três pontos ele diverge da leitura anterior.
 
 ## Como as soluções são medidas
 
@@ -99,15 +98,10 @@ nível pela metade.
 
 ```bash
 make rodar      # gera data/out/
-make avaliar    # ainda a métrica nossa — ver o aviso no topo
+make avaliar    # métrica oficial, por nível + score ponderado
+make submissao  # gera e confere data/submission.csv, o arquivo do Kaggle
 ```
 
-Enquanto o pipeline estiver incompleto, `make rodar` falha com
-`NotImplementedError` — é o esperado.
-
-Para usar o oficial é preciso montar o `solution.csv` que ele espera (uma linha
-por documento, com `nivel` e as citações empacotadas em
-`inicio,fim,classe,doc_ids`) a partir do `goldenset.csv`, e o `submission.csv`
-com [`json_to_submission.py`](../data/dev/ferramentas/json_to_submission.py) a
-partir de `data/out/`. Feito isso, o número local passa a ser o mesmo do
-leaderboard.
+`make avaliar` monta o `solution.csv` a partir do `goldenset.csv` e o
+`submission.csv` com [`json_to_submission.py`](../data/dev/ferramentas/json_to_submission.py),
+e passa os dois ao `kaggle_metric.py` sem alteração.

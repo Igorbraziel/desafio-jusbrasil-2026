@@ -565,3 +565,23 @@ def test_achados_da_revisao_continuam_inventada(base_canonica, citacao):
 )
 def test_apelidos_da_cf_88_continuam_real(base_canonica, citacao, chave):
     assert _classificar(base_canonica, citacao) == [("real", DISPOSITIVOS[chave])]
+
+
+@pytest.mark.parametrize(
+    ("diploma", "esperado"),
+    [
+        # o conector também sofre o ruído de letra, e o marcador o tem por extenso
+        ("Código de Defesa d0 Consumidor", "CDC"),
+        ("Código dc Defesa d0 Consumidor", "CDC"),
+        ("Consolidação da5 Leis do Trabalho", "CLT"),
+        # "Código do Consumidor" é como a prosa chama o CDC
+        ("Código do Consumidor", "CDC"),
+        # e nada disso abre a direção do τ
+        ("Código dc Processo Penal Militar", None),
+        ("Código Estadual do Consumidor", None),
+    ],
+)
+def test_conector_corrompido_no_nome_do_diploma(diploma, esperado):
+    from verificador.resolucao import _codigo_do_diploma
+
+    assert _codigo_do_diploma(diploma) == esperado

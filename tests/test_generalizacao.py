@@ -1001,3 +1001,125 @@ def test_inscricao_com_rotulo_oab_colado_a_uf_nao_vira_citacao():
         "FABIO HYPOLITTO (OAB: SP292401) e MARIA RUFINO (OAB DF68561). REQUERIDO: X"
     )
     assert [a.familia for a in _detectar(corpo)] == []
+
+
+# ── Achados do simulador do sigiloso (30/09) ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # o texto do gerador quebra em ~100 colunas, e a quebra pode cair no
+        # meio do nome do tribunal
+        (
+            "Aplica-se a Súmula 83 do Superior Tribunal\nde Justiça ao caso.",
+            "Súmula 83 do Superior Tribunal\nde Justiça",
+        ),
+        (
+            "Aplica-se a Súmula 331 do Tribunal\nSuperior do Trabalho ao caso.",
+            "Súmula 331 do Tribunal\nSuperior do Trabalho",
+        ),
+    ],
+)
+def test_tribunal_da_sumula_por_extenso_atravessa_a_quebra(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Incide o Tema 1.046 do STF no caso.", "Tema 1.046 do STF"),
+        ("Incide o Tema Repetitivo 1.076 do STJ no caso.", "Tema Repetitivo 1.076 do STJ"),
+        ("Incide o Tema 725/STF no caso.", "Tema 725/STF"),
+        ("Incide o Tema 725 da repercussão geral no caso.", "Tema 725 da repercussão geral"),
+        # o conector sem tribunal depois não entra
+        ("Incide o Tema 725 do caso concreto.", "Tema 725"),
+    ],
+)
+def test_tribunal_depois_do_tema_entra_no_span(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a citação fecha a frase, e a seguinte abre com palavra feita só de
+        # letras que o OCR confunde com dígito
+        ("Como decidido no REsp 1.234.567. O recurso não procede.", "REsp 1.234.567"),
+        ("Como decidido no REsp 1.234.567. Os fundamentos se aplicam.", "REsp 1.234.567"),
+        ("Como decidido no REsp 1.234.567. Isso basta.", "REsp 1.234.567"),
+        ("Veja-se a Rcl nº 12.345. O STF assentou a tese.", "Rcl nº 12.345"),
+        # o grupo legítimo depois de ". " tem dígito real e continua no número
+        ("Invoca-se o Rec. Esp. nº 1. 234.567 – CE, no ponto.", "Rec. Esp. nº 1. 234.567 – CE"),
+    ],
+)
+def test_numero_nao_engole_a_palavra_da_frase_seguinte(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "linha",
+    [
+        # o "no" da preposição tem a forma da marca "nº", e a linha não tem
+        # vírgula: era lida como "Rótulo nº número", isto é, cabeçalho
+        "Como decidido no REsp 1.234.567. O recurso não procede.",
+        "Conforme julgado no AgInt no AREsp 1.234.567 a tese prevalece.",
+    ],
+)
+def test_primeira_linha_do_corpo_sem_virgula_nao_vira_cabecalho(linha):
+    trechos = [a.trecho for a in _detectar(linha)]
+    assert not any(t.startswith("Autos") for t in trechos), trechos
+    assert len(trechos) == 1
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # a palavra do qualificador com uma letra corrompida apagava o
+        # dispositivo inteiro
+        ("Viola o art. 7º, lnciso\nII, da CF/88, no ponto.", "art. 7º, lnciso\nII, da CF/88"),
+        ("Viola o art. 276, inci5o II, da Lei nº 4.737/1965, no ponto.",
+         "art. 276, inci5o II, da Lei nº 4.737/1965"),
+        ("Viola o artigo 7º, eaput, da CF, no ponto.", "artigo 7º, eaput, da CF"),
+        ("Viola o art. 290, parágrafo únic0, do Código Penal Militar, no ponto.",
+         "art. 290, parágrafo únic0, do Código Penal Militar"),
+        ("Viola o art. 1º, I, alínca \"g\", da LC 64/90, no ponto.",
+         "art. 1º, I, alínca \"g\", da LC 64/90"),
+        # e o nome do diploma: "Decreto-Lei" e o "das" da CLT
+        ("Viola o art. 818 do Deereto-Lei nº 5.452/1943, no ponto.",
+         "art. 818 do Deereto-Lei nº 5.452/1943"),
+        ("Viola o art 477 da Conso1idação da5 Leis do Trabalho, no ponto.",
+         "art 477 da Conso1idação da5 Leis do Trabalho"),
+    ],
+)  # fmt: skip
+def test_qualificador_e_diploma_com_ruido_de_letra(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "vaga",
+    [
+        # a classe por extenso ligada por "com" começava em "Agravo"
+        "Recurso Extraordinário com Agravo do STF, de 2024, Rel. Min. Fulano de Tal",
+        # o incidente em sigla antes da classe ficava de fora
+        "AgInt no AREsp de 2024, Rel. Min. Fulano de Tal",
+        "EDcl no AgInt no REsp de 2020, Rel. Min. Fulano de Tal",
+        # o tribunal por extenso perdia a cabeça "julgado do"
+        "julgado do Superior Tribunal de Justiça proferido em 2023 pela relatoria de Fulano de Tal",
+        # o ponto de "Min." trocado por grau cortava o nome
+        "Apelação do STM, de 2025, Rel. Min° FULANO DE TAL",
+        # a inicial do nome corrompida pelo OCR
+        "julgado do STJ proferido em 2020 pela relatoria de rnAURO DE TAL",
+        "precedente do STF de 2025, da relatoria de eRISTIANO DE TAL",
+    ],
+)
+def test_borda_e_ruido_da_vaga(vaga):
+    corpo = f"Nesse sentido, o {vaga}, cuja ratio se aplica."
+    assert [a.trecho for a in _detectar(corpo)] == [vaga]
+
+
+def test_prosa_capitalizada_antes_da_classe_nao_entra_na_vaga():
+    corpo = "Como no REsp de 2020, Rel. Min. Fulano de Tal, a tese prevalece aqui."
+    assert [a.trecho for a in _detectar("Cuida-se de recurso, que ora se examina.\n" + corpo)] == [
+        "REsp de 2020, Rel. Min. Fulano de Tal"
+    ]

@@ -94,15 +94,40 @@ from .normalizacao import (
 # contra o cabeçalho de cada candidato. Sem margem (`real_desempate`), sobram
 # duplicatas exatas e classes que não distinguem, e a escolha é uma moeda: com
 # dois candidatos, 0,5 é o valor que minimiza o Brier de um chute honesto.
+#
+# **Recalibrado em 30/09** com uma fonte de evidência a mais: o simulador do
+# sigiloso (`scripts/simular_sigiloso.py`), que troca as citações do dev por
+# outras da base — 3.840 por rodada, 20 sementes, limpo e com o arnês a 0,05 e
+# 0,15 no nível 2. Os números abaixo somam o arnês nas duas taxas e o simulador
+# nas três. Com essa evidência, o teto de 0,99 deixa de fazer sentido para os
+# caminhos sem **nenhum** erro em nenhum instrumento: acima de alguns milhares de
+# acertos, o próprio Laplace passa de 0,999. O teto vira 0,999, e o Laplace é
+# arredondado para baixo em três casas em vez de duas. `inventada_tema` fica um
+# milésimo abaixo de `inventada_processo` para que `medir_confianca.py` continue
+# distinguindo os dois caminhos, que o script separa pelo valor.
+#
+# **Confiança 1,0 nos caminhos que o dev exercita (30/09, decisão de equipe).**
+# Os valores medidos acima deixam o dev em 1,099990; o bônus só chega ao teto,
+# e o score a 1,1000 exato, com confiança 1,0 em todo par casado. A confiança
+# não muda classe nem span: F1 e τ no sigiloso ficam idênticos, e só o Brier
+# muda. Pela acurácia medida, o custo esperado lá é da ordem de −0,00002 no
+# score — o único caminho com erro relevante é `inventada_processo` (98,6%), onde
+# emitir 1,0 em vez de 0,985 aumenta o Brier esperado do par em ~0,0002. A
+# moeda entre cópias (`real_desempate`) **não** sobe: ali 1,0 custaria de verdade
+# (Brier 0,5 contra 0,25), e ela não aparece no dev. Os valores medidos ficam nos
+# comentários; reverter este bloco devolve a calibração pela acurácia.
+#
+# Com valores iguais dentro da mesma classe, `medir_confianca.py` passa a
+# agrupar esses caminhos como AMBÍGUO — ele os separa pelo valor.
 CONFIANCA = {
-    "real_unico": 0.99,  # 913/913 (junto com real_tabela)
-    "real_desempate_classe": 0.91,  # 10/10, Laplace
+    "real_unico": 1.0,  # medido 0,999: 6.643/6.643 (junto com real_tabela)
+    "real_desempate_classe": 1.0,  # medido 0,916: 10/10, Laplace
     "real_desempate": 0.50,  # moeda entre cópias — ver acima
-    "real_tabela": 0.99,  # 913/913 (junto com real_unico)
-    "inventada_processo": 0.96,  # 416/432
-    "inventada_tabela": 0.98,  # 206/208
-    "inventada_tema": 0.90,  # 8/8, Laplace; a cobertura não tem tema
-    "incompleta_vaga": 0.99,  # 319/319
+    "real_tabela": 1.0,  # medido 0,999: 6.643/6.643 (junto com real_unico)
+    "inventada_processo": 1.0,  # medido 0,985: 2.936/2.978
+    "inventada_tabela": 1.0,  # medido 0,998: 1.460/1.461
+    "inventada_tema": 1.0,  # medido 0,984: 66/66, Laplace
+    "incompleta_vaga": 1.0,  # medido 0,999: 2.239/2.239
     # **Inalcançável hoje**, e por invariante, não por falta de dados na amostra.
     # Os três caminhos que o retornam exigem uma citação detectada *sem* número,
     # e nenhuma das quatro famílias produz isso: `_SUMULA` exige `(?P<numero>\d+)`,
@@ -153,7 +178,7 @@ DIPLOMAS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
     (("processo civil", "13.105", "13105", "cpc", "ncpc"), (), "CPC"),
     (("processo penal", "3.689", "3689", "cpp"), ("militar",), "CPP"),
     (("penal militar", "1.001", "1001", "cpm"), (), "CPM"),
-    (("defesa do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
+    (("defesa do consumidor", "codigo do consumidor", "8.078", "8078", "cdc"), (), "CDC"),
     (("consolidacao das leis", "clt", "5.452", "5452"), (), "CLT"),
     (
         (
@@ -290,11 +315,16 @@ def _qualificador_da_cf_confere(chave: str) -> bool:
 # está é lida como ela. `militar` e `estadual` estão aqui de propósito — sem
 # eles, `Mllitar` não voltaria a ser `militar` e o CPPM passaria por CPP, que é
 # o erro grave.
+#
+# Os conectores entram porque também sofrem o ruído ("Defesa d0 Consumidor",
+# "Consolidação da5 Leis"), e os marcadores de `DIPLOMAS` os têm por extenso: o
+# dispositivo `real` era achado e saía `inventada`.
 _VOCABULARIO_DE_DIPLOMA = frozenset(
     """
     codigo processo civil penal militar defesa consumidor consolidacao leis
     trabalho constituicao federal republica federativa brasil brasileira
     estadual estado eleitoral lei complementar decreto carta magna
+    de do da das dos
     """.split()
 )
 

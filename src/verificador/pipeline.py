@@ -40,7 +40,12 @@ def processar_arquivo(caminho: Path, base: BaseCanonica) -> SaidaDocumento:
 # documento e 4 h para o lote; o pipeline leva milissegundos. O teto só existe
 # para o caso patológico — backtracking catastrófico já travou este código duas
 # vezes —, em que um documento que não termina custaria o lote inteiro.
-TIMEOUT_POR_DOCUMENTO = 30.0
+#
+# O tempo cresce com o quadrado do tamanho: 0,7 s a 244 KB, e um arquivo de
+# 1,26 MB estourava os 30 s de antes e saía vazio. Os documentos do gerador têm
+# 3–4 KB, mas 120 s ainda cabem com folga nas 4 h do lote e só cortam o que de
+# fato não termina.
+TIMEOUT_POR_DOCUMENTO = 120.0
 
 
 class _Estourou(Exception):

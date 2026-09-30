@@ -37,18 +37,23 @@ cardinalidade da consulta à base canônica fechada.
 | [pipeline.py](src/verificador/pipeline.py) · [cli.py](src/verificador/cli.py) | orquestração e CLI no contrato exigido | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa — 556 deles, todos passando.
+cada etapa — 591 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
-níveis, τ = 0, IoU mínimo 1,000, score 1,0999** (a confiança calibrada custa
-0,0001 num corpus em que tudo acerta). Leia esse número com a desconfiança que ele
+níveis, τ = 0, IoU mínimo 1,000, score 1,1000** (com confiança 1,0 nos caminhos
+que o dev exercita; ver o checkpoint 10). Leia esse número com a desconfiança que ele
 merece: são os mesmos 26 documentos usados para construir a solução, e
 [docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
 essa amostra não consegue medir. O leaderboard sobre o conjunto final é a
 primeira medida honesta.
 
-Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Cinco
+Com o F1 saturado, o que ainda se mede aqui é **robustez**, não acerto. Seis
 instrumentos existem para isso e são os que importam para o conjunto cego:
+
+- `scripts/simular_sigiloso.py`, que troca as citações do dev por outras da base
+  — outros acórdãos, números inventados, relatores, artigos —, nas grafias do
+  gabarito, e pontua pela métrica oficial: é o único que mede generalização de
+  **conteúdo**, porque o arnês degrada sempre as mesmas 192 citações;
 
 - [tests/test_generalizacao.py](tests/test_generalizacao.py), com as formas que
   a amostra não tem;
@@ -64,8 +69,9 @@ instrumentos existem para isso e são os que importam para o conjunto cego:
   índice que valem também no conjunto cego, porque a base é a mesma: nenhuma
   chave que seja data, ano, OAB ou número citado na ementa.
 
-Ver o [checkpoint 09](docs/checkpoints/09-revisao-final.md), com o que a revisão
-de 24/09 achou e mediu.
+Ver os checkpoints [09](docs/checkpoints/09-revisao-final.md) e
+[10](docs/checkpoints/10-validacao-final.md), com o que as revisões de 24/09 e
+30/09 acharam e mediram.
 
 ## Instalação
 
@@ -111,7 +117,7 @@ velocidade. Para comparar com um checkpoint, rode
 ### No contrato de execução da organização
 
 ```bash
-make docker
+docker build -t verificador-citacoes:latest .
 
 docker run --rm --network none \
   -v $PWD/data/dev/txt:/data/in:ro \
@@ -121,7 +127,11 @@ docker run --rm --network none \
 ```
 
 Pesos e dados ficam fora da imagem, como exige o regulamento — a base canônica
-entra por volume, e o container roda sem rede.
+entra por volume, e o container roda sem rede. O build não precisa de `uv` no
+host: o `requirements.txt` versionado já é o que `make requirements` exporta do
+`uv.lock` (`make docker` faz os dois passos). A saída do container é idêntica,
+byte a byte, à de `make rodar` em Python 3.12, a versão fixada em
+`.python-version` e na imagem.
 
 ## Por onde continuar
 
@@ -139,8 +149,9 @@ Frentes abertas, nessa ordem de valor:
 
 1. **Submeter e ler o leaderboard do conjunto final.** `make submissao` gera e
    confere o CSV; o que falta saber só o conjunto cego diz.
-2. **`ocr_letra_digito` a taxa 0,30** é a classe que mais perde (ver o cp 09):
-   letra trocada por dígito em palavra que não é âncora.
+2. **`ocr_curta` a taxa 0,30** é a classe que mais perde (1,0815; ver o cp
+   10): palavra curta corrompida fora das âncoras. No simulador, o que resta no
+   nível 2 é número de `real` com espaço e OCR juntos.
 3. **O número sem nenhum dígito real** (`Rcl BB.gbG/RJ`), resíduo a taxa 0,30.
    Pela forma é indistinguível de palavra; ver o checkpoint 07.
 4. **NER de pesos abertos: medido e descartado** — sobre as regras atuais ele
@@ -184,7 +195,7 @@ publicados; além disso, a base canônica tem 94 MB. Ver
 src/verificador/     o pipeline (ver a tabela em "Arquitetura")
 scripts/             preparar_dados · baixar_dados · construir_indice · avaliar
                      construir_solution · medir_regiao · medir_robustez · medir_confianca
-                     medir_espurias · perturbar
+                     medir_espurias · medir_cobertura · perturbar · simular_sigiloso
 tests/               a especificação executável de cada etapa
 docs/                desafio · dados · investigacao · contrato · avaliacao · referencias · decisoes/
 Dockerfile           imagem de submissão, sem pesos e sem dados dentro

@@ -21,11 +21,21 @@ INDICE = DEV / "indice_cabecalhos.json"
 sem_dados = pytest.mark.skipif(
     not BANCO.exists(), reason="dados do desafio ausentes — rode `make dados`"
 )
-sem_indice = pytest.mark.skipif(not INDICE.exists(), reason="índice ausente — rode `make indice`")
+sem_indice = pytest.mark.skipif(
+    not BANCO.exists() and not INDICE.exists(),
+    reason="nem banco nem índice — rode `make dados`",
+)
 
 
 @pytest.fixture(scope="session")
 def base_canonica():
-    from verificador.base_canonica import BaseCanonica
+    """A base carregada pelo mesmo caminho da execução da organização.
 
-    return BaseCanonica.de_arquivo(INDICE)
+    O CLI constrói o índice do banco sempre que ele existe; o JSON é só reserva.
+    Carregar o JSON aqui fazia a suíte testar um índice que podia estar velho —
+    o de 24/09 tinha 2.001 chaves e nenhuma classe, contra 1.190 do banco — e o
+    teste que guarda o score não medir o que é submetido.
+    """
+    from verificador.cli import _carregar_base
+
+    return _carregar_base(INDICE, BANCO)

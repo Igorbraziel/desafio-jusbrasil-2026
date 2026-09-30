@@ -39,6 +39,7 @@ from avaliar import avaliar  # noqa: E402
 from perturbar import CLASSES, gerar_corpus  # noqa: E402
 
 from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.cli import _carregar_base  # noqa: E402
 from verificador.pipeline import processar_arquivo  # noqa: E402
 
 # Backtracking catastrófico já aconteceu duas vezes neste código — 41 s na
@@ -143,12 +144,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--taxa", type=float, default=0.4)
     p.add_argument("--sementes", type=int, default=1)
     p.add_argument("--indice", type=Path, default=RAIZ / "data/dev/indice_cabecalhos.json")
+    p.add_argument("--db", type=Path, default=RAIZ / "data/dev/desafio1_bracis.db")
     p.add_argument("--trabalho", type=Path, default=RAIZ / "data/perturbado")
     p.add_argument("--json", type=Path, default=None, help="grava o resultado bruto")
     args = p.parse_args(argv)
-
-    if not args.indice.exists():
-        raise SystemExit(f"índice não encontrado: {args.indice} (rode `make indice`)")
 
     # Sem referência a coluna Δ vira o score absoluto, e uma tabela de deltas
     # que na verdade são scores passa despercebida — aconteceu. Falhar alto é o
@@ -161,7 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     referencia = json.loads(caminho_base.read_text(encoding="utf-8"))["score_final"]
 
-    base = BaseCanonica.de_arquivo(args.indice)
+    # O mesmo carregamento do CLI: banco primeiro, JSON só de reserva. Medir
+    # sobre um JSON velho mede um índice que a entrega não usa.
+    base = _carregar_base(args.indice, args.db)
     # Cada classe sozinha, mais a combinação de todas — que é o cenário pessimista.
     grupos = [[c] for c in (args.classe or CLASSES)]
     if not args.classe:
