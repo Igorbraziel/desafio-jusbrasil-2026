@@ -100,6 +100,17 @@ def test_escrita_cria_a_pasta_e_nao_deixa_temporario(tmp_path):
     assert os.listdir(destino.parent) == ["submission.csv"]
 
 
+def test_permissao_segue_a_umask_e_nao_a_do_temporario(tmp_path):
+    # O temporário nasce 0600; o CSV do container rodado como root precisa
+    # ficar legível para quem chamou.
+    anterior = os.umask(0o022)
+    try:
+        destino = write_submission([_documento("a")], tmp_path / "submission.csv")
+    finally:
+        os.umask(anterior)
+    assert destino.stat().st_mode & 0o777 == 0o644
+
+
 def test_falha_na_escrita_preserva_o_arquivo_anterior(tmp_path, monkeypatch):
     destino = tmp_path / "submission.csv"
     destino.write_text("anterior", encoding="utf-8")

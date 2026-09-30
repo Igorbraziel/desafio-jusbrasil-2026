@@ -180,6 +180,50 @@ def test_prefixo_do_entrypoint_e_descartado(ambiente):
     assert sorted(_linhas(chamador / "prefixo.csv")) == ["cita", "latin1", "sem_citacao"]
 
 
+def test_chamado_pelo_sh_reexecuta_no_bash(ambiente):
+    # `sh run.sh` usa o sh do sistema, que pode não ter arrays; o script se
+    # reexecuta no bash em vez de quebrar no meio.
+    clone, chamador, _ = ambiente
+    resultado = subprocess.run(
+        ["sh", str(clone / "run.sh"), "base.db", "pareceres do lote", "via_sh.csv"],
+        cwd=chamador,
+        env={**os.environ, "PYTHON": sys.executable},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+    assert sorted(_linhas(chamador / "via_sh.csv")) == ["cita", "latin1", "sem_citacao"]
+
+
+def test_pacote_homonimo_na_pasta_de_quem_chama_nao_toma_o_lugar(ambiente, tmp_path):
+    # Com `-m`, a pasta de quem chama vem antes do PYTHONPATH; um `verificador`
+    # ali seria importado no lugar do nosso sem o PYTHONSAFEPATH.
+    clone, chamador, banco = ambiente
+    impostor = tmp_path / "verificador"
+    impostor.mkdir()
+    (impostor / "__init__.py").write_text("", encoding="utf-8")
+    (impostor / "cli.py").write_text("raise SystemExit('impostor')\n", encoding="utf-8")
+    resultado = _rodar(clone, tmp_path, str(banco), str(chamador / "pareceres do lote"), "s.csv")
+    assert resultado.returncode == 0, resultado.stderr
+    assert (tmp_path / "s.csv").exists()
+
+
+@pytest.mark.parametrize("saida", ["pareceres do lote", "saida_nova/"])
+def test_saida_que_nao_e_arquivo_para(ambiente, saida):
+    clone, chamador, _ = ambiente
+    resultado = _rodar(clone, chamador, "base.db", "pareceres do lote", saida)
+    assert resultado.returncode != 0
+    assert "caminho do CSV" in resultado.stderr
+
+
+def test_pasta_de_entrada_inexistente_para(ambiente):
+    clone, chamador, _ = ambiente
+    resultado = _rodar(clone, chamador, "base.db", "nao-existe", "x.csv")
+    assert resultado.returncode != 0
+    assert "nao-existe" in resultado.stderr
+
+
 def test_banco_inexistente_para_sem_escrever_csv(ambiente):
     clone, chamador, _ = ambiente
     resultado = _rodar(clone, chamador, "nao-existe.db", "pareceres do lote", "sem_banco.csv")

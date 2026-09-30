@@ -120,6 +120,17 @@ def test_sem_txt_no_primeiro_nivel_procura_nas_subpastas(tmp_path, banco_falso, 
     assert "subpastas" in capsys.readouterr().err
 
 
+def test_mesmo_nome_em_subpastas_diferentes_avisa_e_fica_uma_linha(tmp_path, banco_falso, capsys):
+    entrada = tmp_path / "entrada"
+    for sub in ("x", "y"):
+        (entrada / sub).mkdir(parents=True)
+        (entrada / sub / "a.txt").write_text("Parecer.\n", encoding="utf-8")
+    saida = tmp_path / "submission.csv"
+    assert cli.main(["--db", str(banco_falso), "--input", str(entrada), "--csv", str(saida)]) == 0
+    assert _linhas(saida) == {"a": "-"}
+    assert "repetido 'a'" in capsys.readouterr().err
+
+
 def test_txt_no_primeiro_nivel_ignora_as_subpastas(tmp_path):
     entrada = _pasta_com_textos(tmp_path, ("a.txt",))
     (entrada / "velhos").mkdir()

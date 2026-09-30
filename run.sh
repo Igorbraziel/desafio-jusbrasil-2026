@@ -87,6 +87,9 @@ json="${4:-}"
 
 [ -f "$db" ] || die "base canônica não encontrada: $db"
 [ -d "$txt" ] || die "pasta de entrada não encontrada: $txt"
+case "$out" in
+  */) die "arquivo_saida termina em /; passe o caminho do CSV: $out" ;;
+esac
 [ ! -d "$out" ] || die "arquivo_saida é uma pasta; passe o caminho do CSV: $out"
 
 # Sem `cd` no shell principal: os caminhos relativos continuam relativos à pasta
