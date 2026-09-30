@@ -383,7 +383,12 @@ _TEMA = re.compile(
     rf"|{_tolerante('Repetitivo')}|RG)\s+)?"
     rf"(?:{_NUMERO}\s*)?"
     rf"(?P<numero>{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*)(?![A-Za-zÀ-ÿ])"
-    rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?",
+    rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?"
+    # O tribunal depois do número faz parte da citação, como na súmula: "Tema
+    # 1.046 do STF", "Tema Repetitivo 1.076 do STJ". Sem ele o span parava no
+    # número e o IoU ficava entre 0,53 e 0,59 — na beira do corte, onde qualquer
+    # ruído a mais derruba o casamento e custa FN e FP de uma vez.
+    rf"(?:\s*(?:[/\-–]|,?\s*{_CONECTOR})\s*{_SIGLA_DE_TRIBUNAL})?",
     re.IGNORECASE,
 )
 

@@ -1023,3 +1023,18 @@ def test_inscricao_com_rotulo_oab_colado_a_uf_nao_vira_citacao():
 )
 def test_tribunal_da_sumula_por_extenso_atravessa_a_quebra(corpo, esperado):
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        ("Incide o Tema 1.046 do STF no caso.", "Tema 1.046 do STF"),
+        ("Incide o Tema Repetitivo 1.076 do STJ no caso.", "Tema Repetitivo 1.076 do STJ"),
+        ("Incide o Tema 725/STF no caso.", "Tema 725/STF"),
+        ("Incide o Tema 725 da repercussão geral no caso.", "Tema 725 da repercussão geral"),
+        # o conector sem tribunal depois não entra
+        ("Incide o Tema 725 do caso concreto.", "Tema 725"),
+    ],
+)
+def test_tribunal_depois_do_tema_entra_no_span(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
