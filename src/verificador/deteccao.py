@@ -648,7 +648,9 @@ _DISPOSITIVO = re.compile(
 # medidas no checkpoint 06, o maior bloco daquela classe. Ver `_tolerante`.
 _RELATOR = (
     rf"(?:[Rr]{_tolerante('el')}(?:{_tolerante('at')}[0oaã]r[ilaã]?[aã]?)?\.?\s*"
-    rf"(?:Min\.?|{_tolerante('Ministr')}[ao])?\.?"
+    # "Min" aceita o ponto trocado por grau ("Min°", "Min º"), como a marca de
+    # número; sem isso o "Min" virava o nome do relator e o nome ficava de fora.
+    rf"(?:Mi[nN]\s?[.°º]?|{_tolerante('Ministr')}[ao])?\.?"
     rf"|{_tolerante('relatoria')}\s+d[eoc])"
 )
 
@@ -660,7 +662,13 @@ _RELATOR = (
 _CABECA_VAGA = (
     rf"(?:{_tolerante('julgad')}[oaã0]|{_tolerante('acórdão')}|{_tolerante('precedente')}"
     rf"|{_tolerante('decisão')}"
-    r"|[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}(?:\s+(?:em\s+|de\s+|do\s+|da\s+)?[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}){0,3}"
+    # O incidente antes da classe ("AgInt no AREsp", "EDcl nos EDcl") só entra
+    # quando tem forma de sigla — duas maiúsculas —, para que a prosa capitalizada
+    # ("Como no REsp") não abra o span. "com" liga a classe por extenso
+    # ("Recurso Extraordinário com Agravo"), que antes começava em "Agravo".
+    r"|(?:[A-ZÀ-Ú][a-zà-ú]*[A-ZÀ-Ú][\wÀ-ú.\-]*\s+n[oa]s?\s+)*"
+    r"[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}"
+    r"(?:\s+(?:em\s+|de\s+|do\s+|da\s+|com\s+)?[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}){0,3}"
     r")"
 )
 
@@ -672,7 +680,11 @@ _CABECA_VAGA = (
 # depois da linha em branco ("… LÚCIA.\n\nIII"), e roubava a sobreposição da
 # citação que viesse logo depois ("… LÚCIA. REsp 1.234.567/SP" perdia o REsp).
 _SEPARADOR_DE_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
-_PALAVRA_DE_NOME = r"[A-ZÀ-Ú](?:[\wÀ-ú']+|\.)"
+# A inicial também sofre o ruído: "rnAURO" (M→rn) e, em nome todo em caixa
+# alta, a maiúscula lida como minúscula confundível ("eARLOS", "eRISTIANO").
+# Só nessas duas formas — minúscula seguida de duas maiúsculas, ou o "rn" —,
+# para que a palavra de prosa minúscula não entre no nome.
+_PALAVRA_DE_NOME = r"(?:[A-ZÀ-Ú]|rn(?=[\wÀ-ú])|[a-zà-ú](?=[A-ZÀ-Ú]{2}))(?:[\wÀ-ú']+|\.)"
 _NOME_PROPRIO = (
     rf"{_PALAVRA_DE_NOME}"
     rf"(?:{_SEPARADOR_DE_NOME}(?:d[aeo]s?{_SEPARADOR_DE_NOME})?{_PALAVRA_DE_NOME}){{0,4}}"
@@ -691,7 +703,7 @@ _ANO_TOLERANTE = (
 
 _VAGA = re.compile(
     rf"{_CABECA_VAGA}"
-    rf"(?:\s*,?\s*{_CONECTOR}\s+{_SIGLA_DE_TRIBUNAL})?"
+    rf"(?:\s*,?\s*{_CONECTOR}\s+(?:{_SIGLA_DE_TRIBUNAL}|{_TRIBUNAL_POR_EXTENSO}))?"
     rf"\s*,?\s*(?:{_tolerante('proferid')}[oaã0]|{_tolerante('julgad')}[oaã0])?\s*(?:d[ec]|[ec]rn|[ec]m)\s*\n?\s*"
     rf"{_ANO_TOLERANTE}"
     r"[^.]{0,30}?"

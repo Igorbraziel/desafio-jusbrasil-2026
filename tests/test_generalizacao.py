@@ -1094,3 +1094,32 @@ def test_primeira_linha_do_corpo_sem_virgula_nao_vira_cabecalho(linha):
 )  # fmt: skip
 def test_qualificador_e_diploma_com_ruido_de_letra(corpo, esperado):
     assert [a.trecho for a in _detectar(corpo)] == [esperado]
+
+
+@pytest.mark.parametrize(
+    "vaga",
+    [
+        # a classe por extenso ligada por "com" começava em "Agravo"
+        "Recurso Extraordinário com Agravo do STF, de 2024, Rel. Min. Fulano de Tal",
+        # o incidente em sigla antes da classe ficava de fora
+        "AgInt no AREsp de 2024, Rel. Min. Fulano de Tal",
+        "EDcl no AgInt no REsp de 2020, Rel. Min. Fulano de Tal",
+        # o tribunal por extenso perdia a cabeça "julgado do"
+        "julgado do Superior Tribunal de Justiça proferido em 2023 pela relatoria de Fulano de Tal",
+        # o ponto de "Min." trocado por grau cortava o nome
+        "Apelação do STM, de 2025, Rel. Min° FULANO DE TAL",
+        # a inicial do nome corrompida pelo OCR
+        "julgado do STJ proferido em 2020 pela relatoria de rnAURO DE TAL",
+        "precedente do STF de 2025, da relatoria de eRISTIANO DE TAL",
+    ],
+)
+def test_borda_e_ruido_da_vaga(vaga):
+    corpo = f"Nesse sentido, o {vaga}, cuja ratio se aplica."
+    assert [a.trecho for a in _detectar(corpo)] == [vaga]
+
+
+def test_prosa_capitalizada_antes_da_classe_nao_entra_na_vaga():
+    corpo = "Como no REsp de 2020, Rel. Min. Fulano de Tal, a tese prevalece aqui."
+    assert [a.trecho for a in _detectar("Cuida-se de recurso, que ora se examina.\n" + corpo)] == [
+        "REsp de 2020, Rel. Min. Fulano de Tal"
+    ]
