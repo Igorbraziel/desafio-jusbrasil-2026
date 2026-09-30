@@ -18,13 +18,19 @@ vez de mentir em silêncio.
 Os arquivos da organização vivem em ``data/dev/ferramentas/``, que é gitignored:
 num clone limpo é preciso rodar ``make dados-kaggle`` antes.
 
+Com ``--submissao``, pontua um submission.csv pronto — o que o ``run.sh`` da
+entrega grava — em vez de montar um a partir dos JSONs. É o que confere a
+entrega exatamente como a organização a recebe.
+
 Uso:
     python scripts/avaliar.py --predicoes data/out
+    python scripts/avaliar.py --submissao data/submission.csv
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.util
 import json
 import sys
@@ -149,10 +155,33 @@ def _f1(tp: int, fp: int, fn: int) -> float:
     return (2 * tp / denominador) if denominador else 0.0
 
 
-def imprimir(oficial: dict, diagnostico: dict[int, dict], ausentes: list[str]) -> None:
+def ler_submission(caminho: Path, documentos: list[str]) -> tuple[list[dict[str, str]], list[str]]:
+    """Lê um submission.csv pronto, com as linhas na ordem do gabarito.
+
+    Documento do gabarito sem linha no CSV entra como ``-`` e é reportado, como
+    em ``montar_submission``: a pontuação local segue, e o aviso lembra que o
+    Kaggle rejeitaria a submissão. Linha repetida fica com a primeira, como no
+    ``drop_duplicates(keep="first")`` do oficial.
+    """
+    # utf-8-sig: um CSV salvo de novo por planilha ganha BOM na primeira coluna.
+    with caminho.open(encoding="utf-8-sig", newline="") as arquivo:
+        celulas: dict[str, str] = {}
+        for linha in csv.DictReader(arquivo):
+            celulas.setdefault(linha["documento_id"], linha["citacoes"])
+    ausentes = [documento for documento in documentos if documento not in celulas]
+    linhas = [
+        {"documento_id": documento, "citacoes": celulas.get(documento, VAZIO)}
+        for documento in documentos
+    ]
+    return linhas, ausentes
+
+
+def imprimir(
+    oficial: dict, diagnostico: dict[int, dict], ausentes: list[str], origem: str = "data/out/"
+) -> None:
     if ausentes:
         print(
-            f"\n⚠ {len(ausentes)} documento(s) sem JSON em data/out/ "
+            f"\n⚠ {len(ausentes)} documento(s) sem saída em {origem} "
             f"(ex.: {', '.join(ausentes[:3])}).\n"
             "  Localmente entram como 'sem citações'; o Kaggle REJEITA a submissão."
         )
@@ -214,25 +243,31 @@ def km_peso(nivel: int) -> float:
 
 
 def avaliar(
-    pasta_predicoes: Path,
+    pasta_predicoes: Path | None,
     caminho_goldenset: Path,
     ferramentas: Path = FERRAMENTAS,
+    submissao_csv: Path | None = None,
 ) -> dict:
     """Score oficial mais o diagnóstico, num dicionário só.
 
     ``niveis`` vem do ``kaggle_metric`` sem alteração — as chaves são as dele
     (``macro_f1``, ``tau``, ``s``, ``b``, ``score``). ``diagnostico`` traz as
-    contagens e a matriz de confusão, e ``ausentes`` os documentos sem JSON.
+    contagens e a matriz de confusão, e ``ausentes`` os documentos sem saída.
+
+    Com ``submissao_csv`` as predições vêm desse CSV, e ``pasta_predicoes`` é
+    ignorada.
     """
     import pandas as pd
 
     km = carregar_modulo(ferramentas / "kaggle_metric.py", "kaggle_metric")
-    conversor = carregar_modulo(ferramentas / "json_to_submission.py", "json_to_submission")
 
     solucao = linhas_solution(caminho_goldenset)
-    submissao, ausentes = montar_submission(
-        pasta_predicoes, [linha["documento_id"] for linha in solucao], conversor.encode
-    )
+    documentos = [linha["documento_id"] for linha in solucao]
+    if submissao_csv is not None:
+        submissao, ausentes = ler_submission(submissao_csv, documentos)
+    else:
+        conversor = carregar_modulo(ferramentas / "json_to_submission.py", "json_to_submission")
+        submissao, ausentes = montar_submission(pasta_predicoes, documentos, conversor.encode)
 
     try:
         oficial = km.avaliar(pd.DataFrame(solucao), pd.DataFrame(submissao))
@@ -249,6 +284,12 @@ def avaliar(
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--predicoes", type=Path, default=Path("data/out"))
+    p.add_argument(
+        "--submissao",
+        type=Path,
+        default=None,
+        help="pontua este submission.csv em vez dos JSONs de --predicoes",
+    )
     p.add_argument("--goldenset", type=Path, default=Path("data/dev/goldenset.csv"))
     p.add_argument("--ferramentas", type=Path, default=FERRAMENTAS)
     p.add_argument("--json", action="store_true", help="imprime o resultado em JSON")
@@ -262,14 +303,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.goldenset.exists():
         raise SystemExit(f"gabarito não encontrado: {args.goldenset} (rode `make dados-kaggle`)")
+    if args.submissao is not None and not args.submissao.is_file():
+        raise SystemExit(f"submissão não encontrada: {args.submissao}")
 
-    resultado = avaliar(args.predicoes, args.goldenset, args.ferramentas)
+    resultado = avaliar(args.predicoes, args.goldenset, args.ferramentas, args.submissao)
 
     if args.json:
         enxuto = {"score_final": resultado["score_final"], "niveis": resultado["niveis"]}
         print(json.dumps(enxuto, ensure_ascii=False, indent=2, default=float))
     else:
-        imprimir(resultado, resultado["diagnostico"], resultado["ausentes"])
+        origem = str(args.submissao) if args.submissao is not None else f"{args.predicoes}/"
+        imprimir(resultado, resultado["diagnostico"], resultado["ausentes"], origem)
 
     if args.baseline:
         args.baseline.write_text(

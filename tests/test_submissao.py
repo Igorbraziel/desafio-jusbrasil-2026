@@ -15,7 +15,7 @@ import os
 import sys
 
 import pytest
-from conftest import DEV, sem_dados
+from conftest import DEV, RAIZ, sem_dados
 
 from verificador import submissao
 from verificador.contrato import Citacao, SaidaDocumento
@@ -127,6 +127,27 @@ def test_csv_escrito_passa_na_conferencia(tmp_path):
 def test_conferencia_acusa_documento_processado_sem_linha(tmp_path):
     destino = write_submission([_documento("a")], tmp_path / "submission.csv")
     assert check_submission(destino, {"a", "b"}) == ["documento sem linha: b"]
+
+
+def test_avaliar_le_o_csv_na_ordem_do_gabarito_e_acusa_ausente(tmp_path):
+    # `avaliar.py --submissao` pontua o CSV da entrega; documento do gabarito
+    # sem linha entra como "-" e é reportado, e linha repetida fica com a
+    # primeira, como no drop_duplicates do oficial.
+    sys.path.insert(0, str(RAIZ / "scripts"))
+    from avaliar import ler_submission
+
+    caminho = tmp_path / "submission.csv"
+    caminho.write_text(
+        '﻿documento_id,citacoes\r\nb,-\r\na,"1,2,inventada,-,-"\r\na,-\r\n',
+        encoding="utf-8",
+    )
+    linhas, ausentes = ler_submission(caminho, ["a", "b", "c"])
+    assert linhas == [
+        {"documento_id": "a", "citacoes": "1,2,inventada,-,-"},
+        {"documento_id": "b", "citacoes": "-"},
+        {"documento_id": "c", "citacoes": "-"},
+    ]
+    assert ausentes == ["c"]
 
 
 def _carregar_conversor():
