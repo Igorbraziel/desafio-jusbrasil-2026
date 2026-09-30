@@ -329,8 +329,13 @@ def sigla_do_tribunal(texto: str) -> str:
     return texto.upper().replace("5", "S")
 
 
+# As palavras do nome atravessam uma quebra de linha, como o resto da citação: o
+# texto do gerador é quebrado em ~100 colunas, e "Súmula 345 do Superior
+# Tribunal\nde Justiça" perdia o tribunal inteiro — o span parava em "Súmula
+# 345" (IoU 0,24 contra o gabarito) e a súmula da cobertura saía `inventada`.
+_ENTRE_PALAVRAS_DO_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
 _TRIBUNAL_POR_EXTENSO = "|".join(
-    rf"(?P<ext_{sigla}>{r'[ \t]+'.join(_tolerante(p) for p in nome.split())})"
+    rf"(?P<ext_{sigla}>{_ENTRE_PALAVRAS_DO_NOME.join(_tolerante(p) for p in nome.split())})"
     for sigla, nome in (
         ("STF", "Supremo Tribunal Federal"),
         ("STJ", "Superior Tribunal de Justiça"),

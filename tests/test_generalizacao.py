@@ -1001,3 +1001,25 @@ def test_inscricao_com_rotulo_oab_colado_a_uf_nao_vira_citacao():
         "FABIO HYPOLITTO (OAB: SP292401) e MARIA RUFINO (OAB DF68561). REQUERIDO: X"
     )
     assert [a.familia for a in _detectar(corpo)] == []
+
+
+# ── Achados do simulador do sigiloso (30/09) ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esperado"),
+    [
+        # o texto do gerador quebra em ~100 colunas, e a quebra pode cair no
+        # meio do nome do tribunal
+        (
+            "Aplica-se a Súmula 83 do Superior Tribunal\nde Justiça ao caso.",
+            "Súmula 83 do Superior Tribunal\nde Justiça",
+        ),
+        (
+            "Aplica-se a Súmula 331 do Tribunal\nSuperior do Trabalho ao caso.",
+            "Súmula 331 do Tribunal\nSuperior do Trabalho",
+        ),
+    ],
+)
+def test_tribunal_da_sumula_por_extenso_atravessa_a_quebra(corpo, esperado):
+    assert [a.trecho for a in _detectar(corpo)] == [esperado]
