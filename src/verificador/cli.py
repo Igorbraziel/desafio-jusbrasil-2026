@@ -20,7 +20,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from .base_canonica import BaseCanonica
+from .base import BaseCanonica
 
 PADRAO_DB = Path("data/dev/desafio1_bracis.db")
 
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     _warn_repeated_ids(paths)
 
     from .pipeline import process_files
-    from .submissao import check_submission, write_submission
+    from .saida.submissao import check_submission, write_submission
 
     # O relógio inclui a construção do índice, que domina o tempo num lote pequeno.
     started = time.monotonic()

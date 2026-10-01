@@ -38,9 +38,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from perturbar import CLASSES, gerar_corpus  # noqa: E402
 
-from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.base.canonica import BaseCanonica  # noqa: E402
 from verificador.cli import _carregar_base  # noqa: E402
-from verificador.deteccao import detectar  # noqa: E402
+from verificador.deteccao.detector import detectar  # noqa: E402
 from verificador.resolucao import CONFIANCA, resolver  # noqa: E402
 from verificador.texto import carregar  # noqa: E402
 

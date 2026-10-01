@@ -17,8 +17,8 @@ import os
 import sqlite3
 from pathlib import Path
 
-from verificador import base_canonica
-from verificador.base_canonica import BaseCanonica, construir_indice
+from verificador.base import canonica as base_canonica
+from verificador.base.canonica import BaseCanonica, construir_indice
 
 # O esquema da tabela `documentos` do banco do dev. A tabela virtual de FTS e os
 # gatilhos dela ficam de fora: o verificador nunca a lê.

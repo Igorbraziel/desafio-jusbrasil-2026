@@ -17,7 +17,7 @@ import re
 import pytest
 from conftest import BANCO, sem_dados
 
-from verificador.base_canonica import BaseCanonica, construir_indice
+from verificador.base.canonica import BaseCanonica, construir_indice
 from verificador.pipeline import processar_texto
 
 pytestmark = sem_dados

@@ -33,7 +33,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
 
-from verificador.deteccao import FAMILIAS, detectar  # noqa: E402
+from verificador.deteccao.detector import FAMILIAS, detectar  # noqa: E402
 
 # O tamanho médio de um documento do desafio é de ~3.400 caracteres.
 JANELA = 4000

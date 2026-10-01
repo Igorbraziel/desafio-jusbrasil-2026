@@ -13,7 +13,7 @@ import sqlite3
 import pytest
 from conftest import BANCO, sem_dados
 
-from verificador.base_canonica import BaseCanonica
+from verificador.base.canonica import BaseCanonica
 from verificador.pipeline import processar_texto
 
 pytestmark = sem_dados

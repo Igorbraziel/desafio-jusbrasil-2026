@@ -9,7 +9,7 @@ import json
 import pytest
 
 from verificador import pipeline
-from verificador.base_canonica import BaseCanonica
+from verificador.base.canonica import BaseCanonica
 
 BASE_VAZIA = BaseCanonica({"numeros": {}, "registros": {}})
 CORPO = "PARECER\n\nConforme o art. 5º da Constituição Federal, o pedido procede.\n"

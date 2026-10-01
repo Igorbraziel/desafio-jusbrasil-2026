@@ -1,4 +1,4 @@
-from verificador.contrato import Citacao, SaidaDocumento, validar
+from verificador.saida.contrato import Citacao, SaidaDocumento, validar
 
 
 def _saida_valida():

@@ -42,10 +42,10 @@ from __future__ import annotations
 
 import re
 
-from .base_canonica import BaseCanonica, chave_de_artigo
-from .classe import afinidade, marcas
+from .base import BaseCanonica, chave_de_artigo
 from .deteccao import Achado, sigla_do_tribunal
-from .leis import ANO_DA_LEI, NUMERO_DA_LEI, codigo_da_lei, lei_pelo_nome
+from .juridico.classes import afinidade, marcas
+from .juridico.leis import ANO_DA_LEI, NUMERO_DA_LEI, codigo_da_lei, lei_pelo_nome
 from .normalizacao import (
     CONFUSOES_DE_LETRA,
     OCR_PARA_DIGITO,

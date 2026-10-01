@@ -45,7 +45,7 @@ robustez: ## Mede a degradação por classe de ruído (exige `make baseline`)
 confianca: ## Mede a acurácia por caminho de decisão, para calibrar CONFIANCA
 	$(RUN) python scripts/medir_confianca.py --taxa 0.15 --sementes 3
 
-# O CSV sai do nosso escritor (verificador.submissao), que reproduz byte a byte
+# O CSV sai do nosso escritor (verificador.saida.submissao), que reproduz byte a byte
 # o conversor da organização — sem depender de data/dev/ferramentas para gerar.
 submissao: ## Gera e confere data/submission.csv para enviar no Kaggle
 	$(RUN) python -m verificador.cli --input $(DEV)/txt --output $(OUT) --csv data/submission.csv --db $(DEV)/desafio1_bracis.db

@@ -40,11 +40,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .classe import marcas
-from .deteccao import _e_numero_de_processo
+from ..deteccao.detector import _e_numero_de_processo
+from ..juridico.classes import marcas
+from ..juridico.leis import codigo_da_lei
+from ..normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO, sem_acento
 from .estrutura import tribunal_do_texto, zonas_de_identificacao
-from .leis import codigo_da_lei
-from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO, sem_acento
 
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
 MINIMO_DIGITOS = 4

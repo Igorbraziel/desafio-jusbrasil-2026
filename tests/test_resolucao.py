@@ -17,7 +17,7 @@ em `test_base_canonica.py`. Os textos são sintéticos, como nas demais suítes.
 import pytest
 from conftest import DISPOSITIVOS, SUMULAS, sem_indice
 
-from verificador.deteccao import detectar
+from verificador.deteccao.detector import detectar
 from verificador.resolucao import resolver
 
 pytestmark = sem_indice

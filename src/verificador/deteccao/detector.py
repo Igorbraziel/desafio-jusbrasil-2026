@@ -51,7 +51,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .normalizacao import (
+from ..normalizacao import (
     CONFUSOES_DE_LETRA,
     OCR_PARA_DIGITO,
     UFS,
@@ -59,7 +59,7 @@ from .normalizacao import (
     chave_textual,
     sem_acento,
 )
-from .texto import fim_do_cabecalho
+from ..texto import fim_do_cabecalho
 
 TRIBUNAIS = ("STF", "STJ", "TSE", "TST", "STM")
 

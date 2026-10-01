@@ -17,9 +17,9 @@ import sys
 import pytest
 from conftest import DEV, RAIZ, sem_dados
 
-from verificador import submissao
-from verificador.contrato import Citacao, SaidaDocumento
-from verificador.submissao import (
+from verificador.saida import submissao
+from verificador.saida.contrato import Citacao, SaidaDocumento
+from verificador.saida.submissao import (
     check_submission,
     encode_cell,
     submission_rows,

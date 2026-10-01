@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-from .normalizacao import chave_textual
+from ..normalizacao import chave_textual
 
 # Siglas e nomes por extenso das classes que aparecem nos cabeçalhos da base, já
 # em `chave_textual` (minúsculas, sem acento). A ordem importa: o nome mais

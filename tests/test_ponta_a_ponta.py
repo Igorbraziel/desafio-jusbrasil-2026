@@ -11,8 +11,8 @@ import sys
 
 from conftest import DEV, GOLDENSET, RAIZ, sem_dados, sem_indice
 
-from verificador.contrato import validar
 from verificador.pipeline import processar_pasta
+from verificador.saida.contrato import validar
 from verificador.texto import carregar
 
 sys.path.insert(0, str(RAIZ / "scripts"))

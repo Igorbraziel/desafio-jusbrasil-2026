@@ -7,10 +7,10 @@ import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from .base_canonica import BaseCanonica
-from .contrato import Citacao, SaidaDocumento
+from .base import BaseCanonica
 from .deteccao import detectar
 from .resolucao import resolver
+from .saida.contrato import Citacao, SaidaDocumento
 from .texto import carregar, documento_id
 
 
