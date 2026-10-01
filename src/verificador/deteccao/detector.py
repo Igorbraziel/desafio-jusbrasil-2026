@@ -1,49 +1,21 @@
 """Detecção dos spans de citação no texto do parecer.
 
-Quem não entrega o span de uma citação não consegue classificá-la, e isso conta
-como erro de recall. O alinhamento com o gabarito é por sobreposição com
-IoU ≥ 0,5, então a borda exata não precisa ser perfeita — mas a citação inteira
-precisa aparecer.
-
-A organização é por família, porque a família determina contra o quê a citação
-é resolvida:
+O alinhamento com o gabarito é por sobreposição (IoU ≥ 0,5): a borda não precisa
+ser exata, mas a citação inteira precisa aparecer. A família determina contra o
+quê a citação é resolvida:
 
 ``processo``     sigla ou classe processual + número (``AgInt no REsp 1.234.567/PR``)
 ``sumula``       ``Súmula <n> do <tribunal>``, ``Súmula Vinculante <n>``
-``tema``         ``Tema 2.680 da repercussão geral``
+``tema``         ``Tema <n> da repercussão geral``
 ``dispositivo``  ``art. <n>, <inciso>, do <código>``
 ``vaga``         sem identificador suficiente para consultar a base
 
-**A âncora de ``processo`` é o número, não a sigla.** Medindo o gabarito, as
-classes processuais aparecem em mais de 90 grafias distintas — de ``RR-`` a
-``Embargos de Declaração no Agravo Interno no Agravo em Recurso Especial nº``.
-Enumerá-las casa a amostra de desenvolvimento e falha no conjunto cego, onde o
-material avisa que "as siglas processuais observadas não esgotam o domínio".
-Ancorar no número e expandir para a esquerda degrada bem: numa classe não vista
-o span fica curto, mas o número — que é o que resolve — continua capturado, e o
-span costuma sobreviver ao IoU ≥ 0,5.
-
-**A família ``vaga`` tem uma forma só.** Depois da revisão de 15/09/2026 as 32
-citações ``incompleta`` do gabarito são todas do padrão tribunal + ano +
-relator — ``julgado do <tribunal> proferido em <ano> pela relatoria de
-<nome>``. As 32 nomeiam um relator, o único dígito é o ano e nenhuma traz
-número de processo. As frases genéricas ("normas de regência da matéria") e as sem número
-("reiterados precedentes do STJ") saíram do gabarito nas duas revisões. O sinal
-a procurar é **menção a relator sem número de processo**, não um repertório de
-frase vaga. Ver ``docs/investigacao.md``.
-
-**Distratores.** Os cabeçalhos trazem números que parecem citação e não são:
-número dos autos do próprio documento, protocolo, inscrição na OAB, ``fls.
-234/567``, valor da causa. Nenhum está no gabarito, e extraí-los conta como
-falso positivo. Daí a detecção rodar só a partir de
-:func:`verificador.texto.fim_do_cabecalho`.
-
-**A família ``vaga`` mudou de alvo.** Até 25/08 ela cobria um repertório de
-frases difusas ("jurisprudência pacífica desta Corte"). As revisões de 01/09 e
-15/09 removeram todas do gabarito: hoje as 32 ``incompleta`` são **um padrão
-só**, tribunal + ano + relator. Detectar as frases difusas virou falso positivo.
-
-Os testes em ``tests/test_deteccao.py`` são a especificação desta etapa.
+A âncora de ``processo`` é o número, não a sigla: as classes processuais não são
+enumeráveis, e numa classe não vista o span fica curto mas o número que resolve
+continua capturado. A ``vaga`` procura menção a relator sem número de processo
+(tribunal + ano + relator). A detecção só começa em
+:func:`verificador.texto.fim_do_cabecalho`, para não extrair os números do
+cabeçalho (autos, protocolo, OAB, folhas), que seriam falsos positivos.
 """
 
 from __future__ import annotations
@@ -68,53 +40,25 @@ FAMILIAS = ("processo", "sumula", "tema", "dispositivo", "vaga")
 # Abaixo disso não há número de processo — só ano, inciso e página.
 _MINIMO_DIGITOS = 4
 
-# "nº" em todas as grafias que a amostra traz, inclusive as de OCR (No, N°, n.).
+# "nº" em todas as grafias, inclusive as de OCR (No, N°, n.).
 _NUMERO = r"(?:n\s*[.ºo°]{0,2}|N\s*[.ºO°]{0,2})"
 
-# Pontuação que pode aparecer dentro de um número de processo, incluindo a
-# quebra de linha e o espaço não-quebrável (`421-37. 2012` vem com \xa0).
-#
-# **No máximo uma quebra de linha.** Com `\s` solto o núcleo atravessava o fim do
-# parágrafo e engolia o título da seção seguinte: em
-# `Ag. Int. No 7000123-4520197000000.\n\nI — DA COMPETÊNCIA` o span ia até o `I`
-# do título, e o IoU contra o gabarito caía a 0,73. É a mesma política que
-# `_expandir_prefixo` já aplica do outro lado — uma quebra é continuação da
-# citação, duas são fim de parágrafo.
+# Pontuação dentro de um número de processo, incluindo \xa0 e no máximo uma quebra
+# de linha: duas quebras são fim de parágrafo, e o span engoliria o título seguinte.
 _DENTRO = r"(?:[ \t\xa0.\-–—/]|\n(?![ \t]*\n))"
 
-# A classe de "digitoide": dígito ou letra que o OCR põe no lugar de um dígito.
-#
-# **Derivada de `OCR_PARA_DIGITO`, não escrita à mão.** A versão literal
-# (`[\dOolISsgGbBZz]`) omitia `i` e `q`, que a tabela de reparo conhece, e a
-# divergência custava a citação inteira: `REsp 1737i8/SP` não casava o núcleo e
-# o span sumia, mesmo com `digitos_do_identificador` sabendo devolver `173718`.
-# A normalização consertava, mas a detecção nunca lhe entregava o trecho.
-#
-# `_ANO_TOLERANTE` já derivava a classe da mesma tabela; era a assimetria entre
-# as duas construções que deixava a divergência passar. Derivar aqui também
-# elimina a classe inteira de defeito, em vez de acrescentar `i` e `q` à mão.
+# Dígito ou letra que o OCR põe no lugar de um dígito. Derivada de
+# `OCR_PARA_DIGITO` para que a detecção nunca divirja do reparo.
 _DIGITOIDE = rf"[\d{re.escape(''.join(sorted(set(OCR_PARA_DIGITO))))}]"
 
 
 def _tolerante(palavra: str) -> str:
-    """Expressão que casa a palavra-chave com o ruído de OCR de letra do nível 2.
+    """Expressão que casa a palavra-chave com o ruído de OCR de uma letra.
 
-    O nível 2 corrompe uma letra por palavra, inclusive nas palavras que as
-    expressões usam como âncora: `Súrnula`, `Códlgo`, `rclatoria`, `jiilgado`.
-    Com a âncora escrita literal, a citação sumia inteira — medido nos corpora de
-    `ocr_palavra`, era a maior parte das 43 perdas restantes, e em
-    `Código de Processo Penal Mllitar` produzia o erro grave (CPPM lido como CPP).
-
-    Cada letra aceita a própria forma, a forma sem acento e a confusão de
-    `CONFUSOES_DE_LETRA`. A tolerância vale **só** para as palavras-chave fixas,
-    nunca para classes abertas — é o que mantém a superfície de falso positivo
-    onde estava: a âncora continua exigindo a palavra inteira, e o resto da
-    expressão (número, diploma, tribunal) continua exigido.
-
-    Aceita também o dígito que o OCR põe no lugar da letra — `Súmu1a`, `Re1.`,
-    `Con5tituição`, `julgad0` —, que o nível 2 da amostra mostra na prosa
-    ("5úmula", "C0NTROVÉRSIA") e que apagava a citação inteira. O dígito vem da
-    inversa de `OCR_PARA_DIGITO`, a mesma tabela do reparo do número.
+    Cada letra aceita a própria forma, a forma sem acento, a confusão de
+    `CONFUSOES_DE_LETRA` e o dígito de `OCR_PARA_DIGITO` (`Súrnula`, `Súmu1a`). Vale
+    só para palavras-chave fixas, nunca para classes abertas, o que limita os falsos
+    positivos.
     """
     partes = []
     for letra in palavra:
@@ -133,56 +77,22 @@ def _tolerante(palavra: str) -> str:
     return "".join(partes)
 
 
-# O núcleo numérico: admite letra de OCR no lugar de um dígito, para não cortar
-# a citação ao meio (`12345l7`).
-#
-# **O primeiro caractere também pode ser digitoide.** Ele era `\d` literal, e o
-# OCR corrompe a primeira posição como qualquer outra: em `REsp l.234.567/PR` o
-# núcleo começava no `5` e devolvia `234567`, um número *diferente*, que não
-# resolve na base. Essa é a pior forma de erro — silenciosa: o span existe, o IoU
-# passa, e a citação vira `inventada` com confiança alta. Medindo 4.000
-# perturbações de um identificador sintético a taxa 0,4, **79% de todas as
-# falhas de `ocr_numero` tinham o primeiro dígito corrompido**.
-#
-# Esta mudança foi **rejeitada** no checkpoint 02 por produzir 31 falsos
-# positivos na base limpa, todos em `fls. <n>/<n>`, e por perder no ponto de
-# operação (0,8908 -> 0,8802 a taxa 0,15). O que mudou desde então: o lookbehind
-# que rejeita letra precedida de letra — que o próprio checkpoint indicava como
-# a correção faltante —, o filtro `_DATA`, a janela de rótulo de 40 caracteres e
-# `_PAGINAS` comparando a forma canônica. Remedido agora com 5 sementes:
-#
-#     ocr_numero    1,0266 -> 1,0455   (+0,019)
-#     todas (7)     0,9917 -> 1,0093   (+0,018), pior semente +0,030
-#     ocr_palavra   1,0384 -> 1,0384   (0,000 — sem espúrias na prosa corrompida)
-#
-# O `_MINIMO_DIGITOS` em `_candidatos` é o que barra a palavra que casa por
-# acidente: `Gols` e `Isso` casam o núcleo, mas têm zero dígitos reais e morrem
-# no filtro. O lookbehind cobre `SOS` e `Obras`.
-#
-# O lookahead impede que ele termine dentro de uma palavra. Sem ele, em "de 2024
-# sem outras", o `s` de "sem" — que é digitoide — entrava no número, a forma
-# canônica virava `2024s` e o filtro de ano solto deixava passar: o ano virava
-# citação `processo`.
+# Núcleo numérico, digitoide em todas as posições, inclusive a primeira: com `\d`
+# no início, `REsp l.234.567` virava `234567`, um número diferente e
+# silenciosamente errado. Palavras que casam por acaso (`Gols`) morrem em
+# `_MINIMO_DIGITOS`; os lookarounds impedem começar ou terminar dentro de uma
+# palavra (o `s` de "2024 sem" entraria no número).
 _NUCLEO = rf"(?<![A-Za-zÀ-ÿ]){_DIGITOIDE}(?:{_DENTRO}*{_DIGITOIDE}){{3,}}(?![A-Za-zÀ-ÿ])"
 
-# Sufixo de UF: /RJ, - PR, (SC), – MA.
-#
-# O conjunto é fechado, e não `[A-Z]{2}`, porque qualquer bigrama maiúsculo
-# entrava no span: em "…REsp 1.234.567 - DE acordo com…", o `- DE` era anexado.
-# `normalizacao.UFS` já é a lista validada; usá-la aqui alinha as duas camadas,
-# que antes discordavam.
+# Sufixo de UF: /RJ, - PR, (SC), – MA. Conjunto fechado, e não `[A-Z]{2}`, para
+# não anexar bigramas como o `- DE` de "- DE acordo".
 _UF = re.compile(rf"\s*[/(\-–—]\s*(?:{'|'.join(sorted(UFS))})\s*\)?")
 
 _NUMERO_PROCESSO = re.compile(_NUCLEO)
 
-# Palavras de prosa que abrem a frase antes de uma citação. Capitalizadas, elas
-# casavam o ramo de sigla e o span começava dez caracteres cedo demais — medido
-# em cinco casos do gabarito, com IoU entre 0,565 e 0,714 ("Também na Rcl
-# 12.345/AC" onde o gabarito anota só "Rcl 12.345/AC").
-#
-# A lista é de exclusão e não de inclusão de propósito: enumerar as siglas
-# processuais é o que a ADR 0002 refuta. Aqui enumeramos o advérbio de prosa, que
-# é vocabulário fechado do português, não do domínio jurídico.
+# Advérbios e conectores de prosa que, capitalizados, casariam o ramo de sigla e
+# adiantariam o início do span ("Também na Rcl …"). É lista de exclusão de
+# vocabulário fechado do português, para não enumerar siglas processuais.
 _PALAVRA_DE_PROSA = frozenset(
     """
     tambem também ademais igualmente outrossim ainda assim ja já entao então
@@ -193,18 +103,9 @@ _PALAVRA_DE_PROSA = frozenset(
     """.split()
 )
 
-# Um elo da cadeia de prefixo, testado com fullmatch token a token. Três formas:
-# sigla iniciada em maiúscula (REsp, AgR-REspe, H.C., TST-ED-E-ED-RR-), marca de
-# número (nº, n°, No, n.) e um punhado de palavras minúsculas.
-#
-# A restrição às minúsculas é o que impede o prefixo de engolir a prosa: em
-# "Ampara a pretensão o RSE nº 700…", o "o" não é conector conhecido e a cadeia
-# para ali. Sem isso o span começaria em "Ampara".
-#
-# O ponto **dentro** da sigla é obrigatório no primeiro ramo: sem ele `H.C.`,
-# `AG.REG`, `A.REsp` e `R.Esp.` falhavam o fullmatch e o prefixo era truncado —
-# era a causa dos dois piores IoU do gabarito (0,519 em "AgRg no H.C. Nº 123456"
-# e 0,543 em "Terceiro AG.REG na Rcl").
+# Um elo da cadeia de prefixo (fullmatch por token): sigla com inicial maiúscula,
+# marca de número ou conector minúsculo conhecido. Restringir as minúsculas impede
+# o prefixo de engolir a prosa; o ponto dentro da sigla cobre `H.C.` e `AG.REG`.
 _ELO = re.compile(
     r"(?:"
     r"[A-ZÀ-Ú][\wÀ-ú.]*(?:[-‐][A-Za-zÀ-Ú0-9][\wÀ-ú.]*)*[-‐]?"
@@ -219,30 +120,17 @@ _ELO = re.compile(
 def _e_elo(token: str) -> bool:
     """O token continua a cadeia de prefixo da citação?
 
-    Separa duas perguntas que o `_ELO` sozinho confundia: *tem forma de elo* e
-    *é palavra de prosa*. Qualquer palavra capitalizada tem forma de sigla, então
-    a forma precisa ser filtrada pelo léxico — ver `_PALAVRA_DE_PROSA`.
+    Toda palavra capitalizada tem forma de sigla; o léxico de prosa filtra o resto.
     """
     if not token or _ELO.fullmatch(token) is None:
         return False
     return chave_textual(token.strip(".,;:")) not in _PALAVRA_DE_PROSA
 
 
-# O órgão julgador e a autoridade que antecedem a citação. Capitalizados, eles
-# têm forma de sigla e a cadeia os engolia: "do Superior Tribunal de Justiça Rcl
-# nº 12.345/SP" saía inteiro, com IoU 0,33 contra "Rcl nº 12.345/SP" — abaixo de
-# 0,5, a citação vira FN **e** FP. Medido nos 996 acórdãos reais: cerca de 2%
-# dos spans de processo carregavam um desses no prefixo. A amostra sintética não
-# tem esse contexto, e o arnês não o gera.
-#
-# Como `_PALAVRA_DE_PROSA`, é léxico fechado do português jurídico — quem julga,
-# não o que se julga —, então não contraria a ADR 0002. A sigla de tribunal
-# entra só **nua** ("STF"): colada à classe, "TST-RR-79500", continua elo.
-#
-# Só substantivos. "Federal" ficou de fora de propósito: é adjetivo, aparece
-# também no nome da classe ("Intervenção Federal nº …"), e ali cortava o span
-# em "nº …". Nos órgãos o substantivo vem antes ("Tribunal Federal", "Justiça
-# Federal") e é ele que para a cadeia; o "Federal" à direita sai como nome.
+# Órgão julgador e autoridade antes da citação ("do Superior Tribunal de Justiça
+# Rcl …"): param a cadeia de prefixo para o span não perder o IoU. Só substantivos:
+# "Federal" fica de fora porque também aparece em nome de classe. A sigla de
+# tribunal só para a cadeia quando nua ("STF"), não colada à classe ("TST-RR").
 _PALAVRA_INSTITUCIONAL = frozenset(
     """
     tribunal tribunais supremo superior justica ministro ministra min
@@ -251,9 +139,8 @@ _PALAVRA_INSTITUCIONAL = frozenset(
     """.split()
 ) | frozenset(t.lower() for t in TRIBUNAIS)
 
-# Núcleos de nome de classe por extenso. Não servem para detectar — a detecção
-# ancora no número (ADR 0002) —, só para frear o descarte do complemento do nome
-# do órgão: em "Relator Gilmar Mendes Reclamação nº 1", "Reclamação" fica.
+# Núcleos de classe por extenso: não detectam, só impedem que o nome da classe seja
+# descartado com o do órgão ("Relator Gilmar Mendes Reclamação nº 1").
 _NUCLEO_DE_CLASSE = frozenset(
     """
     recurso agravo embargos reclamacao habeas mandado acao apelacao peticao
@@ -290,30 +177,14 @@ def _e_palavra_de_nome(token: str) -> bool:
     )
 
 
-# O maior prefixo do gabarito tem 11 palavras ("Embargos de Declaração no
-# Agravo Interno no Agravo em Recurso Especial nº").
+# Comporta prefixos como "Embargos de Declaração no Agravo Interno no Agravo em
+# Recurso Especial nº" (11 palavras).
 _MAXIMO_ELOS = 12
 
-# O número da súmula, tolerante ao mesmo ruído que o núcleo de `processo` já
-# atravessa. Ver a nota em `_NUMERO_DE_ARTIGO` — a assimetria era a mesma.
+# Digitoide, como o núcleo de `processo`.
 _NUMERO_DE_SUMULA = rf"{_DIGITOIDE}+"
 
-# A marca de número entre a palavra e o dígito. `_NUMERO` já descreve todas as
-# grafias, e **é a que a própria base canônica usa**: desde 15/09/2026 os cinco
-# registros de natureza `sumula` abrem com `Súmula n. <número> do <tribunal>`.
-# Sem esta alternativa a citação sumia inteira.
-#
-# O tribunal vem em mais formas do que "do STJ", e sem ele a súmula da cobertura
-# não resolve — `base.sumula` exige o par tribunal e número — e sai `inventada`:
-# a barra ou o hífen (`Súmula 83/STJ`, a grafia corrente dos acórdãos), os
-# parênteses, o inciso intercalado (`Súmula 331, I, do TST`) e o nome por
-# extenso. O extenso tem um grupo por tribunal (`ext_STJ`…), para a resolução
-# saber qual casou sem reler o texto corrompido. "desta Corte" fica de fora: o
-# tribunal depende de quem escreve.
-#
-# A sigla aceita o `S` lido como `5` ("5TJ", "T5T"), a troca que o nível 2 da
-# amostra faz com a letra maiúscula ("DO5", "PIRE5"). Sem isso a súmula perdia o
-# tribunal e saía `inventada`, e a `vaga` começava no meio da sigla.
+# Sigla dos tribunais superiores, aceitando o `S` lido como `5` ("5TJ", "T5T");
 # `sigla_do_tribunal` devolve a forma limpa.
 _SIGLA_DE_TRIBUNAL = (
     r"(?:(?-i:[S5]TF|[S5]TJ|T[S5]T|T[S5]E|[S5]TM)|STF|STJ|TST|TSE|STM)(?![A-Za-zÀ-ÿ\d])"
@@ -323,10 +194,8 @@ _SIGLA_DE_TRIBUNAL = (
 # "d0", "dc", "dã" no lugar de "do", "de", "da".
 _CONECTOR = r"d[oaeã0c]s?"
 
-# As palavras do nome atravessam uma quebra de linha, como o resto da citação: o
-# texto do gerador é quebrado em ~100 colunas, e "Súmula 345 do Superior
-# Tribunal\nde Justiça" perdia o tribunal inteiro — o span parava em "Súmula
-# 345" (IoU 0,24 contra o gabarito) e a súmula da cobertura saía `inventada`.
+# As palavras do nome do tribunal atravessam uma quebra de linha: o texto vem
+# quebrado em colunas, e sem isso a súmula perdia o tribunal.
 _ENTRE_PALAVRAS_DO_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
 _TRIBUNAL_POR_EXTENSO = "|".join(
     rf"(?P<ext_{sigla}>{_ENTRE_PALAVRAS_DO_NOME.join(_tolerante(p) for p in nome.split())})"
@@ -339,21 +208,16 @@ _TRIBUNAL_POR_EXTENSO = "|".join(
     )
 )
 
-# O separador dos nomes longos — o do diploma citado pelo nome e o do tribunal
-# regional da súmula —, com a mesma quebra de linha de `_ENTRE_PALAVRAS_DO_NOME`.
-# A quebra é um grupo à parte, e não um `\n?` entre dois `[ \t]*`: com essa
-# ambiguidade, um trecho longo de espaços depois de "art. 5º da Lei" custava
-# tempo quadrático em cada um dos nomes que começam por "Lei".
+# Separador de nomes longos (diploma, tribunal regional). A quebra é um grupo à
+# parte para evitar backtracking quadrático em trechos longos de espaços.
 _NAME_SEPARATOR = r"(?:[ \t\xa0]+(?:\n[ \t\xa0]*)?|\n[ \t\xa0]*)"
 
 
 def _tolerant_name(nome: str) -> str:
-    """As palavras de um nome longo com o ruído do nível 2, como as âncoras.
+    """As palavras de um nome longo com o ruído de OCR, como as âncoras.
 
-    A palavra passa por `_tolerante` ("Lci", "Execucão", "Rcgião"). O conector
-    aceita o ruído e a troca entre si, como o de `_NOME_DE_CODIGO` ("dc", "d0";
-    "Normas de Direito" ao lado de "Normas do Direito"), e o plural com o `s`
-    lido como `5` ("da5").
+    Os conectores (de/da/do…) aceitam ruído e troca entre si, e o plural com `s`
+    lido como `5`.
     """
     return _NAME_SEPARATOR.join(
         r"d[aeoc0ã][s5]?" if palavra in ("de", "da", "do", "das", "dos") else _tolerante(palavra)
@@ -361,28 +225,11 @@ def _tolerant_name(nome: str) -> str:
     )
 
 
-# O tribunal da súmula fora dos cinco superiores: TRF1 a TRF6, TRT1 a TRT24, TJ,
-# TRE e TJM com a UF, e a TNU. Sem ele, "Súmula 7 do TJSP" saía com o span
-# "Súmula 7" e sem tribunal — `inventada` mesmo que a base tivesse o registro —,
-# e com o nome por extenso ("Súmula 7 do Tribunal de Justiça de São Paulo") o IoU
-# contra o span da citação caía a 0,18, abaixo do corte: FN e FP de uma vez. A
-# base do conjunto de avaliação é nova e pode ter súmula de tribunal regional.
-#
-# Fica num padrão só da súmula: `_SIGLA_DE_TRIBUNAL` é também a âncora de `tema`
-# e `vaga`, que continuam nos cinco superiores.
-#
-# A sigla é a maiúscula, fora do IGNORECASE de `_SUMULA`: em caixa baixa ela
-# seria prosa. O separador entre a sigla e a UF ou a região vem nas grafias dos
-# acórdãos da base: "TRE/SP" (a forma mais comum do regional eleitoral, 170
-# ocorrências), "TJ-MS", "TJSP", "TRF-1", "TRT/<n>ª Região", "TRT da <n>a Região",
-# "TRT <n>". Entre a sigla e a UF não cabe espaço solto: em caixa alta, "SÚMULA 7
-# DO TJ SE APLICA" leria "TJ SE" como o tribunal de Sergipe.
-#
-# A UF é o conjunto fechado de `UFS`, mais o `DFT` do TJDFT, tolerante ao ruído
-# como as palavras-chave ("TJ5P"). A região é o número, ou o ordinal por extenso
-# ("da Sexta Região"), a forma dos cabeçalhos de peça. Aceitar a região que não
-# existe ("TRF9") é de propósito: ela não resolve e sai `inventada`, que é a
-# resposta certa, com o span inteiro.
+# Tribunal da súmula fora dos superiores: TRF1-6, TRT1-24, TJ/TRE/TJM com UF e TNU.
+# Fica só na súmula, porque `_SIGLA_DE_TRIBUNAL` também ancora `tema` e `vaga`. A
+# sigla exige maiúscula (em caixa baixa seria prosa) e não aceita espaço solto
+# antes da UF ("TJ SE APLICA" não é Sergipe). Região inexistente ("TRF9") é aceita
+# de propósito: não resolve e sai `inventada`, com o span inteiro.
 _UFS_DA_SIGLA = ("DFT", *sorted(UFS))
 _UNIDADES_DA_REGIAO = (
     "Primeira", "Segunda", "Terceira", "Quarta", "Quinta", "Sexta", "Sétima", "Oitava", "Nona",
@@ -397,10 +244,8 @@ _DA_REGIAO = (
     rf"d[aã]{_NAME_SEPARATOR}(?:{_NUMERO_DA_REGIAO}|{_ORDINAL_DA_REGIAO})"
     rf"{_NAME_SEPARATOR}{_tolerante('Região')}"
 )
-# O separador entre a sigla e a UF ou a região: nada, espaço, ou um sinal com
-# espaço opcional dos dois lados. Cada forma tem um caminho só — com `[ \t]*`
-# dos dois lados de um sinal opcional, "TRF" seguido de um trecho longo de
-# espaços custava tempo quadrático.
+# Nada, espaço, ou sinal com espaço opcional: um caminho só por forma, para evitar
+# backtracking quadrático.
 _SEPARADOR_DA_SIGLA = r"(?:[ \t]*[-–/][ \t]*|[ \t]+)?"
 _REGIONAL_DA_SUMULA = (
     r"(?:(?-i:TR[FT])"
@@ -412,13 +257,9 @@ _REGIONAL_DA_SUMULA = (
     r")(?![A-Za-zÀ-ÿ\d])"
 )
 
-# O regional pelo nome por extenso, que a prosa usa tanto quanto a sigla: "Tribunal
-# de Justiça de São Paulo", "Tribunal Regional Federal da 1ª Região", "Turma
-# Nacional de Uniformização". Só com o que identifica o tribunal — o estado ou a
-# região: "Súmula 21 do Tribunal Regional" não diz qual, e fica de fora como antes.
-#
-# Do nome mais longo para o mais curto: com "Mato Grosso" antes, o "do Sul" de
-# "Mato Grosso do Sul" ficaria fora do span, e o tribunal seria o de outro estado.
+# Regional pelo nome por extenso, só quando o estado ou a região o identificam
+# ("Súmula <n> do Tribunal Regional" fica de fora). Do nome mais longo para o mais
+# curto, para "Mato Grosso do Sul" não casar como "Mato Grosso".
 _ESTADOS_POR_EXTENSO = {
     "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM", "Bahia": "BA",
     "Ceará": "CE", "Distrito Federal e dos Territórios": "DFT", "Distrito Federal": "DF",
@@ -491,13 +332,10 @@ def _region_number(texto: str) -> int | None:
 
 
 def sigla_do_tribunal(texto: str) -> str:
-    """A sigla do tribunal sem o ruído de OCR: `5TJ` → `STJ`.
+    """A sigla do tribunal sem ruído de OCR nem separador: `5TJ` → `STJ`.
 
-    O tribunal regional da súmula chega como o texto o escreveu ("TRF-1", "TJ/SP",
-    "TJ5P", "TRF da 1ª Região", "Tribunal de Justiça de São Paulo") e sai numa
-    forma só, sem separador: `TRF1`, `TJSP`, `TREMG`, `TNU`. A troca do `5` por
-    `S` vale só para a letra — no regional o número é a região, e "TRT-5" não
-    pode virar "TRT-S".
+    O regional sai numa forma só (`TRF1`, `TJSP`, `TNU`), e nele o `5` da região não
+    vira `S` ("TRT-5").
     """
     for sigla, nome in _REGIONAL_NAMES:
         inicio = nome.match(texto)
@@ -520,17 +358,10 @@ def sigla_do_tribunal(texto: str) -> str:
     return texto.upper().replace("5", "S")
 
 
-#
-# Formas correntes que a amostra não tem e o texto jurídico usa: a sigla da
-# súmula vinculante ("SV 10"), "Enunciado" (como o TST chama as próprias
-# súmulas), o inciso como "item" ("Súmula 331, item IV, do TST") e o honorífico
-# antes do tribunal ("do C. STJ", "do E. STJ", "do col. TST"). Sem elas a súmula
-# da cobertura sumia ou saía sem tribunal — `inventada`. O "Enunciado" é marcado
-# no grupo `enunciado` para a resolução só o aceitar do TST.
-#
-# O tribunal regional vem nos mesmos grupos da sigla (`tribunal`,
-# `tribunal_par`, `tribunal_do`), o nome por extenso inclusive, e
-# `sigla_do_tribunal` o devolve na forma canônica.
+# Súmula com as grafias correntes: "SV", "Enunciado" (como o TST chama as próprias
+# súmulas; marcado para a resolução só aceitá-lo do TST), inciso ou item,
+# honorífico ("do C. STJ") e tribunal por barra, parênteses, conector ou nome por
+# extenso. Sem o tribunal a súmula não resolve e sai `inventada`.
 _HONORIFICO = r"(?:(?:C|E|Col|Colendo|Egr[ée]gio|Eg)\.?\s+)"
 _ITEM_DA_SUMULA = r"(?:\s*,\s*(?:item\s+|inciso\s+)?[IVXLC]{1,8}\s*,)"
 _SUMULA = re.compile(
@@ -550,51 +381,30 @@ _SUMULA = re.compile(
 )
 
 _TEMA = re.compile(
-    # O número atravessa o digitoide, mas não pode começar colado à palavra nem
-    # terminar dentro de outra: sem os freios, `temas` casava como Tema `s`.
-    #
-    # A espécie do tema pode vir entre a palavra e o número ("Tema Repetitivo
-    # 1.046", "Tema de Repercussão Geral nº 1.046", "Tema RG 1.046"), e o plural
-    # abre a enumeração ("Temas 1.046 e 1.191"). Sem essas formas a citação caía
-    # na família `processo`, e o número de um tema mencionado na ementa de um
-    # acórdão resolvia para esse acórdão — `inventada` → `real`.
+    # Espécie opcional entre a palavra e o número ("Tema Repetitivo <n>") e plural
+    # ("Temas"): sem elas o número cairia em `processo` e resolveria errado. Os
+    # freios impedem que `temas` case como Tema `s`.
     rf"\b{_tolerante('Tema')}s?\s+"
     rf"(?:(?:d[ae]\s+)?(?:{_tolerante('Repercussão')}\s+{_tolerante('Geral')}"
     rf"|{_tolerante('Repetitivo')}|RG)\s+)?"
     rf"(?:{_NUMERO}\s*)?"
     rf"(?P<numero>{_DIGITOIDE}+(?:\.{_DIGITOIDE}{{3}})*)(?![A-Za-zÀ-ÿ])"
     rf"(?:\s*d[ae]\s*{_tolerante('repercussão')}\s*{_tolerante('geral')})?"
-    # O tribunal depois do número faz parte da citação, como na súmula: "Tema
-    # 1.046 do STF", "Tema Repetitivo 1.076 do STJ". Sem ele o span parava no
-    # número e o IoU ficava entre 0,53 e 0,59 — na beira do corte, onde qualquer
-    # ruído a mais derruba o casamento e custa FN e FP de uma vez.
+    # O tribunal depois do número faz parte do span, como na súmula.
     rf"(?:\s*(?:[/\-–]|,?\s*{_CONECTOR})\s*{_SIGLA_DE_TRIBUNAL})?",
     re.IGNORECASE,
 )
 
-# Diploma legal: um código nomeado, a Constituição, ou "Lei nº X/ANO". Cada
-# alternativa é fechada: nada de `[\w\s]{0,40}` solto, que além de impreciso
-# custa caro quando o casamento falha adiante.
+# Diploma legal: código nomeado, Constituição, lei por número ou por nome. Cada
+# alternativa é fechada (nada de `[\w\s]{0,40}`), por precisão e desempenho.
 #
-# O ano de versão faz parte do diploma: `Código Civil de 1916` e `CPC/73` são
-# diplomas revogados, fora da cobertura, com os mesmos números de artigo da versão
-# vigente. Sem capturar o ano, `art. 186 do Código Civil de 1916` chegava à
-# resolução como "Código Civil de" e resolvia para o art. 186 do CC/2002 — o
-# erro grave da métrica. Por isso o conector solto não pode ser a última palavra
-# do nome (`(?!d[aeo]\b)`): se fosse, ele engoliria o "de" e o ano ficaria fora.
+# O ano de versão faz parte do diploma: códigos revogados (`CPC/73`) têm a mesma
+# numeração de artigos dos vigentes, e sem o ano a resolução cairia no vigente. Por
+# isso o conector não pode ser a última palavra do nome.
 _ANO_DE_VERSAO = r"(?:\s*/\s*\d{2,4}|\s+de\s+(?:19|20)\d{2})?"
-#
-# A palavra do nome está em caixa de título — maiúscula seguida de minúscula, com
-# `(?-i:…)` porque `_DISPOSITIVO` é IGNORECASE — ou é uma das palavras do
-# vocabulário fechado de `_PALAVRA_DE_CODIGO_MINUSCULA`, em qualquer caixa. Antes
-# qualquer palavra servia, e a prosa entrava no span: "art. 186 do Código Civil
-# trata do ato" (IoU 0,65). `militar` está na lista para que o CPPM escrito em
-# minúscula continue capturado inteiro e recusado.
-#
-# Caixa de título, e não só inicial maiúscula: em caixa alta — ementas inteiras
-# são escritas assim — toda palavra tem inicial maiúscula, e a prosa entrava no
-# diploma ("ART. 290 DO CÓDIGO PENAL MILITAR SE ENCONTRA"). Ali só entra palavra
-# do vocabulário fechado.
+# Palavra do nome do código: caixa de título (`(?-i:…)` porque `_DISPOSITIVO` é
+# IGNORECASE) ou vocabulário fechado em qualquer caixa. Assim nem a prosa seguinte
+# nem as ementas em caixa alta entram no diploma.
 _PALAVRA_TITULO = r"(?-i:[A-ZÀ-Ú][a-zà-ú])[\wÀ-ú]*"
 _PALAVRA_DE_CODIGO_MINUSCULA = (
     "(?:"
@@ -607,11 +417,8 @@ _PALAVRA_DE_CODIGO_MINUSCULA = (
     )
     + r")(?![\wÀ-ú])"
 )
-#
-# O conector aceita o ruído do nível 2 (`dc`, `d0`, `dã`) e o nome vai até quatro
-# palavras. Com o conector literal e o teto de três, "Código dc Processo Penal
-# Militar" e "Código Brasileiro de Processo Penal Militar" perdiam o "Militar":
-# o CPPM, fora da cobertura, chegava à resolução como CPP — o erro grave.
+# Conector com ruído de OCR e até quatro palavras no nome: sem isso o "Militar" do
+# CPPM ficava de fora e ele resolvia como CPP.
 _CONECTOR_DE_NOME = r"d[aeoc0ã]"
 _PALAVRA_DO_NOME = (
     rf"(?:\s+(?:{_CONECTOR_DE_NOME}\s+)?(?!{_CONECTOR_DE_NOME}\b)"
@@ -619,28 +426,12 @@ _PALAVRA_DO_NOME = (
 )
 _NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,4}}{_ANO_DE_VERSAO}"
 
-# Os diplomas federais citados pelo nome, e não pelo número: "art. 5º da Lei de
-# Execução Penal", "art. 98 do Estatuto da Criança e do Adolescente". Nenhuma
-# outra alternativa de `_DIPLOMA` casa "Lei de …" ou "Estatuto …", e a citação
-# sumia inteira. O conjunto de avaliação roda sobre uma base nova, que pode ter
-# o artigo de qualquer lei federal; nos 996 acórdãos da base de hoje, "Lei de
-# Introdução" aparece em 72, "Lei das Eleições" em 70 e "Lei de Licitações" em 51.
+# Diplomas federais citados pelo nome ("Lei de Execução Penal"). Lista fechada,
+# para "Lei de regência" não virar citação; a resolução decide o que cada nome é.
 #
-# A lista é **fechada**, pelo mesmo motivo de `_PALAVRA_DE_CODIGO_MINUSCULA`:
-# "Lei de <qualquer coisa>" faria de "art. 5º da Lei de regência" uma citação. A
-# detecção só entrega o nome inteiro no grupo `diploma`; quem o leva a (tipo,
-# número, ano), ou o recusa, é a resolução.
-#
-# Cada entrada é o nome e os complementos que podem vir depois dele. O
-# complemento que muda a identidade do diploma precisa entrar no span para
-# chegar à resolução, como o qualificador da Constituição: "Federais" e "da
-# Fazenda Pública" nomeiam outras duas leis de juizados, e sem eles `art. 3º da
-# Lei dos Juizados Especiais Federais` chegaria como a lei dos juizados
-# estaduais. "Nova" antes de "Lei de Licitações" separa a de 2021 da de 1993.
-#
-# Os complementos vão do mais longo para o mais curto: a alternância fica com o
-# primeiro que casa, e "Cíveis" antes de "Cíveis e Criminais" deixaria o "e
-# Criminais" fora do diploma.
+# Os complementos que mudam a identidade do diploma ("Federais", "da Fazenda
+# Pública") entram no span, do mais longo para o mais curto, porque a alternância
+# fica com o primeiro que casa.
 _STATUTE_NAMES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Estatuto da Criança e do Adolescente", ()),
     ("Estatuto do Idoso", ()),
@@ -679,10 +470,9 @@ _STATUTE_NAMES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def _statute_pattern(nome: str, complementos: tuple[str, ...]) -> str:
-    """A expressão de uma entrada de `_STATUTE_NAMES`, tolerante como as âncoras.
+    """Expressão de uma entrada de `_STATUTE_NAMES`, tolerante como as âncoras.
 
-    A fronteira no fim impede que o nome termine dentro de uma palavra — "Lei de
-    Inelegibilidade" não pode parar antes do "s" de "Inelegibilidades".
+    A fronteira final impede o nome de parar no meio de uma palavra.
     """
     expressao = _tolerant_name(nome)
     if complementos:
@@ -691,48 +481,32 @@ def _statute_pattern(nome: str, complementos: tuple[str, ...]) -> str:
     return expressao + r"(?![\wÀ-ú])"
 
 
-# O ano entra pelo mesmo motivo que em `_NOME_DE_CODIGO`: "Lei de Licitações de
-# 1993" e a Nova Lei de Licitações têm os mesmos números de artigo, e só com o ano
-# no diploma a resolução consegue separá-las.
+# O ano separa versões com a mesma numeração de artigos (a Lei de Licitações
+# antiga e a nova).
 _NAMED_STATUTE = (
     "(?:"
     + "|".join(_statute_pattern(nome, extra) for nome, extra in _STATUTE_NAMES)
     + f"){_ANO_DE_VERSAO}"
 )
 
-# As siglas de diploma, dentro de `_DIPLOMA` e depois de vírgula
-# (`_SIGLA_DE_DIPLOMA`). `CRFB` e `NCPC` são grafias correntes da CF/88 e do CPC
-# vigente; `CP`, `CTN`, `CTB`, `ECA` e `CPPM` estão fora da cobertura de hoje e
-# entram para que a citação exista.
-#
-# `LEP`, `LINDB`, `LICC`, `LOMAN`, `LRF` e `LEF` são as siglas dos diplomas de
-# `_STATUTE_NAMES` que a prosa usa sozinhas depois do artigo ("art. 47 da LEF"):
-# nos 996 acórdãos da base, as seis aparecem nessa forma. `LIDB` também — é a
-# abreviação da Lei de Introdução em 46 deles.
-#
-# A mais longa vem antes da que ela contém (`CPPM` antes de `CPP`), e quem
-# termina a sigla é a fronteira que cada uso põe depois dela: sem isso `CPPM`
-# casava `CPP` e o "M" ficava de fora.
+# Siglas de diploma, inclusive as fora da cobertura (para a citação existir e sair
+# `inventada`) e as abreviações dos diplomas de `_STATUTE_NAMES`. A mais longa vem
+# antes da que ela contém (`CPPM` antes de `CPP`).
 _DIPLOMA_ACRONYMS = (
     r"(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA"
     r"|LINDB|LIDB|LICC|LOMAN|LEP|LRF|LEF|CF|CC|CP)"
 )
-# O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
-# lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
-# e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
-# em `registrar`, como no número do artigo.
+# Número da lei com digitoide; o lookahead impede terminar dentro de uma palavra
+# ("Lei Orgânica" não é "Lei O"). A exigência de dígito real fica em `registrar`.
 _NUMERO_DE_LEI = (
-    # A marca aceita espaço entre o `n` e o símbolo (`n º`), que `marca_numero`
-    # produz; sem isso a citação da Lei Complementar sumia inteira.
+    # A marca aceita espaço entre o `n` e o símbolo (`n º`).
     rf"(?:\s*[nN]\s?[.ºo°]{{0,2}})?\s*{_DIGITOIDE}(?:[.]?{_DIGITOIDE})*"
     rf"(?:\s*/\s*{_DIGITOIDE}{{2,4}})?(?![A-Za-zÀ-ÿ])"
 )
 
-# Os qualificadores de constituição que aparecem em minúscula na prosa. Os que
-# identificam a CF/88 e os que a recusam entram juntos: "constituição estadual"
-# precisa continuar capturado inteiro para virar `inventada`. Uma lista de
-# inclusão de palavras minúsculas é segura na direção do τ — a palavra que falta
-# nela fica **fora** do diploma, e aí quem decide é a maiúscula ou o ano.
+# Qualificadores de constituição em minúscula, os que identificam a CF/88 e os que
+# a recusam ("constituição estadual" precisa ser capturada inteira). A palavra que
+# faltar aqui apenas fica fora do diploma.
 _QUALIFICADOR_MINUSCULO = (
     "(?:"
     + "|".join(
@@ -746,24 +520,15 @@ _QUALIFICADOR_MINUSCULO = (
     + r")(?![\wÀ-ú])"
 )
 
-# A palavra "Lei" também sofre o ruído de letra (`Lci`), e o número pode vir
-# depois de um qualificador ("Lei Federal nº 9.504/97"). Sem as duas coisas o
-# dispositivo não casava, e o número da lei sobrava para a família `processo`.
+# "Lei" com ruído de OCR e qualificador antes do número ("Lei Federal nº"); sem
+# isso o número sobrava para a família `processo`.
 _QUALIFICADOR_DE_LEI = "|".join(
     _tolerante(p) for p in ("Complementar", "Federal", "Estadual", "Municipal", "Ordinária")
 )
 
-# Palavras de qualificador da Constituição depois da primeira, na mesma linha:
-# "Constituição da República Portuguesa", "Constituição Federal Alemã". Só a
-# primeira palavra entrava no diploma, e o qualificador estrangeiro que vinha
-# depois nunca chegava à regra de inclusão da CF. O algarismo romano fica de
-# fora para que o título da seção seguinte não entre no diploma.
-#
-# Nem toda palavra capitalizada é qualificador: sem pontuação entre as duas, a
-# âncora de outra citação ("… Constituição Federal Súmula 83 do STJ") ou o nome
-# de quem julga ("… Federal Relator Ministro Fulano") entrava no diploma — a CF
-# saía `inventada` e a citação vizinha sumia. Palavra-âncora de família,
-# palavra institucional e sigla de classe processual param a captura.
+# Qualificadores da Constituição depois da primeira palavra ("da República
+# Portuguesa"). Romanos ficam de fora (título de seção); âncoras de outras famílias,
+# palavras institucionais e siglas processuais param a captura.
 _NAO_QUALIFICA = (
     r"(?!(?:S[úu]mulas?|Enunciados?|Temas?|Arts?\b|Artigos?|Leis?\b|Decreto|C[óo]digo|"
     r"Rel\b|Relator|Relatora|Ministr[oa]|Min\b|Tribunal|Turma|Corte|Plen[áa]rio|"
@@ -781,79 +546,32 @@ _DIPLOMA = (
     rf"{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
     rf"|{_NAMED_STATUTE}"
-    # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
-    # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
-    # ("Constituição da República", "Constituição Fedcral"), e parar em
-    # "Constituição" derrubava o IoU a 0,68; (2) é o qualificador que distingue
-    # a Federal — a única na cobertura — da Estadual, e sem ele
-    # `art. 5º da Constituição Estadual` resolvia para o art. 5º da CF, que é o
-    # erro grave da métrica. Aceita "Federal", "Fedcral" (OCR), "da República"
-    # e "do Estado".
-    #
-    # O ano entra pelo mesmo motivo que em `_NOME_DE_CODIGO`: `Constituição de
-    # 1967` é outra constituição. A primeira alternativa existe porque o "de" do
-    # conector engoliria o "de" do ano, e o casamento terminaria antes dele.
-    #
-    # A palavra depois de "Constituição" só entra se tiver **forma de
-    # qualificador**: inicial maiúscula — o `(?-i:…)` desliga o IGNORECASE de
-    # `_DISPOSITIVO`, sem o que `[A-Z]` casava minúscula — ou uma das palavras
-    # minúsculas de `_QUALIFICADOR_MINUSCULO`. Antes, o verbo da frase entrava no
-    # diploma ("art. 5º da Constituição garante") e reprovava o qualificador da
-    # CF: `real` virava `inventada`. Medido nos 996 acórdãos, eram 98 citações.
+    # O qualificador da Constituição entra no diploma: é o que separa a Federal (a
+    # única na cobertura) da Estadual ou estrangeira. Só entra palavra com forma de
+    # qualificador, para o verbo da frase ("… garante") não reprovar a CF. O ano
+    # identifica outra constituição; a primeira alternativa evita que o "de" do
+    # conector engula o do ano.
     rf"|{_tolerante('Constituição')}(?:\s+de\s+(?:19|20)\d{{2}}"
     rf"|(?:\s+d[aeo]\s+)?(?:\s*(?-i:{_NAO_QUALIFICA})(?:(?-i:[A-ZÀ-Ú])[\wÀ-ú]+|{_QUALIFICADOR_MINUSCULO}))?"
     rf"{_QUALIFICADOR_SEGUINTE}{_ANO_DE_VERSAO})"
-    # "Lei Maior", "Carta Política" e "Carta da República" são como a prosa
-    # jurídica chama a CF/88, tanto quanto "Carta Magna".
-    # O apelido leva o qualificador e o ano que vierem depois, como a
-    # Constituição: "Lei Maior de 1969", "Carta da República Portuguesa" são
-    # outra carta, e só com o qualificador no diploma a resolução pode recusá-la.
+    # Apelidos da CF/88, com qualificador e ano como a Constituição ("Lei Maior de
+    # 1969" é outra carta).
     r"|(?:Carta\s+Magna|Lei\s+Maior|Carta\s+Pol[íi]tica|Carta\s+da\s+Rep[úu]blica)"
     rf"(?:\s+de\s+(?:19|20)\d{{2}}|(?:\s+d[aeo]s?)?{_QUALIFICADOR_SEGUINTE}{_ANO_DE_VERSAO})"
-    # `Decreto-Lei nº 5.452/1943` é **como a base canônica nomeia a CLT** na
-    # primeira linha autodeclarada dos registros `dispositivo`, e `LC` é a sigla
-    # corrente da Lei Complementar. Sem as duas alternativas a citação sumia — e
-    # os marcadores "lc 64" em `resolucao.DIPLOMAS` eram inalcançáveis.
-    # As duas palavras toleram o ruído de letra ("Deereto-Lci", "Decret0-Lei").
+    # `Decreto-Lei` é como a base nomeia a CLT; `LC` é a sigla de Lei Complementar.
     rf"|{_tolerante('Decreto')}[-‐\s]*{_tolerante('Lei')}{_NUMERO_DE_LEI}"
     rf"|LC{_NUMERO_DE_LEI}"
-    # `CPC/73` e `CC/16` são os códigos revogados; o ano vai junto para a
-    # resolução decidir. `CF/88` é o caso particular que já existia.
-    #
-    # A sigla precisa terminar ali: sem a fronteira, `CPPM` casava `CPP` e o "M"
-    # ficava de fora — o Código de Processo Penal Militar, fora da cobertura,
-    # resolvia para o art. 312 do CPP. As siglas fora da cobertura entram para que
-    # a citação exista e saia `inventada`. Ver `_DIPLOMA_ACRONYMS`.
+    # Siglas com ano (`CPC/73`, `CF/88`); a fronteira impede `CPPM` de casar `CPP`.
     rf"|{_DIPLOMA_ACRONYMS}(?![A-Za-zÀ-ÿ])"
     rf"{_ANO_DE_VERSAO}"
     r")"
 )
 
-# Incisos, parágrafos e alíneas entre o número do artigo e o diploma. Cada
-# repetição **precisa** consumir uma vírgula: sem isso o grupo casa o vazio e o
-# motor testa todas as partições da prosa seguinte — era 41 s por documento.
-#
-# O romano vai até **oito** caracteres, e não cinco: `LXXVIII` tem sete, e com o
-# limite antigo `art. 5º, LXXVIII, da Constituição Federal` não casava e a
-# citação sumia. Medido nos 996 acórdãos reais da base, romano com seis ou mais
-# caracteres aparece em 49 deles.
-#
-# `caput` e o inciso no plural entram pelo mesmo motivo — medindo a mesma base,
-# `caput` aparece em **424 de 996** e `inciso(s)` em 497. A conjunção entre dois
-# romanos ("incisos I e II") aparece em 109. Nenhuma das três é forma exótica; a
-# amostra sintética é que não as produziu.
+# Incisos, parágrafos e alíneas entre o artigo e o diploma. Cada repetição precisa
+# consumir uma vírgula: sem isso o grupo casa o vazio e o backtracking explode. O
+# romano vai até oito caracteres (`LXXVIII`).
 _ROMANO = r"[IVXLC]{1,8}"
-#
-# `parágrafo único`, a abreviação `inc.` e o `caput` coordenado com inciso
-# (`caput e inciso LV`, `caput, e inciso II`) são formas correntes que faziam a
-# citação sumir inteira. Continuam dentro da mesma regra: toda alternativa
-# consome texto literal, e cada repetição começa por vírgula.
-#
-# As palavras do qualificador sofrem o mesmo ruído de letra que as âncoras
-# ("iriciso", "eaput", "parágraf0 únic0", "alínca"), e com a palavra escrita
-# literal o dispositivo inteiro sumia: no simulador do sigiloso eram 5% dos
-# dispositivos do nível 2 a taxa 0,05, e 16% a 0,15 — a maior perda medida.
-# Mesma política de `_tolerante`: vale só para as palavras fixas.
+# As palavras fixas toleram o ruído de OCR, como as âncoras.
 _INCISO = (
     rf"(?:{_tolerante('inciso')}[s5]?|{_tolerante('inc')}[s5]?\.)\s+{_ROMANO}"
     rf"(?:\s+e\s+{_ROMANO})?"
@@ -869,39 +587,14 @@ _QUALIFICADORES = (
     r"{0,5}"
 )
 
-# O número do artigo pode ter separador de milhar: `art. 1.134`, `art. 1.105`.
-# Ler só `\d+` para no primeiro ponto e o casamento inteiro falha.
-#
-# **Os dígitos são digitoides**, pela mesma razão que `_NUCLEO` — e esta era a
-# maior perda de recall do pipeline. O checkpoint 06 ensinou a família
-# `processo` a atravessar a letra que o OCR põe no lugar do dígito; as famílias
-# `dispositivo` e `sumula` ficaram exigindo dígito puro. Medindo os corpora de
-# `data/perturbado/`, a assimetria custava mais que o defeito já corrigido:
-#
-#     classe de ruído        disp/súm/tema   processo
-#     ocr_numero (5 sem.)         40            22
-#     ocr_palavra (5 sem.)        17            22
-#
-# `_corrigir_ocr` repara todos esses casos (`I86`→`186`, `B96`→`896`); era a
-# detecção que nunca lhe entregava o trecho.
-#
-# O contrapeso é `_tem_digito_real`, exigido em `registrar`: sem ele `art Iss`
-# casaria, porque `I` e `s` são digitoides e o número sairia do nada. É a mesma
-# política de `_MINIMO_DIGITOS` na família `processo`.
-#
-# O separador de milhar admite **uma** quebra de linha logo depois do ponto
-# (`art. 1.\n105`): o nível 2 parte identificadores no meio, e o número do
-# artigo não é exceção. Medido: era a citação que `quebra_identificador` perdia
-# na quinta semente, desde o checkpoint 06.
+# Número do artigo com separador de milhar (`art. 1.134`), digitoide como `_NUCLEO`
+# e com no máximo uma quebra de linha depois do ponto. O contrapeso é
+# `_tem_digito_real` em `registrar`: sem ele `art Iss` casaria.
 _NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-ºo°][\w]{{0,3}})?"
 
-# "novo" ou "atual" antes do diploma ("art. 373 do novo Código de Processo
-# Civil", "do atual CPC") é como a prosa distingue o CPC/2015 do de 1973; o
-# adjetivo ficava entre o conector e o diploma e a citação sumia.
-#
-# O diploma por sigla pode vir só depois de vírgula, sem conector ("art. 5º, LV,
-# CF"), forma corrente em peça jurídica. Só a sigla, e só com vírgula: nome por
-# extenso sem conector seria prosa.
+# "novo"/"atual" antes do diploma distinguem o CPC vigente do revogado. A sigla pode
+# vir só depois de vírgula, sem conector ("art. <n>, LV, CF"); nome por extenso sem
+# conector seria prosa.
 _ADJETIVO_DE_DIPLOMA = r"(?:(?:novo|atual|vigente)\s+)"
 _SIGLA_DE_DIPLOMA = rf"{_DIPLOMA_ACRONYMS}(?![A-Za-zÀ-ÿ])" r"(?:\s*/\s*\d{2,4})?"
 _DISPOSITIVO = re.compile(
@@ -914,62 +607,42 @@ _DISPOSITIVO = re.compile(
     re.IGNORECASE,
 )
 
-# A família `vaga`: tribunal + ano + relator, hoje a totalidade das `incompleta`.
-# O relator é a âncora — é o que separa este padrão de uma menção solta a ano.
-# `d[eoc]` e não `d[eo]`: o nível 2 corrompe letras isoladas, e a amostra traz
-# o conector "de" aparece corrompido como "dc" (e→c) na amostra.
-#
-# A palavra-chave é tolerante ao ruído de letra — `rclatoria`, `relatorla` e
-# `pcla` sumiam sob `ocr_palavra`: era a causa das 20 `incompleta` não detectadas
-# medidas no checkpoint 06, o maior bloco daquela classe. Ver `_tolerante`.
+# Família `vaga`: tribunal + ano + relator. O relator é a âncora que separa o
+# padrão de uma menção solta a ano; as palavras toleram o ruído de OCR.
 _RELATOR = (
     rf"(?:[Rr]{_tolerante('el')}(?:{_tolerante('at')}[0oaã]r[ilaã]?[aã]?)?\.?\s*"
-    # "Min" aceita o ponto trocado por grau ("Min°", "Min º"), como a marca de
-    # número; sem isso o "Min" virava o nome do relator e o nome ficava de fora.
+    # "Min" aceita o ponto trocado por grau ("Min°").
     rf"(?:Mi[nN]\s?[.°º]?|{_tolerante('Ministr')}[ao])?\.?"
     rf"|{_tolerante('relatoria')}\s+d[eoc])"
 )
 
-#
-# A cabeça é a classe ou o genérico ("julgado", "acórdão", "precedente"), com
-# até três palavras a mais para as classes por extenso ("Recurso em Habeas
-# Corpus"). Ela precisa ser seguida de perto pelo tribunal ou pelo ano — é o que
-# impede a expressão de começar em "Cita-se" na frase "Cita-se o julgado do STF".
+# Cabeça: classe ou genérico ("julgado", "acórdão"), seguida de perto pelo
+# tribunal ou pelo ano, para não começar em "Cita-se o julgado …".
 _CABECA_VAGA = (
     rf"(?:{_tolerante('julgad')}[oaã0]|{_tolerante('acórdão')}|{_tolerante('precedente')}"
     rf"|{_tolerante('decisão')}"
-    # O incidente antes da classe ("AgInt no AREsp", "EDcl nos EDcl") só entra
-    # quando tem forma de sigla — duas maiúsculas —, para que a prosa capitalizada
-    # ("Como no REsp") não abra o span. "com" liga a classe por extenso
-    # ("Recurso Extraordinário com Agravo"), que antes começava em "Agravo".
+    # Incidente antes da classe ("AgInt no AREsp") só com forma de sigla (duas
+    # maiúsculas), para a prosa capitalizada não abrir o span.
     r"|(?:[A-ZÀ-Ú][a-zà-ú]*[A-ZÀ-Ú][\wÀ-ú.\-]*\s+n[oa]s?\s+)*"
     r"[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}"
     r"(?:\s+(?:em\s+|de\s+|do\s+|da\s+|com\s+)?[A-ZÀ-Ú][\wÀ-ú.\-]{1,24}){0,3}"
     r")"
 )
 
-# O nome do relator: palavras capitalizadas, com conector ("Celso de Mello") e
-# inicial abreviada ("J. Otávio Noronha"). O ponto só vale **como inicial** — uma
-# letra e o ponto —, e entre as palavras cabe no máximo uma quebra de linha.
-# Com o ponto solto e `\s+`, o nome atravessava o fim da frase e engolia a
-# primeira palavra da seguinte ("… Celso De Mello. Antes") ou o título da seção
-# depois da linha em branco ("… LÚCIA.\n\nIII"), e roubava a sobreposição da
-# citação que viesse logo depois ("… LÚCIA. REsp 1.234.567/SP" perdia o REsp).
+# Nome do relator: palavras capitalizadas, conector e inicial abreviada. O ponto
+# vale só como inicial e cabe no máximo uma quebra de linha, para o nome não
+# atravessar o fim da frase e engolir a citação seguinte.
 _SEPARADOR_DE_NOME = r"(?:[ \t\xa0]+\n?[ \t\xa0]*|\n[ \t\xa0]*)"
-# A inicial também sofre o ruído: "rnAURO" (M→rn) e, em nome todo em caixa
-# alta, a maiúscula lida como minúscula confundível ("eARLOS", "eRISTIANO").
-# Só nessas duas formas — minúscula seguida de duas maiúsculas, ou o "rn" —,
-# para que a palavra de prosa minúscula não entre no nome.
+# A inicial também sofre ruído ("rnAURO", "eARLOS" em caixa alta); só essas formas,
+# para não admitir palavra de prosa minúscula.
 _PALAVRA_DE_NOME = r"(?:[A-ZÀ-Ú]|rn(?=[\wÀ-ú])|[a-zà-ú](?=[A-ZÀ-Ú]{2}))(?:[\wÀ-ú']+|\.)"
 _NOME_PROPRIO = (
     rf"{_PALAVRA_DE_NOME}"
     rf"(?:{_SEPARADOR_DE_NOME}(?:d[aeo]s?{_SEPARADOR_DE_NOME})?{_PALAVRA_DE_NOME}){{0,4}}"
 )
 
-# O ano, tolerante ao ruído do nível 2. Esta é a única quantia numérica da
-# família `vaga`, então exigir quatro dígitos limpos apaga a citação inteira
-# quando o OCR troca um deles ou a quebra de linha cai no meio. Medido: era a
-# causa de 25 das 32 `incompleta` sumirem sob ruído no número.
+# O ano é a única quantia numérica da `vaga`: tolera OCR e quebra de linha, ou a
+# citação some inteira.
 _ENTRE_DIGITOS = r"[ \t]*\n?[ \t]*"
 _DIGITO_OU_OCR = rf"[\d{''.join(sorted(set(OCR_PARA_DIGITO)))}]"
 _ANO_TOLERANTE = (
