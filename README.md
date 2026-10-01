@@ -109,7 +109,7 @@ todos os cenários.
 
 ```bash
 uv sync          # Python 3.12 + pytest/ruff (só para desenvolver)
-make testar      # suíte de testes (864)
+make testar      # suíte de testes
 make lint        # ruff
 make entrega     # roda o run.sh no conjunto de desenvolvimento e pontua pela métrica oficial
 ```
