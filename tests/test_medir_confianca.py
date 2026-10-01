@@ -13,7 +13,7 @@ sys.path.insert(0, str(RAIZ / "scripts"))
 
 import medir_confianca  # noqa: E402
 
-from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.base.canonica import BaseCanonica  # noqa: E402
 
 BASE_VAZIA = BaseCanonica({"numeros": {}, "registros": {}})
 

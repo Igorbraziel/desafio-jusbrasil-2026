@@ -1,22 +1,12 @@
-"""Identidade dos diplomas legais: fatos de direito, não da base.
+"""Identidade dos diplomas legais (ex.: Lei 10.406/2002 é o Código Civil).
 
-A tabela de dispositivos da cobertura é construída do banco recebido em
-execução (ver :func:`verificador.base_canonica.construir_indice`), e cada
-registro se autodeclara na primeira linha ("Artigo 186 da Lei nº 10.406, de 10
-de janeiro de 2002"). Para ligar essa linha ao nome com que a prosa cita o
-diploma ("Código Civil", "CC"), é preciso saber que a Lei 10.406/2002 **é** o
-Código Civil. Isso é fato de direito brasileiro e vale para qualquer base; o que
-a base decide é só quais artigos estão na cobertura.
-
-Lei que não tem nome conhecido aqui não fica de fora: ganha um código genérico
-pelo tipo e pelo número (`LEI_9504`, `DL_1234`, `LC_135`), e a citação que a
-nomeia pelo número resolve contra ela do mesmo jeito.
+São fatos de direito, válidos para qualquer base; lei sem nome conhecido ganha
+um código genérico pelo tipo e número (`LEI_9504`, `DL_1234`, `LC_135`).
 """
 
 from __future__ import annotations
 
-# (tipo, número sem pontos) -> código. O tipo é "lei", "decreto-lei" ou
-# "lei complementar". A CF não tem número e fica fora desta tabela: é "CF".
+# (tipo, número sem pontos) -> código. A CF não tem número e fica fora daqui.
 LEIS_NOMEADAS: dict[tuple[str, str], str] = {
     ("lei", "13105"): "CPC",
     ("decreto-lei", "3689"): "CPP",
@@ -33,16 +23,9 @@ LEIS_NOMEADAS: dict[tuple[str, str], str] = {
     ("lei", "9503"): "CTB",
 }
 
-# Leis que a prosa cita pelo **nome** ("Lei da Ação Civil Pública", "LEP") e
-# que a detecção entrega no grupo `diploma`. Cada nome leva ao tipo e ao número,
-# e daí ao mesmo código que a citação pelo número teria: "Lei de Execução Penal"
-# e "Lei nº 7.210/1984" resolvem contra o mesmo registro do banco, se ele
-# existir. Os nomes estão na forma de `resolucao.chave_textual` (minúsculas, sem
-# acento) e são conferidos por contenção, do mais longo ao mais curto.
-#
-# Sem esta tabela, "Lei da Ação Civil Pública" e "Lei de Introdução ao Código
-# Civil" caíam no marcador "civil" e resolviam para o Código Civil: "art. 186 da
-# Lei da Ação Civil Pública" saía `real` — o erro grave.
+# Leis citadas pelo nome, levadas ao mesmo código da citação pelo número. Nomes
+# em `chave_textual`, conferidos por contenção na ordem da tabela; sem ela, "Lei
+# da Ação Civil Pública" cairia no marcador "civil" e viraria o Código Civil.
 LEIS_POR_NOME: tuple[tuple[str, tuple[str, str], int], ...] = (
     ("estatuto da crianca e do adolescente", ("lei", "8069"), 1990),
     ("estatuto da pessoa idosa", ("lei", "10741"), 2003),
@@ -89,8 +72,7 @@ SIGLAS_DE_LEI: dict[str, tuple[tuple[str, str], int]] = {
     "lef": (("lei", "6830"), 1980),
 }
 
-# Ano de cada diploma nomeado. Serve para recusar a versão revogada, que tem os
-# mesmos números de artigo: `Código Civil de 1916`, `CPC/73`.
+# Ano de cada diploma, para recusar a versão revogada (`Código Civil de 1916`).
 ANO_DA_LEI: dict[str, int] = {
     "CF": 1988,
     "CPC": 2015,
@@ -108,7 +90,6 @@ ANO_DA_LEI: dict[str, int] = {
     "CTB": 1997,
 }
 
-# Número de cada diploma nomeado, o inverso de `LEIS_NOMEADAS`.
 NUMERO_DA_LEI: dict[str, str] = {codigo: numero for (_, numero), codigo in LEIS_NOMEADAS.items()}
 
 _PREFIXO_GENERICO = {"lei": "LEI", "decreto-lei": "DL", "lei complementar": "LC"}

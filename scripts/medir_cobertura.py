@@ -31,7 +31,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
 
-from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.base.canonica import BaseCanonica  # noqa: E402
 from verificador.cli import _carregar_base  # noqa: E402
 from verificador.pipeline import processar_texto  # noqa: E402
 

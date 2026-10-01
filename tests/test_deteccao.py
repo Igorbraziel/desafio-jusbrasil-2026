@@ -7,7 +7,7 @@ observadas na amostra sem copiar o gabarito, que não é público. Ver
 
 import pytest
 
-from verificador.deteccao import detectar
+from verificador.deteccao.detector import detectar
 from verificador.texto import fim_do_cabecalho
 
 CABECALHO = (

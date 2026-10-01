@@ -11,7 +11,7 @@ Os artigos e os números de súmula são **sintéticos**, como nas demais suíte
 
 import pytest
 
-from verificador.deteccao import detectar, sigla_do_tribunal
+from verificador.deteccao.detector import detectar, sigla_do_tribunal
 
 CABECALHO = (
     "EXCELENTÍSSIMO SENHOR MINISTRO RELATOR\n"
@@ -231,7 +231,7 @@ def test_nome_longo_nao_explode_em_espaco_longo(expressao, texto):
     import re
     import time
 
-    from verificador import deteccao
+    from verificador.deteccao import detector as deteccao
 
     padrao = getattr(deteccao, expressao)
     expr = padrao if isinstance(padrao, re.Pattern) else re.compile(padrao, re.IGNORECASE)

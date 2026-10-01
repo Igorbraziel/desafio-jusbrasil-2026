@@ -13,7 +13,7 @@ import sqlite3
 import pytest
 from conftest import BANCO, DISPOSITIVOS, GOLDENSET, SUMULAS, sem_dados
 
-from verificador.base_canonica import dispositivo_do_registro, sumula_do_registro
+from verificador.base.canonica import dispositivo_do_registro, sumula_do_registro
 
 
 def _ids_por_natureza(natureza: str) -> set[int]:

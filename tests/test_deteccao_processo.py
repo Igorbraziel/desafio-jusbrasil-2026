@@ -14,7 +14,7 @@ forma da prosa em volta, não o número.
 
 import pytest
 
-from verificador.deteccao import detectar
+from verificador.deteccao.detector import detectar
 
 CABECALHO = (
     "EXCELENTÍSSIMO SENHOR MINISTRO RELATOR\n"

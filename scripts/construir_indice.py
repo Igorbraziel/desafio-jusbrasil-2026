@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from verificador.base_canonica import construir_indice, salvar_indice  # noqa: E402
+from verificador.base.canonica import construir_indice, salvar_indice  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

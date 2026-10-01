@@ -24,8 +24,8 @@ from pathlib import Path
 import pytest
 from conftest import RAIZ
 
-from verificador.base_canonica import BaseCanonica
-from verificador.submissao import check_submission
+from verificador.base.canonica import BaseCanonica
+from verificador.saida.submissao import check_submission
 
 # O esquema de `documentos` como a organização o distribui. É estrutura, não
 # conteúdo: a base da avaliação final terá outras linhas nessa mesma tabela.

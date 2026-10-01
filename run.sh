@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
-# Ponto de entrada único da entrega: base canônica + pasta de pareceres
-# -> submission.csv no formato das submissões do Kaggle.
+# Ponto de entrada da entrega: base canônica + pareceres -> submission.csv.
 #
 #   bash run.sh <caminho_db> <pasta_txt> <arquivo_saida> [pasta_json]
 #
-# A avaliação final roda este script sobre uma base e pareceres novos, sem
-# ninguém nosso por perto. Por isso ele só depende do bash e de um Python ≥ 3.10
-# com a biblioteca padrão — ou, na falta dele, do Docker —, aceita caminhos
-# relativos a quem chama e com espaços, e todo erro sai com mensagem e código
-# ≠ 0. Até escolher entre Python e Docker ele só usa builtins do bash: um PATH
-# mínimo não o derruba antes da mensagem.
-#
-# Variáveis: PYTHON (interpretador a usar), VERIFICADOR_DOCKER=1 (força o
-# Docker), VERIFICADOR_IMAGEM (imagem; padrão verificador-citacoes:latest).
+# Depende só do bash e de um Python >= 3.10 (ou, na falta dele, do Docker). Até
+# escolher entre os dois usa apenas builtins, para sobreviver a um PATH mínimo.
 
 # `sh run.sh` roda o script no sh do sistema, que pode não ter arrays.
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -92,17 +84,14 @@ case "$out" in
 esac
 [ ! -d "$out" ] || die "arquivo_saida é uma pasta; passe o caminho do CSV: $out"
 
-# Sem `cd` no shell principal: os caminhos relativos continuam relativos à pasta
-# de quem chamou.
+# Sem `cd` no shell principal: caminhos relativos seguem relativos a quem chamou.
 DIR="$(absolute_dir "$(parent_of "${BASH_SOURCE[0]}")")"
 
 export PYTHONHASHSEED=0 PYTHONDONTWRITEBYTECODE=1 PYTHONUTF8=1 PYTHONUNBUFFERED=1
-# `-m` põe a pasta de quem chamou à frente do PYTHONPATH, e um `verificador` que
-# estivesse lá tomaria o lugar do nosso. Vale do 3.11 em diante; o 3.10 ignora.
+# Impede que um `verificador` na pasta de quem chamou sombreie o nosso (3.11+).
 export PYTHONSAFEPATH=1
 
-# sqlite3 entra na checagem porque há Python compilado sem ele, e só a versão
-# não bastaria: o primeiro candidato "adequado" quebraria ao abrir a base.
+# Confere sqlite3 além da versão: há Python compilado sem ele.
 python_ok() {
   "$1" -c 'import sqlite3, sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1
 }
@@ -116,9 +105,7 @@ run_python() {
   exec "$1" -m verificador.cli "--db=$db" "--input=$txt" "--csv=$out"
 }
 
-# A imagem com o nome pedido só serve se o ENTRYPOINT for este script. Uma
-# construída de uma versão anterior do repositório chamava a CLI direto e
-# quebrava com erro de argumento, sem CSV; ela é reconstruída.
+# Imagem existente só serve se o ENTRYPOINT for este script; senão é reconstruída.
 image_is_current() {
   local entrypoint
   entrypoint="$(docker image inspect --format '{{json .Config.Entrypoint}}' "$1" 2>/dev/null)" ||
@@ -136,8 +123,7 @@ run_docker() {
     docker build -t "$image" "$DIR" >&2 || die "não consegui construir a imagem $image"
   fi
 
-  # A pasta de saída é criada aqui, e não pelo Docker: um volume inexistente ele
-  # cria como root, e o container rodando com o nosso usuário não escreveria.
+  # Criada aqui porque o Docker criaria o volume como root, sem escrita para nós.
   local out_dir db_abs txt_abs out_abs
   out_dir="$(parent_of "$out")"
   mkdir -p -- "$out_dir"

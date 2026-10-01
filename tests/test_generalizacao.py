@@ -14,7 +14,7 @@ Os números e nomes são **sintéticos**, como nas demais suítes.
 
 import pytest
 
-from verificador.deteccao import detectar
+from verificador.deteccao.detector import detectar
 
 CABECALHO = (
     "EXCELENTÍSSIMO SENHOR MINISTRO RELATOR\n"

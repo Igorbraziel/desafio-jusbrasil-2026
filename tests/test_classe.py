@@ -7,7 +7,7 @@ RESP"). As duas formas precisam dar as mesmas marcas.
 
 import pytest
 
-from verificador.classe import afinidade, marcas
+from verificador.juridico.classes import afinidade, marcas
 
 
 @pytest.mark.parametrize(

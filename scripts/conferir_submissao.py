@@ -12,7 +12,7 @@ conjunto em avaliação tem.
 - confiança, quando presente, está em [0, 1];
 - nenhum par de citações do mesmo documento tem IoU ≥ 0,5.
 
-As checagens moram em `verificador.submissao`, que o `run.sh` da entrega também
+As checagens moram em `verificador.saida.submissao`, que o `run.sh` da entrega também
 usa: a conferência daqui e a da entrega não têm como divergir.
 
 Uso:
@@ -28,7 +28,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
 
-from verificador.submissao import check_submission  # noqa: E402
+from verificador.saida.submissao import check_submission  # noqa: E402
 
 
 def conferir(submissao: Path, esperados: set[str]) -> list[str]:

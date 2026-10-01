@@ -1,10 +1,6 @@
-"""Leitura de documentos de entrada.
+"""Leitura dos documentos de entrada e detecção do fim do cabeçalho.
 
-Regra rígida do desafio: UTF-8 sem BOM, quebra de linha LF, Unicode NFC, e
-offsets em **codepoints Unicode** a partir de 0, com fim exclusivo
-(``texto[inicio:fim]``). Os arquivos são distribuídos já normalizados; aplicamos
-NFC de novo apenas por segurança — em texto já normalizado a operação é
-idempotente e não desloca nenhum offset.
+Offsets são em codepoints sobre o texto NFC, com fim exclusivo (``texto[inicio:fim]``).
 """
 
 from __future__ import annotations
@@ -17,14 +13,8 @@ from pathlib import Path
 def carregar(caminho: Path) -> str:
     """Lê um .txt de entrada e devolve o texto em NFC.
 
-    Byte que não é UTF-8 vira U+FFFD em vez de exceção: o arquivo fora do
-    contrato ainda é processado, e em texto UTF-8 válido nada muda — nenhum
-    offset se desloca.
-
-    A quebra de linha é lida como está (`newline=""`): a leitura padrão traduz
-    `\\r\\n` em `\\n`, e num arquivo CRLF cada linha deslocaria em um todos os
-    offsets seguintes. O contrato manda LF; o arquivo que vier fora dele ainda
-    tem os offsets do próprio arquivo.
+    Byte inválido vira U+FFFD em vez de exceção, e `newline=""` evita que a
+    tradução de CRLF desloque os offsets.
     """
     with caminho.open(encoding="utf-8", errors="replace", newline="") as arquivo:
         return unicodedata.normalize("NFC", arquivo.read())
@@ -35,8 +25,7 @@ def documento_id(caminho: Path) -> str:
     return caminho.stem
 
 
-# Rótulos de metadado. A lista não precisa ser exaustiva: uma linha "Rótulo:
-# valor" já é reconhecida pela forma, e estes cobrem os que vêm sem dois-pontos.
+# Rótulos que aparecem sem dois-pontos; "Rótulo: valor" já é reconhecido pela forma.
 _ROTULOS = (
     "autos",
     "processo",
@@ -51,45 +40,21 @@ _ROTULOS = (
     "fls",
 )
 
-# A linha precisa **ser** o rótulo, não apenas começar com ele.
-#
-# O teste anterior era `startswith`, e isso classificava prosa como cabeçalho:
-# "Recurso especial interposto contra o REsp…", "Refere-se à decisão…",
-# "autos em referência. O consulente informa…". Como `fim_do_cabecalho` para na
-# primeira linha que **não** é cabeçalho, uma dessas abrindo o corpo empurra a
-# fronteira para depois dela e **a citação naquela linha é perdida** — erro de
-# recall, que é o que não se recupera depois.
-#
-# Medido nos 26 documentos: o `startswith` classificava 7 linhas do corpo como
-# cabeçalho, todas prosa, e nenhum cabeçalho real dependia dele — remover a regra
-# por completo não mudava nenhum corte nem nenhum dos 192 spans. Mas um rótulo
-# sozinho na linha ("Autos", "Origem") é cabeçalho legítimo e pode aparecer no
-# conjunto cego, então a regra fica, exigindo que a linha termine logo depois:
-# o rótulo, com no máximo um complemento curto e sem pontuação de prosa.
+# A linha precisa *ser* o rótulo (com no máximo um complemento curto), não só
+# começar com ele: "Recurso especial interposto contra…" é prosa, e lida como
+# cabeçalho empurraria a fronteira e perderia a citação daquela linha.
 _APOS_ROTULO = re.compile(r"^[\s:\-–—]*(?:[\wÀ-ÿ.ºo°/\-]+\s*){0,2}$")
 
-# "Rótulo: valor" — o rótulo é curto e a linha tem dois-pontos cedo.
 _LINHA_ROTULADA = re.compile(r"^[^\s:][^:]{0,40}:\s")
 
-# "<rótulo> nº <número>", sem dois-pontos — a forma de `Autos nº 123…`.
-#
-# Reconhecer pela **estrutura** e não pelo léxico é o que torna isto robusto: o
-# nível 2 corrompe uma letra por palavra, e uma lista de rótulos exatos não
-# sobrevive a isso. Medido, com o rótulo corrompido em uma letra a fronteira do
-# cabeçalho caía de 90 para 28 e o número do **próprio** processo — o distrator
-# canônico do desafio — passava a ser extraído como citação.
+# "<rótulo> nº <número>" (`Autos nº 123…`), reconhecido pela estrutura e não
+# pelo léxico, para sobreviver à corrupção de OCR no rótulo.
 _LINHA_NUMERADA = re.compile(
-    # O rótulo começa em letra mas admite dígito no meio: o OCR troca letra por
-    # dígito também (`Protocolo` -> `Prot0colo`), e exigir só letras reabre a
-    # brecha que esta expressão fecha.
+    # O rótulo admite dígito no meio porque o OCR troca letra por dígito (`Prot0colo`).
     r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.0-9]{2,19}(?:\s+[A-Za-zÀ-ÿ.0-9]{1,15}){0,2}"
     r"\s+[nN]\s*[.ºo°O]{0,2}\s*"
-    # O valor é identificador, não prosa: sem palavra minúscula de quatro letras
-    # ou mais. Sem esta guarda, "Como decidido no REsp 1.234.567. O recurso não
-    # procede." casava — o "no" da preposição lido como a marca "nº" —, e a
-    # primeira linha do corpo sem vírgula virava cabeçalho: as citações dela se
-    # perdiam, e num corpo de uma linha o corte caía a 0 e o número dos autos
-    # vazava como citação.
+    # Valor sem palavra minúscula de 4+ letras: barra prosa como "decidido no
+    # REsp 1.234.567. O recurso…", em que o "no" seria lido como "nº".
     r"(?!.*(?<![\wÀ-ÿ])[a-zà-ÿ]{4,}(?![\wÀ-ÿ]))"
     r"[\w][\w.\-/ ]*$"
 )
@@ -115,13 +80,8 @@ def _e_linha_de_cabecalho(linha: str) -> bool:
     return _e_titulo_corrompido(despida)
 
 
-# O ruído de OCR que o nível 2 aplica à prosa também cai no título do cabeçalho,
-# e derruba a proporção de maiúsculas: `MEMORIAL` vira `MErn0RIAL` (`m`→`rn`,
-# `O`→`0`), `MINISTÉRIO` vira `MIriISTÉR1O`. Com o título lido como prosa, o
-# cabeçalho inteiro caía no corpo e o número dos autos do próprio documento — o
-# distrator canônico — virava citação. As trocas que o OCR faz (`rn`, `ri`, `ii`,
-# o dígito no lugar da letra, a minúscula confundível) são desfeitas antes de
-# medir, **só** em linha curta sem pontuação de prosa, que é a forma do título.
+# Título corrompido por OCR (`MErn0RIAL`) perde a proporção de maiúsculas; as
+# trocas são desfeitas antes de medir, só em linha curta sem pontuação de prosa.
 _TROCAS_DE_TITULO = str.maketrans({"0": "O", "1": "I", "5": "S", "8": "B", "6": "G", "2": "Z"})
 _LIGADURAS_DE_OCR = re.compile(r"rn|ri|ii")
 
@@ -138,19 +98,10 @@ def _e_titulo_corrompido(linha: str) -> bool:
 
 
 def fim_do_cabecalho(texto: str) -> int:
-    """Offset onde termina o bloco de metadados e começa o corpo do documento.
+    """Offset da primeira linha de prosa, onde termina o bloco de metadados.
 
-    O cabeçalho de um parecer é um bloco de metadados — número dos autos,
-    partes, protocolo, valor da causa — que vem antes da primeira linha de
-    prosa. Nada dali é citação: são justamente os distratores.
-
-    A fronteira importa porque o mesmo formato CNJ muda de natureza conforme a
-    posição: o número dos autos do *próprio* documento, no cabeçalho, é
-    distrator; a referência a *outro* processo, no corpo, é citação.
-
-    Devolve o offset do início da primeira linha de prosa. Se o documento for só
-    cabeçalho — ou só prosa — devolve 0, que é o conservador: perder uma citação
-    custa recall, e recall é o que não se recupera depois.
+    O número dos autos do próprio documento, no cabeçalho, é distrator, não
+    citação. Sem fronteira clara devolve 0, o conservador para o recall.
     """
     posicao = 0
     for linha in texto.splitlines(keepends=True):

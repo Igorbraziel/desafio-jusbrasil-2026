@@ -16,8 +16,8 @@ import json
 import pytest
 
 from verificador import cli, pipeline
-from verificador.base_canonica import BaseCanonica
-from verificador.contrato import Citacao, SaidaDocumento
+from verificador.base.canonica import BaseCanonica
+from verificador.saida.contrato import Citacao, SaidaDocumento
 
 BASE_VAZIA = BaseCanonica({"numeros": {}, "registros": {}})
 

@@ -10,7 +10,7 @@ import sqlite3
 import pytest
 from conftest import BANCO, sem_dados
 
-from verificador.estrutura import (
+from verificador.base.estrutura import (
     ZONAS,
     ZONAS_IDENTIFICADORAS,
     Zona,

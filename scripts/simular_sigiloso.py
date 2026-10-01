@@ -54,7 +54,7 @@ from avaliar import avaliar  # noqa: E402
 from medir_cobertura import UFS_POR_EXTENSO  # noqa: E402
 from perturbar import CLASSES, gerar_corpus  # noqa: E402
 
-from verificador.base_canonica import BaseCanonica  # noqa: E402
+from verificador.base.canonica import BaseCanonica  # noqa: E402
 from verificador.cli import _carregar_base  # noqa: E402
 from verificador.pipeline import processar_pasta  # noqa: E402
 
