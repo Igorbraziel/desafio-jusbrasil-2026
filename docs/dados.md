@@ -11,6 +11,10 @@
 > 195 para **192 citações**, a base canônica mudou pela primeira vez desde 28/08
 > e três dos 26 `.txt` foram corrigidos. A organização avisou que **não haverá
 > novas versões**. Detalhes na seção seguinte.
+>
+> Isso vale para a amostra de desenvolvimento. O conjunto final vem com um `.db`
+> próprio (e-mail de 29/09) — ver
+> [Riscos conhecidos](#riscos-conhecidos-para-o-conjunto-cego).
 
 ## Atualização final (15/09/2026)
 
@@ -66,9 +70,13 @@ Isso resolve exatamente a dificuldade que
 [`base_canonica.py`](../src/verificador/base_canonica.py) documentava: o
 enunciado não dizia qual súmula era nem de que código vinha o artigo, e o
 mapeamento sigla → `id_canonico` teve de ser levantado à mão. A tabela curada
-continua correta e continua sendo o caminho de resolução, mas agora é
-**derivável da base**, e o cabeçalho ainda dá a lei por extenso e datada, que o
-repertório de siglas não tinha.
+passou a ser **derivável da base**, e o cabeçalho ainda dá a lei por extenso e
+datada, que o repertório de siglas não tinha.
+
+Desde 30/09 ela é de fato derivada: súmulas e dispositivos saem dessa primeira
+linha em cada execução, do `.db` recebido, e a tabela fixa saiu do código. O
+motivo é o conjunto final, que vem com um `.db` próprio — ver a
+[ADR 0005](decisoes/0005-base-nova-no-conjunto-cego.md).
 
 **Dois acórdãos foram removidos**, ambos do mesmo tribunal, ano e relator. A
 base passou de 1.016 para **1.014**. Nenhuma citação do gabarito, antigo ou
@@ -148,7 +156,8 @@ o antigo.
    organiza em `data/dev/`: `txt/`, `desafio1_bracis.db`, `goldenset.csv`,
    `sample_submission.csv` e, em `data/dev/ferramentas/`, o
    `json_to_submission.py` e o `kaggle_metric.py` oficiais.
-3. Rode `make indice` para construir o índice de números próprios.
+3. Opcional: `make indice` grava o índice de números próprios em JSON, para
+   inspeção. O `run.sh` não o usa: reconstrói tudo do `.db` a cada execução.
 
 O script só toca em `data/dev/` depois de ter os bytes novos em mãos, então um
 download que falha não estraga o que já estava lá. Um `goldenset.csv`
@@ -222,7 +231,8 @@ O nome do arquivo entrega o nível: `gen_n1_001`…`gen_n1_013` são nível 1 e
 Esta é a **amostra de desenvolvimento**. O conjunto final é cego, tem o mesmo
 formato, os mesmos níveis e distribuição de classes equivalente. Ele não é
 distribuído: ao fim da janela, a organização executa o código submetido sobre
-ele, e é dele que sai o ranking oficial.
+ele, e é dele que sai o ranking oficial. Desde o e-mail de 29/09 se sabe que ele
+vem também com um **`.db` novo**, no formato do da amostra.
 
 ### A mesma citação, escrita de dois jeitos
 
@@ -269,6 +279,13 @@ se um acórdão existe no mundo mas não está aqui, para efeito do desafio ele 
 existe — e, por construção, isso nunca prejudica ninguém, porque toda citação
 real dos documentos resolve dentro da cobertura.
 
+**A cobertura é a do `.db` recebido.** Ela é congelada dentro de uma execução,
+não entre conjuntos: o conjunto final vem com um `.db` próprio, e é contra ele,
+e não contra este, que as citações daquele conjunto são `real` ou `inventada`.
+Os números desta seção descrevem a base da amostra, e nenhum deles está fixo no
+código: o índice dos acórdãos, as súmulas e os dispositivos são lidos do banco
+em cada execução ([ADR 0005](decisoes/0005-base-nova-no-conjunto-cego.md)).
+
 ```sql
 CREATE TABLE documentos (
     documento_id  TEXT PRIMARY KEY,   -- chave interna; doc_0201 para acórdãos
@@ -292,7 +309,8 @@ CREATE TABLE documentos (
 Desde 15/09 os 18 registros de `sumula` e `dispositivo` trazem na primeira linha
 a própria identificação, no formato `Súmula n. <número> do <tribunal>` e
 `Artigo <número> da <lei por extenso>`. Os `acordao` continuam sem cabeçalho
-desse tipo.
+desse tipo. É dessa linha que o pipeline tira, a cada execução, quais súmulas e
+quais artigos a base tem, e o `id` de cada um.
 
 `natureza` existe porque `tipo` sozinho não separa acórdão de súmula — os dois
 são `jurisprudencia`.
@@ -410,12 +428,17 @@ identifica o registro**, e o FTS vai devolver os citantes.
 
 O que mudou em 15/09: o texto desses 18 registros deixou de ser só o enunciado e
 passou a abrir com uma linha de identificação (`Súmula n. <número> do
-<tribunal>`, `Artigo <número> da <lei por extenso>`). A tabela curada em
-[`base_canonica.py`](../src/verificador/base_canonica.py) — conferida contra o
-banco por [`tests/test_base_canonica.py`](../tests/test_base_canonica.py) —
-continua correta e continua sendo o caminho, mas agora é derivável da base em
-vez de levantada à mão, e o cabeçalho dá a lei por extenso e datada, que o
+<tribunal>`, `Artigo <número> da <lei por extenso>`). A tabela curada que
+[`base_canonica.py`](../src/verificador/base_canonica.py) mantinha, levantada à
+mão, passou a ser derivável, e o cabeçalho dá a lei por extenso e datada, que o
 repertório de siglas não cobria.
+
+O que mudou em 30/09: a derivação passou a ser o caminho. A tabela fixa tinha os
+ids da base de 15/09, e com o `.db` novo do conjunto final ela resolveria para
+registros que não existem mais — ou deixaria de reconhecer os que entraram. Os
+registros continuam sendo o alvo da resolução, mas quais são e que `id` têm sai
+da primeira linha de cada um, lida do banco em cada execução
+([ADR 0005](decisoes/0005-base-nova-no-conjunto-cego.md)).
 
 ### 8. O número do artigo não basta para identificar o dispositivo
 
@@ -438,6 +461,39 @@ cautela ao construir a solução:
 - **As siglas processuais observadas não esgotam o domínio.** Uma classe
   processual não vista faz a citação perder o prefixo; com sorte o span ainda
   casa por IoU ≥ 0,5, mas fica curto.
+- **A base é nova.** O conjunto final vem com um `.db` próprio (e-mail de
+  29/09), e nada do que a amostra mostra sobre a base do dev vale por
+  construção para ele. Tratado — ver abaixo.
 - **Qualquer score medido nos 26 documentos é otimista**, porque é a mesma
-  amostra usada para construir a solução. O leaderboard público (40% do teste) é
-  a primeira medida honesta, e mesmo ele não é o ranking final.
+  amostra usada para construir a solução. A primeira medida honesta é a nota da
+  execução da organização sobre o conjunto final; o leaderboard do Kaggle rodou
+  sobre esta mesma amostra e não entra no ranking.
+
+### A base nova, e como foi tratada
+
+**O risco.** O código supunha a base do dev num ponto: súmulas e dispositivos
+eram tabelas fixas, com os ids de 15/09. Medido em 30/09 com um banco alterado
+— sem uma súmula e um dispositivo, e com outro `id` num terceiro registro —, o
+pipeline continuava emitindo `real` com os ids antigos. Quarenta das 192
+citações do dev passam por esse caminho. O índice dos acórdãos já saía do banco
+a cada execução e não depende nem do nome do tribunal: com a coluna `tribunal`
+vazia, ou trocada por outro tribunal, o dev segue em 1,1000. A leitura do banco
+também tinha pontos frágeis: um banco em modo WAL montado só leitura, ou um
+registro com campo nulo, derrubava o lote inteiro.
+
+**Como foi tratado.** Tudo o que é conteúdo da base sai do `.db` recebido, em
+cada execução: o índice dos acórdãos, como antes, e agora também as súmulas e
+os dispositivos, pela primeira linha autodeclarada de cada registro. Fixo no
+código ficou só conhecimento jurídico público — um repertório de diplomas
+federais que leva do nome e da sigla ao número e ao ano —, para que um artigo
+que exista no `.db` novo resolva para `real` e o que não existir saia
+`inventada`. O banco é aberto só para leitura, com o caminho escapado na URI; o
+banco em modo WAL montado só leitura abre com `immutable=1`; e um registro com
+campo nulo não interrompe mais a execução. Ver a
+[ADR 0005](decisoes/0005-base-nova-no-conjunto-cego.md) e o
+[checkpoint 11](checkpoints/11-entrega-final.md).
+
+**O que sobra.** Um diploma fora do repertório, citado só pelo nome — sem o
+número da lei —, sai `inventada` mesmo que o `.db` tenha o artigo. E acórdão de
+tribunal fora dos cinco superiores (STF, STJ, TSE, TST, STM) passa pela
+segmentação genérica, que nunca foi medida em outro tribunal.

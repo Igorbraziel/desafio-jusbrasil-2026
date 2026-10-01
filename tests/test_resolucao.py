@@ -15,9 +15,8 @@ em `test_base_canonica.py`. Os textos são sintéticos, como nas demais suítes.
 """
 
 import pytest
-from conftest import sem_indice
+from conftest import DISPOSITIVOS, SUMULAS, sem_indice
 
-from verificador.base_canonica import DISPOSITIVOS, SUMULAS
 from verificador.deteccao import detectar
 from verificador.resolucao import resolver
 
@@ -576,9 +575,19 @@ def test_apelidos_da_cf_88_continuam_real(base_canonica, citacao, chave):
         ("Consolidação da5 Leis do Trabalho", "CLT"),
         # "Código do Consumidor" é como a prosa chama o CDC
         ("Código do Consumidor", "CDC"),
-        # e nada disso abre a direção do τ
-        ("Código dc Processo Penal Militar", None),
+        # e nada disso abre a direção do τ: o CPPM continua separado do CPP (se
+        # o artigo está na cobertura, quem decide é a tabela do banco)
+        ("Código dc Processo Penal Militar", "CPPM"),
         ("Código Estadual do Consumidor", None),
+        # o tipo da lei corrompido não troca o decreto-lei por uma lei de mesmo
+        # número: a CLT continua CLT
+        ("Dccreto-Lei nº 5.452/1943", "CLT"),
+        ("Decret0-Lei nº 5.452/1943", "CLT"),
+        ("Deereto-Lei nº 1.001/1969", "CPM"),
+        ("Lci Complementar nº 64/1990", "LC64"),
+        # lei citada pelo número, sem nome conhecido, tem código próprio
+        ("Lei nº 9.504/1997", "LEI_9504"),
+        ("LC 135/2010", "LC_135"),
     ],
 )
 def test_conector_corrompido_no_nome_do_diploma(diploma, esperado):

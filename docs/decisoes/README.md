@@ -27,3 +27,11 @@ O sinal concreto que indicaria que a decisão envelheceu.
 Decisões que valem registro neste desafio, quando forem tomadas: usar ou não
 modelo de pesos abertos (e qual), como resolver duplicatas na base canônica,
 qual o critério para separar distrator de citação, e como calibrar a confiança.
+
+| # | Decisão | Situação |
+|---|---|---|
+| [0001](0001-baseline-deterministica.md) | Manter o pipeline determinístico, sem pesos de modelo | vigente |
+| [0002](0002-ancora-no-numero.md) | Ancorar a detecção de processo no número, não na sigla | vigente |
+| [0003](0003-desempate-de-duplicatas.md) | Desempatar duplicatas em vez de rebaixar | vigente; critério original refutado, desempate pela classe desde 24/09 |
+| [0004](0004-ner-de-pesos-abertos.md) | Não usar NER de pesos abertos na detecção | vigente — medido e descartado |
+| [0005](0005-base-nova-no-conjunto-cego.md) | Derivar do `.db` tudo o que é conteúdo da base | vigente |

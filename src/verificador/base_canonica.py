@@ -35,53 +35,99 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from .classe import marcas
 from .deteccao import _e_numero_de_processo
 from .estrutura import tribunal_do_texto, zonas_de_identificacao
-from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO
+from .leis import codigo_da_lei
+from .normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO, sem_acento
 
 # Abaixo de 4 dígitos um número não identifica processo nenhum — só gera ruído.
 MINIMO_DIGITOS = 4
 
 # ---------------------------------------------------------------------------
-# Súmulas e dispositivos: tabelas curadas.
+# Súmulas e dispositivos: lidos do banco recebido.
 #
-# O mapeamento abaixo foi levantado à mão quando o texto desses registros era só
-# o enunciado, sem dizer qual súmula era nem de que código vinha o artigo. Desde
-# 15/09/2026 cada um abre com a própria identificação, então a tabela virou
-# derivável da base — continua correta, e os testes a conferem contra o banco.
-# Como a cobertura é congelada, ela é completa: qualquer súmula ou artigo fora
-# dela é, por definição, inventada.
+# Até 30/09/2026 esta era uma tabela curada à mão, com os ids do banco de
+# desenvolvimento. A avaliação final usa **outro** banco, e uma tabela fixa erra
+# nas duas direções: a súmula que o banco novo tem e a tabela não sai
+# `inventada`, e a que a tabela tem e o banco novo não sai `real` — o erro grave
+# da métrica. Medido com um banco modificado: Súmula 83/STJ e art. 14 do CDC,
+# retirados do banco, continuavam saindo `real`.
+#
+# Cada registro dessas naturezas abre com a própria identificação ("Súmula n. 83
+# do STJ", "Artigo 186 da Lei nº 10.406, de 10 de janeiro de 2002"), e a tabela
+# é montada dessa linha. A cobertura continua fechada: fora da tabela, é
+# `inventada`. O que liga a lei ao nome do diploma na prosa está em
+# :mod:`verificador.leis`, que é fato de direito e não depende da base.
 # ---------------------------------------------------------------------------
 
-# (tribunal, é_vinculante, número) -> id canônico
-SUMULAS: dict[tuple[str, bool, int], int] = {
-    ("STJ", False, 83): 1289710642,
-    ("STJ", False, 211): 1289710776,
-    ("STJ", False, 443): 1289711022,
-    ("STF", True, 10): 1289712966,
-    ("TST", False, 331): 1431369957,
-}
+_SUMULA_DO_REGISTRO = re.compile(
+    r"^\s*S[úu]mula\s+(?P<vinculante>Vinculante\s+)?(?:n\s*[º°o.]?\s*)?(?P<numero>\d+)"
+    r"(?:\s*,?\s*d[oa]\s+(?P<tribunal>STF|STJ|TST|TSE|STM)\b)?",
+    re.IGNORECASE,
+)
+_ARTIGO_DO_REGISTRO = re.compile(
+    r"^\s*Art(?:igo|\.)\s+(?P<artigo>\d+(?:\.\d{3})*)\s*[º°o]?\s*(?:[-‐]\s*(?P<sufixo>[A-Z])\b)?"
+    r"\s+d[aoe]s?\s+(?P<diploma>[^\n]+)",
+    re.IGNORECASE,
+)
+_LEI_DO_REGISTRO = re.compile(
+    r"(?P<tipo>Lei\s+Complementar|Decreto[-‐\s]*Lei|Lei)\s+n\s*[º°o.]?\s*(?P<numero>\d+(?:\.\d{3})*)"
+    r"(?:[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
+    re.IGNORECASE,
+)
+_CF_DO_REGISTRO = re.compile(
+    r"Constitui[çc][ãa]o\s+(?:Federal|da\s+Rep[úu]blica)(?:[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
+    re.IGNORECASE,
+)
 
-# (código, artigo) -> id canônico
-DISPOSITIVOS: dict[tuple[str, int], int] = {
-    ("CF", 5): 10641516,
-    ("CF", 7): 10641213,
-    ("CF", 93): 10626510,
-    ("CPC", 373): 28893055,
-    ("CC", 186): 10718759,
-    ("CPP", 312): 10652044,
-    ("CPM", 290): 10590194,
-    ("CDC", 14): 10606184,
-    ("CLT", 477): 10710324,
-    ("CLT", 818): 10647746,
-    ("CLT", 896): 10637358,
-    ("ELEITORAL", 276): 10577194,
-    ("LC64", 1): 11304039,
-}
+
+def chave_de_artigo(numero: str, sufixo: str | None = None) -> str:
+    """A chave do artigo na tabela: "896", "896-A". O milhar sai: "1.021" -> "1021"."""
+    base = str(int(numero.replace(".", "")))
+    return f"{base}-{sufixo.upper()}" if sufixo else base
+
+
+def sumula_do_registro(texto: str, tribunal: str | None) -> tuple[str, bool, int] | None:
+    """(tribunal, vinculante, número) da primeira linha do registro, ou None."""
+    m = _SUMULA_DO_REGISTRO.match(texto)
+    if m is None:
+        return None
+    vinculante = bool(m.group("vinculante"))
+    sigla = (m.group("tribunal") or tribunal or ("STF" if vinculante else "")).upper()
+    if not sigla:
+        return None
+    return sigla, vinculante, int(m.group("numero"))
+
+
+def dispositivo_do_registro(texto: str) -> tuple[str, str, str | None, int | None] | None:
+    """(código, artigo, número da lei, ano) da primeira linha do registro, ou None.
+
+    Só a Constituição **Federal** entra como `CF`; constituição estadual ou de
+    outro ano não é identificada e fica fora da tabela — é o lado seguro.
+    """
+    m = _ARTIGO_DO_REGISTRO.match(texto)
+    if m is None:
+        return None
+    artigo = chave_de_artigo(m.group("artigo"), m.group("sufixo"))
+    diploma = m.group("diploma")
+    if (cf := _CF_DO_REGISTRO.match(diploma)) is not None:
+        ano = int(cf.group("ano")) if cf.group("ano") else None
+        if ano not in (None, 1988):
+            return None
+        return "CF", artigo, None, 1988
+    lei = _LEI_DO_REGISTRO.match(diploma)
+    if lei is None:
+        return None
+    tipo = re.sub(r"[-‐\s]+", " ", lei.group("tipo").lower()).replace("decreto lei", "decreto-lei")
+    numero = lei.group("numero").replace(".", "")
+    ano = int(lei.group("ano")) if lei.group("ano") else None
+    return codigo_da_lei(tipo, numero), artigo, numero, ano
 
 
 @dataclass(frozen=True)
@@ -331,26 +377,159 @@ def classe_do_cabecalho(texto: str, tribunal: str | None) -> str:
     return inicio[: fim.start()] if fim else inicio
 
 
+# ---------------------------------------------------------------------------
+# Leitura do banco.
+#
+# A avaliação final roda o nosso código sobre um banco que não vimos, montado
+# num volume que pode ser somente leitura. Tudo aqui existe porque uma falha na
+# leitura acontece **antes** do laço por documento, onde não há proteção: uma
+# exceção derruba o lote inteiro e nenhum JSON é escrito.
+# ---------------------------------------------------------------------------
+
+# Todas as naturezas de uma vez, e a comparação fica em Python: sem caixa, sem
+# espaço e sem acento ("Acordao ", "acórdão"). Sem `ORDER BY` de propósito: a
+# varredura segue a ordem do arquivo, que é determinística e é a mesma da
+# consulta antiga, e ordenar ~90 MB de texto no SQLite pediria arquivo temporário
+# — que um container somente leitura pode não ter.
+_CONSULTA_DOCUMENTOS = (
+    "SELECT documento_id, id, tribunal, natureza, texto, texto_len FROM documentos"
+)
+
+
+@dataclass(frozen=True)
+class _Row:
+    """Uma linha da tabela `documentos`, já normalizada e utilizável."""
+
+    document_id: str
+    canonical_id: int
+    court: str | None
+    nature: str
+    text: str
+    text_len: int
+
+
+def _decode_text(valor: bytes) -> str:
+    """Texto do banco com byte inválido trocado, em vez de exceção.
+
+    O `sqlite3` decodifica TEXT como UTF-8 estrito e, num registro com byte
+    inválido, levanta `OperationalError` no meio da varredura — o índice inteiro
+    se perdia por um registro. Para UTF-8 válido o resultado é o mesmo.
+    """
+    return valor.decode("utf-8", errors="replace")
+
+
+def _as_int(valor: object) -> int | None:
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, int):
+        return valor
+    if isinstance(valor, float) and valor.is_integer():
+        return int(valor)
+    if isinstance(valor, str) and valor.strip().isdigit():
+        return int(valor.strip())
+    return None
+
+
+def _normalize_nature(valor: object) -> str:
+    return re.sub(r"\s", "", sem_acento(str(valor or ""))).lower()
+
+
+def _normalize_row(linha: tuple) -> _Row | None:
+    """A linha pronta para indexar, ou ``None`` se ela não tiver como responder.
+
+    Sem texto não há o que indexar nem de onde tirar a identificação, e sem
+    ``id`` não há o que pôr em ``id_canonico``: a linha fica de fora, e a citação
+    que a buscaria sai ``inventada`` — nunca ``real`` com um id vazio.
+    """
+    documento_id, id_canonico, tribunal, natureza, texto, texto_len = linha
+    id_canonico = _as_int(id_canonico)
+    if id_canonico is None or not isinstance(texto, str) or not texto.strip():
+        return None
+    tribunal = str(tribunal).strip().upper() if tribunal is not None else ""
+    tamanho = _as_int(texto_len)
+    return _Row(
+        document_id=str(documento_id) if documento_id is not None else str(id_canonico),
+        canonical_id=id_canonico,
+        court=tribunal or None,
+        nature=_normalize_nature(natureza),
+        text=texto,
+        text_len=tamanho if tamanho is not None else len(texto),
+    )
+
+
+def _iter_rows(caminho_db: Path, immutable: bool) -> Iterator[_Row]:
+    """As linhas utilizáveis do banco, abrindo-o só para leitura.
+
+    O caminho vai numa URI escapada: com o caminho cru interpolado, um diretório
+    com espaço, ``?`` ou ``#`` no nome mudava o significado da URI.
+    """
+    uri = Path(caminho_db).resolve().as_uri() + "?mode=ro" + ("&immutable=1" if immutable else "")
+    conexao = sqlite3.connect(uri, uri=True)
+    conexao.text_factory = _decode_text
+    descartadas = 0
+    try:
+        for linha in conexao.execute(_CONSULTA_DOCUMENTOS):
+            normalizada = _normalize_row(linha)
+            if normalizada is None:
+                descartadas += 1
+                continue
+            yield normalizada
+    finally:
+        conexao.close()
+    if descartadas:
+        print(
+            f"aviso: {descartadas} registro(s) sem texto ou sem id ignorados em {caminho_db}",
+            file=sys.stderr,
+        )
+
+
+def _read_with_fallback(caminho_db: Path, consumir):
+    """Aplica ``consumir`` às linhas do banco; se a leitura falhar, repete imutável.
+
+    Banco em modo WAL num volume somente leitura dá "attempt to write a readonly
+    database" na primeira leitura: o SQLite precisa criar o ``-shm`` ao lado, e
+    não pode. Reproduzido, derrubava o lote inteiro. ``immutable=1`` dispensa o
+    ``-shm``, mas também **ignora** um ``-wal`` presente — o que ainda não foi
+    consolidado no arquivo principal sumiria em silêncio —, então só entra
+    depois que a leitura normal falhou. A varredura recomeça do zero: nada do
+    que a primeira tentativa acumulou é reaproveitado.
+    """
+    try:
+        return consumir(_iter_rows(caminho_db, immutable=False))
+    except sqlite3.OperationalError as erro:
+        print(
+            f"aviso: leitura de {caminho_db} falhou ({erro}); repetindo com immutable=1",
+            file=sys.stderr,
+        )
+        return consumir(_iter_rows(caminho_db, immutable=True))
+
+
 def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
     """Varre a base uma vez e devolve o índice de números próprios.
 
     Feito offline: em runtime só carregamos o JSON. O material do desafio
     recomenda explicitamente esse caminho em vez de varrer o FTS a cada citação.
     """
-    conexao = sqlite3.connect(f"file:{caminho_db}?mode=ro", uri=True)
+    return _read_with_fallback(caminho_db, lambda linhas: _build_index(linhas, metodo))
+
+
+def _build_index(linhas: Iterator[_Row], metodo: str) -> dict:
     numeros: dict[str, list[str]] = {}
     registros: dict[str, dict] = {}
     assinaturas: dict[str, str] = {}
 
-    consulta = (
-        "SELECT documento_id, id, tribunal, texto, texto_len "
-        "FROM documentos WHERE natureza = 'acordao'"
-    )
-    for documento_id, id_canonico, tribunal, texto, texto_len in conexao.execute(consulta):
+    # Súmulas e dispositivos saem da mesma varredura: a leitura robusta é uma só,
+    # e uma segunda consulta ao banco não passaria pelo retry imutável.
+    outras: list[_Row] = []
+    for linha in linhas:
+        if linha.nature != "acordao":
+            outras.append(linha)
+            continue
+        documento_id, texto, tribunal = linha.document_id, linha.text, linha.court
         registros[documento_id] = {
-            "id": id_canonico,
+            "id": linha.canonical_id,
             "tribunal": tribunal,
-            "texto_len": texto_len,
+            "texto_len": linha.text_len,
             "classe": sorted(marcas(classe_do_cabecalho(texto, tribunal))),
         }
         assinaturas[documento_id] = _ESPACOS.sub(" ", texto[:LIMITE_ASSINATURA])
@@ -358,7 +537,7 @@ def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
         for numero in numeros_proprios(regiao):
             numeros.setdefault(numero, []).append(documento_id)
 
-    conexao.close()
+    tabelas = _tabelas_de_sumulas_e_dispositivos(outras)
 
     def donos(numero: str, documentos: list[str]) -> int:
         if len(numero) >= DIGITOS_NUMERO_LONGO:
@@ -372,7 +551,46 @@ def construir_indice(caminho_db: Path, metodo: str = METODO_PADRAO) -> dict:
         for numero, documentos in numeros.items()
         if donos(numero, documentos) <= MAXIMO_REGISTROS_POR_NUMERO
     }
-    return {"numeros": numeros, "registros": registros}
+    return {"numeros": numeros, "registros": registros, **tabelas}
+
+
+def _tabelas_de_sumulas_e_dispositivos(linhas: list[_Row]) -> dict:
+    """As súmulas e os dispositivos do banco, lidos da primeira linha de cada um.
+
+    Registro que não se deixa ler fica fora da tabela — a citação dele sai
+    `inventada` — e é avisado em stderr, porque é perda silenciosa de cobertura.
+    Registro repetido fica com o primeiro na ordem de `documento_id`.
+    """
+    sumulas: dict[tuple[str, bool, int], int] = {}
+    dispositivos: dict[tuple[str, str], int] = {}
+    leis: dict[str, list[str | int | None]] = {}
+    ilegiveis = []
+    for linha in sorted(linhas, key=lambda r: r.document_id):
+        if linha.nature == "sumula":
+            chave = sumula_do_registro(linha.text, linha.court)
+            if chave is None:
+                ilegiveis.append(linha.document_id)
+                continue
+            sumulas.setdefault(chave, linha.canonical_id)
+        elif linha.nature == "dispositivo":
+            lido = dispositivo_do_registro(linha.text)
+            if lido is None:
+                ilegiveis.append(linha.document_id)
+                continue
+            codigo, artigo, numero, ano = lido
+            dispositivos.setdefault((codigo, artigo), linha.canonical_id)
+            leis.setdefault(codigo, [numero, ano])
+    if ilegiveis:
+        print(
+            f"aviso: {len(ilegiveis)} súmula(s) ou dispositivo(s) sem identificação legível "
+            f"ficam fora da cobertura: {', '.join(ilegiveis[:5])}",
+            file=sys.stderr,
+        )
+    return {
+        "sumulas": [[t, v, n, i] for (t, v, n), i in sorted(sumulas.items())],
+        "dispositivos": [[c, a, i] for (c, a), i in sorted(dispositivos.items())],
+        "leis": leis,
+    }
 
 
 def salvar_indice(indice: dict, caminho: Path) -> None:
@@ -394,6 +612,17 @@ class BaseCanonica:
                 classe=frozenset(dados.get("classe", ())),
             )
             for documento_id, dados in indice["registros"].items()
+        }
+        # Índice sem as tabelas (JSON antigo, ou a base vazia dos testes) não
+        # tem súmula nem dispositivo: tudo o que citar um deles é `inventada`.
+        self._sumulas: dict[tuple[str, bool, int], int] = {
+            (t, bool(v), int(n)): int(i) for t, v, n, i in indice.get("sumulas", [])
+        }
+        self._dispositivos: dict[tuple[str, str], int] = {
+            (c, str(a)): int(i) for c, a, i in indice.get("dispositivos", [])
+        }
+        self._leis: dict[str, tuple[str | None, int | None]] = {
+            c: (n, a) for c, (n, a) in indice.get("leis", {}).items()
         }
 
     @classmethod
@@ -431,12 +660,24 @@ class BaseCanonica:
             # ignorar o tribunal a resolvia para a SV 10 — `inventada` → `real`.
             if tribunal not in (None, "STF"):
                 return None
-            return SUMULAS.get(("STF", True, numero))
+            return self._sumulas.get(("STF", True, numero))
         if tribunal is None:
             return None
-        return SUMULAS.get((tribunal, False, numero))
+        return self._sumulas.get((tribunal, False, numero))
 
-    def dispositivo(self, codigo: str | None, artigo: int | None) -> int | None:
+    def dispositivo(self, codigo: str | None, artigo: str | None) -> int | None:
         if codigo is None or artigo is None:
             return None
-        return DISPOSITIVOS.get((codigo, artigo))
+        return self._dispositivos.get((codigo, artigo))
+
+    def lei(self, codigo: str) -> tuple[str | None, int | None] | None:
+        """(número, ano) do diploma como o banco o declara, se ele tiver algum artigo."""
+        return self._leis.get(codigo)
+
+    @property
+    def sumulas(self) -> dict[tuple[str, bool, int], int]:
+        return dict(self._sumulas)
+
+    @property
+    def dispositivos(self) -> dict[tuple[str, str], int]:
+        return dict(self._dispositivos)

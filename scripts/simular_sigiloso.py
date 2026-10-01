@@ -54,7 +54,7 @@ from avaliar import avaliar  # noqa: E402
 from medir_cobertura import UFS_POR_EXTENSO  # noqa: E402
 from perturbar import CLASSES, gerar_corpus  # noqa: E402
 
-from verificador.base_canonica import DISPOSITIVOS, SUMULAS, BaseCanonica  # noqa: E402
+from verificador.base_canonica import BaseCanonica  # noqa: E402
 from verificador.cli import _carregar_base  # noqa: E402
 from verificador.pipeline import processar_pasta  # noqa: E402
 
@@ -300,7 +300,11 @@ def inventar_numero(a: Acordao, chaves: set[str], rng: random.Random) -> str:
             return novo
 
 
-SUMULAS_REAIS = tuple(SUMULAS)  # (tribunal, vinculante, número)
+# A cobertura de súmulas e dispositivos vem da base carregada em `main` — é lida
+# do banco, como na execução. (tribunal, vinculante, número) -> id e
+# (código, artigo) -> id; só artigos sem sufixo entram no sorteio.
+SUMULAS: dict[tuple[str, bool, int], int] = {}
+DISPOSITIVOS: dict[tuple[str, int], int] = {}
 
 
 def citar_sumula(
@@ -400,10 +404,14 @@ def _artigo(numero: int, rng: random.Random) -> str:
 
 def citar_dispositivo(real: bool, nivel: int, rng: random.Random) -> tuple[str, str]:
     """A citação e o id canônico ("" quando inventada)."""
-    codigo = rng.choice(sorted(DIPLOMAS))
-    artigos, nomes = DIPLOMAS[codigo]
     if real:
-        numero, diploma = rng.choice(artigos), rng.choice(nomes)
+        codigo, numero = rng.choice(sorted(k for k in DISPOSITIVOS if k[0] in DIPLOMAS))
+    else:
+        codigo = rng.choice(sorted(DIPLOMAS))
+    nomes = DIPLOMAS[codigo][1]
+    artigos = {n for c, n in DISPOSITIVOS if c == codigo}
+    if real:
+        diploma = rng.choice(nomes)
     elif rng.random() < 0.5:
         limite = 250 if codigo == "CF" else 1200
         numero = rng.choice([n for n in range(2, limite) if n not in artigos])
@@ -497,7 +505,7 @@ def gerar(
                     citacao, estilo = citar_acordao(a, nivel, rng, inventar_numero(a, chaves, rng))
             elif familia == "sumula":
                 if classe == "real":
-                    t, v, n = rng.choice(SUMULAS_REAIS)
+                    t, v, n = rng.choice(sorted(SUMULAS))
                 else:
                     t = rng.choice(("STF", "STJ", "STJ", "TST", "TSE", "STM"))
                     v = t == "STF" and rng.random() < 0.3
@@ -622,6 +630,8 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     base = _carregar_base(args.indice, args.db)
+    SUMULAS.update(base.sumulas)
+    DISPOSITIVOS.update({(c, int(a)): i for (c, a), i in base.dispositivos.items() if a.isdigit()})
     catalogo = montar_catalogo(args.db, base)
     chaves = set(base._numeros)
     if args.trabalho.exists():

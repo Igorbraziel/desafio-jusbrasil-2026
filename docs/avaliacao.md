@@ -2,8 +2,10 @@
 
 > O script oficial está em `data/dev/ferramentas/kaggle_metric.py`, e
 > [`scripts/avaliar.py`](../scripts/avaliar.py) (`make avaliar`) o carrega de lá:
-> o número local é o do leaderboard. A descrição abaixo foi lida dele, não do
-> material de divulgação — em três pontos ele diverge da leitura anterior.
+> o número local é o que a métrica oficial daria. A descrição abaixo foi lida
+> dele, não do material de divulgação — em três pontos ele diverge da leitura
+> anterior. Pelo e-mail de 29/09, a avaliação final usa a mesma métrica e os
+> mesmos scripts.
 
 ## Como as soluções são medidas
 
@@ -69,14 +71,25 @@ O oficial levanta `ParticipantVisibleError` — não é perda de pontos, é reje
 
 ## Leaderboard e ranking final
 
-O leaderboard do Kaggle tem duas fases. Agora, enquanto o conjunto de avaliação
-final está em construção, ele roda sobre a amostra de treino/desenvolvimento
-(gabarito aberto) e é **referencial** — submissões desta fase **não contam**
-para o ranking final. Quando o conjunto final for ativado, o leaderboard
-**reinicia** e passa a usar a parte pública dele (**40%**); o ranking final é
-calculado sobre os **60% privados** restantes, mantidos em sigilo até o
-encerramento. Otimizar demais para qualquer um dos dois leaderboards públicos
-não garante nada no resultado final.
+**A nota final sai da execução da organização.** Entre 01 e 10/10/2026 ela
+roda o código submetido — o `run.sh`, na versão do hash enviado — sobre um
+`.db` novo e documentos novos, e pontua a saída com a mesma métrica descrita
+acima e os mesmos scripts (e-mail de 29/09; ver
+[desafio.md](desafio.md#a-entrega-final-e-mail-de-29092026)). Não há comparação
+entre CSVs enviados. Pequenas diferenças em `confianca` por variação de
+hardware são aceitas; aqui ela é uma constante por caminho de decisão e não
+varia com o hardware.
+
+**O leaderboard do Kaggle não entra no ranking.** Ele rodou sobre a amostra de
+treino/desenvolvimento, de gabarito aberto, e foi **referencial**: serviu para
+validar o pipeline de ponta a ponta. O plano original previa uma segunda fase,
+com o leaderboard reiniciado sobre 40% do conjunto final e o ranking nos 60%
+privados; o e-mail de 29/09 a substituiu pela execução do código.
+
+Uma consequência prática: a nota depende de o código **rodar** no ambiente da
+organização, do zero e sem rede, e não só de acertar. Um documento sem linha no
+CSV faz o avaliador rejeitar a saída inteira (seção anterior), e por isso o
+`run.sh` confere o CSV com as mesmas checagens antes de terminar.
 
 ## Onde o nosso avaliador erra
 
@@ -97,11 +110,16 @@ nível pela metade.
 ## Como medir localmente
 
 ```bash
+make entrega    # roda o run.sh sobre o dev, como a organização, e pontua o CSV
 make rodar      # gera data/out/
 make avaliar    # métrica oficial, por nível + score ponderado
-make submissao  # gera e confere data/submission.csv, o arquivo do Kaggle
+make submissao  # data/submission.csv pelo conversor oficial, a partir de data/out/
+
+uv run python scripts/avaliar.py --submissao <csv>   # pontua um CSV já gerado
 ```
 
 `make avaliar` monta o `solution.csv` a partir do `goldenset.csv` e o
 `submission.csv` com [`json_to_submission.py`](../data/dev/ferramentas/json_to_submission.py),
-e passa os dois ao `kaggle_metric.py` sem alteração.
+e passa os dois ao `kaggle_metric.py` sem alteração. `make entrega` é o caminho
+que a organização executa: o CSV sai do `run.sh`, sem passar pelo conversor, e
+é pontuado direto.

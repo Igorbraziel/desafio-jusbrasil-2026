@@ -323,12 +323,6 @@ _SIGLA_DE_TRIBUNAL = (
 # "d0", "dc", "dã" no lugar de "do", "de", "da".
 _CONECTOR = r"d[oaeã0c]s?"
 
-
-def sigla_do_tribunal(texto: str) -> str:
-    """A sigla do tribunal sem o ruído de OCR: `5TJ` → `STJ`."""
-    return texto.upper().replace("5", "S")
-
-
 # As palavras do nome atravessam uma quebra de linha, como o resto da citação: o
 # texto do gerador é quebrado em ~100 colunas, e "Súmula 345 do Superior
 # Tribunal\nde Justiça" perdia o tribunal inteiro — o span parava em "Súmula
@@ -344,6 +338,188 @@ _TRIBUNAL_POR_EXTENSO = "|".join(
         ("STM", "Superior Tribunal Militar"),
     )
 )
+
+# O separador dos nomes longos — o do diploma citado pelo nome e o do tribunal
+# regional da súmula —, com a mesma quebra de linha de `_ENTRE_PALAVRAS_DO_NOME`.
+# A quebra é um grupo à parte, e não um `\n?` entre dois `[ \t]*`: com essa
+# ambiguidade, um trecho longo de espaços depois de "art. 5º da Lei" custava
+# tempo quadrático em cada um dos nomes que começam por "Lei".
+_NAME_SEPARATOR = r"(?:[ \t\xa0]+(?:\n[ \t\xa0]*)?|\n[ \t\xa0]*)"
+
+
+def _tolerant_name(nome: str) -> str:
+    """As palavras de um nome longo com o ruído do nível 2, como as âncoras.
+
+    A palavra passa por `_tolerante` ("Lci", "Execucão", "Rcgião"). O conector
+    aceita o ruído e a troca entre si, como o de `_NOME_DE_CODIGO` ("dc", "d0";
+    "Normas de Direito" ao lado de "Normas do Direito"), e o plural com o `s`
+    lido como `5` ("da5").
+    """
+    return _NAME_SEPARATOR.join(
+        r"d[aeoc0ã][s5]?" if palavra in ("de", "da", "do", "das", "dos") else _tolerante(palavra)
+        for palavra in nome.split()
+    )
+
+
+# O tribunal da súmula fora dos cinco superiores: TRF1 a TRF6, TRT1 a TRT24, TJ,
+# TRE e TJM com a UF, e a TNU. Sem ele, "Súmula 7 do TJSP" saía com o span
+# "Súmula 7" e sem tribunal — `inventada` mesmo que a base tivesse o registro —,
+# e com o nome por extenso ("Súmula 7 do Tribunal de Justiça de São Paulo") o IoU
+# contra o span da citação caía a 0,18, abaixo do corte: FN e FP de uma vez. A
+# base do conjunto de avaliação é nova e pode ter súmula de tribunal regional.
+#
+# Fica num padrão só da súmula: `_SIGLA_DE_TRIBUNAL` é também a âncora de `tema`
+# e `vaga`, que continuam nos cinco superiores.
+#
+# A sigla é a maiúscula, fora do IGNORECASE de `_SUMULA`: em caixa baixa ela
+# seria prosa. O separador entre a sigla e a UF ou a região vem nas grafias dos
+# acórdãos da base: "TRE/SP" (a forma mais comum do regional eleitoral, 170
+# ocorrências), "TJ-MS", "TJSP", "TRF-1", "TRT/<n>ª Região", "TRT da <n>a Região",
+# "TRT <n>". Entre a sigla e a UF não cabe espaço solto: em caixa alta, "SÚMULA 7
+# DO TJ SE APLICA" leria "TJ SE" como o tribunal de Sergipe.
+#
+# A UF é o conjunto fechado de `UFS`, mais o `DFT` do TJDFT, tolerante ao ruído
+# como as palavras-chave ("TJ5P"). A região é o número, ou o ordinal por extenso
+# ("da Sexta Região"), a forma dos cabeçalhos de peça. Aceitar a região que não
+# existe ("TRF9") é de propósito: ela não resolve e sai `inventada`, que é a
+# resposta certa, com o span inteiro.
+_UFS_DA_SIGLA = ("DFT", *sorted(UFS))
+_UNIDADES_DA_REGIAO = (
+    "Primeira", "Segunda", "Terceira", "Quarta", "Quinta", "Sexta", "Sétima", "Oitava", "Nona",
+)  # fmt: skip
+_UNIDADE_DA_REGIAO = "|".join(_tolerante(u) for u in _UNIDADES_DA_REGIAO)
+_ORDINAL_DA_REGIAO = (
+    rf"(?:(?:{_tolerante('Décima')}|{_tolerante('Vigésima')})"
+    rf"(?:{_NAME_SEPARATOR}(?:{_UNIDADE_DA_REGIAO}))?|{_UNIDADE_DA_REGIAO})"
+)
+_NUMERO_DA_REGIAO = r"\d{1,2}(?!\d)[ªºa°^]?"
+_DA_REGIAO = (
+    rf"d[aã]{_NAME_SEPARATOR}(?:{_NUMERO_DA_REGIAO}|{_ORDINAL_DA_REGIAO})"
+    rf"{_NAME_SEPARATOR}{_tolerante('Região')}"
+)
+# O separador entre a sigla e a UF ou a região: nada, espaço, ou um sinal com
+# espaço opcional dos dois lados. Cada forma tem um caminho só — com `[ \t]*`
+# dos dois lados de um sinal opcional, "TRF" seguido de um trecho longo de
+# espaços custava tempo quadrático.
+_SEPARADOR_DA_SIGLA = r"(?:[ \t]*[-–/][ \t]*|[ \t]+)?"
+_REGIONAL_DA_SUMULA = (
+    r"(?:(?-i:TR[FT])"
+    rf"(?:{_SEPARADOR_DA_SIGLA}{_NUMERO_DA_REGIAO}(?:{_NAME_SEPARATOR}{_tolerante('Região')})?"
+    rf"|{_NAME_SEPARATOR}{_DA_REGIAO})?"
+    rf"|(?-i:TJM|TRE|TJ)(?:[ \t]*[-–/][ \t]*)?"
+    rf"(?-i:{'|'.join(_tolerante(uf) for uf in _UFS_DA_SIGLA)})"
+    r"|(?-i:TJM|TRE|TJ|TNU)"
+    r")(?![A-Za-zÀ-ÿ\d])"
+)
+
+# O regional pelo nome por extenso, que a prosa usa tanto quanto a sigla: "Tribunal
+# de Justiça de São Paulo", "Tribunal Regional Federal da 1ª Região", "Turma
+# Nacional de Uniformização". Só com o que identifica o tribunal — o estado ou a
+# região: "Súmula 21 do Tribunal Regional" não diz qual, e fica de fora como antes.
+#
+# Do nome mais longo para o mais curto: com "Mato Grosso" antes, o "do Sul" de
+# "Mato Grosso do Sul" ficaria fora do span, e o tribunal seria o de outro estado.
+_ESTADOS_POR_EXTENSO = {
+    "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM", "Bahia": "BA",
+    "Ceará": "CE", "Distrito Federal e dos Territórios": "DFT", "Distrito Federal": "DF",
+    "Espírito Santo": "ES", "Goiás": "GO", "Maranhão": "MA", "Mato Grosso do Sul": "MS",
+    "Mato Grosso": "MT", "Minas Gerais": "MG", "Pará": "PA", "Paraíba": "PB",
+    "Paraná": "PR", "Pernambuco": "PE", "Piauí": "PI", "Rio de Janeiro": "RJ",
+    "Rio Grande do Norte": "RN", "Rio Grande do Sul": "RS", "Rondônia": "RO",
+    "Roraima": "RR", "Santa Catarina": "SC", "São Paulo": "SP", "Sergipe": "SE",
+    "Tocantins": "TO",
+}  # fmt: skip
+_ESTADOS_EM_ORDEM = sorted(_ESTADOS_POR_EXTENSO, key=len, reverse=True)
+_DO_ESTADO = (
+    rf"d[aeoc0ã]{_NAME_SEPARATOR}"
+    rf"(?:{_tolerante('Estado')}{_NAME_SEPARATOR}d[aeoc0ã]{_NAME_SEPARATOR})?"
+    rf"(?:{'|'.join(_tolerant_name(e) for e in _ESTADOS_EM_ORDEM)})"
+)
+# (sigla, nome, o que vem depois do nome e identifica o tribunal)
+_REGIONAIS_POR_EXTENSO = (
+    ("TRF", "Tribunal Regional Federal", f"{_NAME_SEPARATOR}{_DA_REGIAO}"),
+    ("TRT", "Tribunal Regional do Trabalho", f"{_NAME_SEPARATOR}{_DA_REGIAO}"),
+    ("TRE", "Tribunal Regional Eleitoral", f"{_NAME_SEPARATOR}{_DO_ESTADO}"),
+    ("TJM", "Tribunal de Justiça Militar", f"{_NAME_SEPARATOR}{_DO_ESTADO}"),
+    ("TJ", "Tribunal de Justiça", f"{_NAME_SEPARATOR}{_DO_ESTADO}"),
+    (
+        "TNU",
+        "Turma Nacional de Uniformização",
+        f"(?:{_NAME_SEPARATOR}{_tolerant_name('dos Juizados Especiais Federais')})?",
+    ),
+)
+_REGIONAL_POR_EXTENSO = (
+    "(?:"
+    + "|".join(_tolerant_name(nome) + resto for _, nome, resto in _REGIONAIS_POR_EXTENSO)
+    + r")(?![\wÀ-ú])"
+)
+_SIGLA_DE_TRIBUNAL_DA_SUMULA = (
+    rf"(?:{_SIGLA_DE_TRIBUNAL}|{_REGIONAL_DA_SUMULA}|{_REGIONAL_POR_EXTENSO})"
+)
+
+# As peças que `sigla_do_tribunal` lê para escrever a sigla do regional.
+_REGIONAL_NAMES = tuple(
+    (sigla, re.compile(_tolerant_name(nome), re.IGNORECASE))
+    for sigla, nome, _ in _REGIONAIS_POR_EXTENSO
+)
+_STATE_NAMES = tuple(
+    (
+        _ESTADOS_POR_EXTENSO[nome],
+        re.compile(rf"(?<![\wÀ-ú]){_tolerant_name(nome)}(?![\wÀ-ú])", re.IGNORECASE),
+    )
+    for nome in _ESTADOS_EM_ORDEM
+)
+_STATE_ACRONYMS = tuple((uf, re.compile(_tolerante(uf))) for uf in _UFS_DA_SIGLA)
+_TENS_OF_REGION = (
+    (10, re.compile(_tolerante("Décima"), re.IGNORECASE)),
+    (20, re.compile(_tolerante("Vigésima"), re.IGNORECASE)),
+)
+_UNITS_OF_REGION = tuple(
+    (valor, re.compile(rf"(?<![\wÀ-ú]){_tolerante(nome)}(?![\wÀ-ú])", re.IGNORECASE))
+    for valor, nome in enumerate(_UNIDADES_DA_REGIAO, start=1)
+)
+
+
+def _region_number(texto: str) -> int | None:
+    """A região, escrita com algarismo ("1ª", "15a") ou por extenso ("Quarta")."""
+    algarismo = re.search(r"\d{1,2}", texto)
+    if algarismo:
+        return int(algarismo.group())
+    dezena = next((valor for valor, expr in _TENS_OF_REGION if expr.search(texto)), 0)
+    unidade = next((valor for valor, expr in _UNITS_OF_REGION if expr.search(texto)), 0)
+    return (dezena + unidade) or None
+
+
+def sigla_do_tribunal(texto: str) -> str:
+    """A sigla do tribunal sem o ruído de OCR: `5TJ` → `STJ`.
+
+    O tribunal regional da súmula chega como o texto o escreveu ("TRF-1", "TJ/SP",
+    "TJ5P", "TRF da 1ª Região", "Tribunal de Justiça de São Paulo") e sai numa
+    forma só, sem separador: `TRF1`, `TJSP`, `TREMG`, `TNU`. A troca do `5` por
+    `S` vale só para a letra — no regional o número é a região, e "TRT-5" não
+    pode virar "TRT-S".
+    """
+    for sigla, nome in _REGIONAL_NAMES:
+        inicio = nome.match(texto)
+        if inicio is None:
+            continue
+        resto = texto[inicio.end() :]
+        if sigla in ("TRF", "TRT"):
+            return f"{sigla}{_region_number(resto) or ''}"
+        return sigla + next((uf for uf, estado in _STATE_NAMES if estado.search(resto)), "")
+    if texto[:3] in ("TRF", "TRT"):
+        return f"{texto[:3]}{_region_number(texto[3:]) or ''}"
+    # "TJMG" é o TJ de Minas, e "TJMSP" o TJM de São Paulo: a sigla mais longa só
+    # fica se o que sobra depois dela for uma UF.
+    for prefixo in ("TJM", "TRE", "TJ"):
+        if texto.startswith(prefixo):
+            resto = re.sub(r"^[ \t]*[-–/]?[ \t]*", "", texto[len(prefixo) :])
+            uf = next((uf for uf, expr in _STATE_ACRONYMS if expr.fullmatch(resto)), None)
+            if uf:
+                return f"{prefixo}{uf}"
+    return texto.upper().replace("5", "S")
+
+
 #
 # Formas correntes que a amostra não tem e o texto jurídico usa: a sigla da
 # súmula vinculante ("SV 10"), "Enunciado" (como o TST chama as próprias
@@ -351,6 +527,10 @@ _TRIBUNAL_POR_EXTENSO = "|".join(
 # antes do tribunal ("do C. STJ", "do E. STJ", "do col. TST"). Sem elas a súmula
 # da cobertura sumia ou saía sem tribunal — `inventada`. O "Enunciado" é marcado
 # no grupo `enunciado` para a resolução só o aceitar do TST.
+#
+# O tribunal regional vem nos mesmos grupos da sigla (`tribunal`,
+# `tribunal_par`, `tribunal_do`), o nome por extenso inclusive, e
+# `sigla_do_tribunal` o devolve na forma canônica.
 _HONORIFICO = r"(?:(?:C|E|Col|Colendo|Egr[ée]gio|Eg)\.?\s+)"
 _ITEM_DA_SUMULA = r"(?:\s*,\s*(?:item\s+|inciso\s+)?[IVXLC]{1,8}\s*,)"
 _SUMULA = re.compile(
@@ -361,10 +541,10 @@ _SUMULA = re.compile(
     r")"
     rf"\s*(?:{_NUMERO}\s*)?(?P<numero>{_NUMERO_DE_SUMULA})"
     r"(?:"
-    rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL})"
-    rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL})\s*\)"
+    rf"\s*[/\-–]\s*(?P<tribunal>{_SIGLA_DE_TRIBUNAL_DA_SUMULA})"
+    rf"|\s*\(\s*(?P<tribunal_par>{_SIGLA_DE_TRIBUNAL_DA_SUMULA})\s*\)"
     rf"|{_ITEM_DA_SUMULA}?\s*,?\s*{_CONECTOR}\s*{_HONORIFICO}?"
-    rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL})|{_TRIBUNAL_POR_EXTENSO})"
+    rf"(?:(?P<tribunal_do>{_SIGLA_DE_TRIBUNAL_DA_SUMULA})|{_TRIBUNAL_POR_EXTENSO})"
     r")?",
     re.IGNORECASE,
 )
@@ -438,6 +618,105 @@ _PALAVRA_DO_NOME = (
     rf"(?:{_PALAVRA_TITULO}|{_PALAVRA_DE_CODIGO_MINUSCULA}))"
 )
 _NOME_DE_CODIGO = rf"{_tolerante('Código')}{_PALAVRA_DO_NOME}{{0,4}}{_ANO_DE_VERSAO}"
+
+# Os diplomas federais citados pelo nome, e não pelo número: "art. 5º da Lei de
+# Execução Penal", "art. 98 do Estatuto da Criança e do Adolescente". Nenhuma
+# outra alternativa de `_DIPLOMA` casa "Lei de …" ou "Estatuto …", e a citação
+# sumia inteira. O conjunto de avaliação roda sobre uma base nova, que pode ter
+# o artigo de qualquer lei federal; nos 996 acórdãos da base de hoje, "Lei de
+# Introdução" aparece em 72, "Lei das Eleições" em 70 e "Lei de Licitações" em 51.
+#
+# A lista é **fechada**, pelo mesmo motivo de `_PALAVRA_DE_CODIGO_MINUSCULA`:
+# "Lei de <qualquer coisa>" faria de "art. 5º da Lei de regência" uma citação. A
+# detecção só entrega o nome inteiro no grupo `diploma`; quem o leva a (tipo,
+# número, ano), ou o recusa, é a resolução.
+#
+# Cada entrada é o nome e os complementos que podem vir depois dele. O
+# complemento que muda a identidade do diploma precisa entrar no span para
+# chegar à resolução, como o qualificador da Constituição: "Federais" e "da
+# Fazenda Pública" nomeiam outras duas leis de juizados, e sem eles `art. 3º da
+# Lei dos Juizados Especiais Federais` chegaria como a lei dos juizados
+# estaduais. "Nova" antes de "Lei de Licitações" separa a de 2021 da de 1993.
+#
+# Os complementos vão do mais longo para o mais curto: a alternância fica com o
+# primeiro que casa, e "Cíveis" antes de "Cíveis e Criminais" deixaria o "e
+# Criminais" fora do diploma.
+_STATUTE_NAMES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Estatuto da Criança e do Adolescente", ()),
+    ("Estatuto do Idoso", ()),
+    ("Estatuto da Pessoa Idosa", ()),
+    ("Estatuto da Advocacia", ("e da Ordem dos Advogados do Brasil", "e da OAB")),
+    ("Estatuto da Ordem dos Advogados do Brasil", ()),
+    ("Estatuto da OAB", ()),
+    ("Estatuto do Desarmamento", ()),
+    ("Estatuto da Pessoa com Deficiência", ()),
+    ("Lei de Execução Penal", ()),
+    ("Lei de Introdução às Normas do Direito Brasileiro", ()),
+    ("Lei de Introdução ao Direito Brasileiro", ()),
+    ("Lei de Introdução ao Código Civil", ()),
+    ("Lei Maria da Penha", ()),
+    ("Lei de Drogas", ()),
+    ("Lei Antidrogas", ()),
+    ("Lei das Eleições", ()),
+    ("Lei de Improbidade", ("Administrativa",)),
+    (
+        "Lei dos Juizados Especiais",
+        ("Cíveis e Criminais", "da Fazenda Pública", "Federais", "Criminais", "Cíveis"),
+    ),
+    ("Lei da Ação Civil Pública", ()),
+    ("Lei do Mandado de Segurança", ()),
+    ("Lei de Execução Fiscal", ()),
+    ("Lei de Execuções Fiscais", ()),
+    ("Lei dos Crimes Hediondos", ()),
+    ("Nova Lei de Licitações", ("e Contratos Administrativos", "e Contratos")),
+    ("Lei de Licitações", ("e Contratos Administrativos", "e Contratos")),
+    ("Lei das Inelegibilidades", ()),
+    ("Lei de Inelegibilidade", ()),
+    ("Lei da Ficha Limpa", ()),
+    ("Lei Orgânica da Magistratura Nacional", ()),
+    ("Lei de Responsabilidade Fiscal", ()),
+)
+
+
+def _statute_pattern(nome: str, complementos: tuple[str, ...]) -> str:
+    """A expressão de uma entrada de `_STATUTE_NAMES`, tolerante como as âncoras.
+
+    A fronteira no fim impede que o nome termine dentro de uma palavra — "Lei de
+    Inelegibilidade" não pode parar antes do "s" de "Inelegibilidades".
+    """
+    expressao = _tolerant_name(nome)
+    if complementos:
+        opcoes = "|".join(_tolerant_name(c) for c in complementos)
+        expressao += f"(?:{_NAME_SEPARATOR}(?:{opcoes}))?"
+    return expressao + r"(?![\wÀ-ú])"
+
+
+# O ano entra pelo mesmo motivo que em `_NOME_DE_CODIGO`: "Lei de Licitações de
+# 1993" e a Nova Lei de Licitações têm os mesmos números de artigo, e só com o ano
+# no diploma a resolução consegue separá-las.
+_NAMED_STATUTE = (
+    "(?:"
+    + "|".join(_statute_pattern(nome, extra) for nome, extra in _STATUTE_NAMES)
+    + f"){_ANO_DE_VERSAO}"
+)
+
+# As siglas de diploma, dentro de `_DIPLOMA` e depois de vírgula
+# (`_SIGLA_DE_DIPLOMA`). `CRFB` e `NCPC` são grafias correntes da CF/88 e do CPC
+# vigente; `CP`, `CTN`, `CTB`, `ECA` e `CPPM` estão fora da cobertura de hoje e
+# entram para que a citação exista.
+#
+# `LEP`, `LINDB`, `LICC`, `LOMAN`, `LRF` e `LEF` são as siglas dos diplomas de
+# `_STATUTE_NAMES` que a prosa usa sozinhas depois do artigo ("art. 47 da LEF"):
+# nos 996 acórdãos da base, as seis aparecem nessa forma. `LIDB` também — é a
+# abreviação da Lei de Introdução em 46 deles.
+#
+# A mais longa vem antes da que ela contém (`CPPM` antes de `CPP`), e quem
+# termina a sigla é a fronteira que cada uso põe depois dela: sem isso `CPPM`
+# casava `CPP` e o "M" ficava de fora.
+_DIPLOMA_ACRONYMS = (
+    r"(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA"
+    r"|LINDB|LIDB|LICC|LOMAN|LEP|LRF|LEF|CF|CC|CP)"
+)
 # O número da lei também atravessa o digitoide (`Lei nº l7.463/z0I4`). O
 # lookahead no fim impede que ele termine dentro de uma palavra: `O` é digitoide,
 # e sem o freio "Lei Orgânica" casaria "Lei O". A exigência de dígito real fica
@@ -501,6 +780,7 @@ _DIPLOMA = (
     rf"|{_tolerante('Consolidação')}\s+d[aã0c][s5]\s+{_tolerante('Leis')}\s+{_CONECTOR_DE_NOME}\s+"
     rf"{_tolerante('Trabalho')}"
     rf"|{_NOME_DE_CODIGO}"
+    rf"|{_NAMED_STATUTE}"
     # O qualificador da Constituição precisa entrar no grupo `diploma`, e não
     # ficar de fora. Duas razões, medidas: (1) o gabarito anota o span inteiro
     # ("Constituição da República", "Constituição Fedcral"), e parar em
@@ -542,10 +822,9 @@ _DIPLOMA = (
     #
     # A sigla precisa terminar ali: sem a fronteira, `CPPM` casava `CPP` e o "M"
     # ficava de fora — o Código de Processo Penal Militar, fora da cobertura,
-    # resolvia para o art. 312 do CPP. As siglas fora da cobertura (`CP`, `CTN`,
-    # `CTB`, `ECA`, `CPPM`) entram para que a citação exista e saia `inventada`;
-    # `CRFB` e `NCPC` são grafias correntes da CF/88 e do CPC vigente.
-    rf"|(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA|CF|CC|CP)(?![A-Za-zÀ-ÿ])"
+    # resolvia para o art. 312 do CPP. As siglas fora da cobertura entram para que
+    # a citação exista e saia `inventada`. Ver `_DIPLOMA_ACRONYMS`.
+    rf"|{_DIPLOMA_ACRONYMS}(?![A-Za-zÀ-ÿ])"
     rf"{_ANO_DE_VERSAO}"
     r")"
 )
@@ -624,10 +903,7 @@ _NUMERO_DE_ARTIGO = rf"{_DIGITOIDE}+(?:\.[ \t]*\n?[ \t]*{_DIGITOIDE}{{3}})*(?:[-
 # CF"), forma corrente em peça jurídica. Só a sigla, e só com vírgula: nome por
 # extenso sem conector seria prosa.
 _ADJETIVO_DE_DIPLOMA = r"(?:(?:novo|atual|vigente)\s+)"
-_SIGLA_DE_DIPLOMA = (
-    r"(?:CPPM|CPC|CPP|CPM|CLT|CDC|CRFB|NCPC|CTN|CTB|ECA|CF|CC|CP)(?![A-Za-zÀ-ÿ])"
-    r"(?:\s*/\s*\d{2,4})?"
-)
+_SIGLA_DE_DIPLOMA = rf"{_DIPLOMA_ACRONYMS}(?![A-Za-zÀ-ÿ])" r"(?:\s*/\s*\d{2,4})?"
 _DISPOSITIVO = re.compile(
     rf"\b{_tolerante('art')}(?:{_tolerante('igo')}|\.|\b)\s*\n?\s*(?P<artigo>{_NUMERO_DE_ARTIGO})"
     rf"{_QUALIFICADORES}"
@@ -955,6 +1231,235 @@ _ATO_NORMATIVO = re.compile(
     rf"\s*[.:]?\s*(?:{_NUMERO}\s*)?$",
     re.IGNORECASE,
 )
+
+# ── Número da prosa que não é número de processo ──────────────────────────────
+#
+# O núcleo da família `processo` casa qualquer número de quatro dígitos, e o
+# gerador dos pareceres escreve prosa com quantidade, prazo, pena e valor: "pena
+# de <n> dias-multa", "<n> gramas", "cerca de <n> eleitores". Medido por sonda,
+# cada uma dessas frases virava citação `inventada` — e "de <n> dias" e "<n>
+# metros quadrados" viravam `real` quando o número coincidia com o número próprio
+# curto de um acórdão do dev (o índice tem 15 chaves de quatro dígitos e 221 de
+# cinco). É a forma do erro que chega mais perto de τ, e com base nova o conjunto
+# das coincidências muda: não há como conferir número a número. O que dá para
+# reconhecer é a prosa em volta.
+#
+# Os filtros daqui valem só para a detecção. `_e_numero_de_processo` continua
+# sendo o que o índice (`base_canonica.numeros_proprios`) e a exclusão da `vaga`
+# usam, e fica como estava: mudá-lo mexeria nas chaves do índice e na contagem de
+# constituintes da `vaga`, que nenhuma medição daqui cobre.
+
+# O número de artigo, tema ou súmula que a família específica não reconheceu:
+# "art. <n> do Regimento Interno" (o diploma não está em `_DIPLOMA`) e "arts.
+# 1.036 e 1.037 do CPC" (o plural não casa `_DISPOSITIVO`). Sem este rótulo o
+# número vazava para `processo`, e na sonda o artigo do regimento resolvia para
+# um acórdão do dev. Tema e súmula nus já perdiam para a própria família pela
+# precedência; o que escapava era o segundo número da enumeração ("Temas 1.046 e
+# 1.191"). É o mesmo rótulo que `base_canonica._ROTULO_NAO_PROPRIO` recusa ao
+# montar o índice, com a enumeração a mais.
+#
+# Os elementos da enumeração são só número e separador, então o rótulo não
+# alcança a citação vizinha que tem classe: em "art. 5º e REsp 1.234.567" o
+# "REsp" interrompe a lista, e o REsp continua citação.
+_ENUMERATED_NUMBER = rf"(?=[^\s,]*\d){_DIGITOIDE}[{_DIGITOIDE[1:-1]}.]*[ºo°ª]?(?:[-‐][A-Za-z])?"
+_NON_PROCESS_LABEL = re.compile(
+    rf"\b(?:{_tolerante('art')}(?:{_tolerante('igo')})?|{_tolerante('Tema')}"
+    rf"|{_tolerante('Súmula')})[s5]?\.?\s*(?:{_NUMERO}\s*)?"
+    rf"(?:{_ENUMERATED_NUMBER}\s*(?:,|(?:,\s*)?(?:e|a|ao|ou|at[ée])(?![\wÀ-ú]))\s*)*$",
+    re.IGNORECASE,
+)
+
+# A janela do rótulo cabe uma enumeração de meia dúzia de artigos ("arts. 1.036,
+# 1.037, 1.038, 1.039, 1.040 e 1.041" tem 50 caracteres).
+_LABEL_WINDOW = 120
+
+# A unidade ou o substantivo de quantidade logo **depois** do número. Lista
+# fechada, sem distinção de caixa, com as quantidades que o gerador e os
+# acórdãos da base escrevem (medido nos 996: votos, litros, munições, pessoas,
+# eleitores, kWh e hectares são as mais frequentes).
+#
+# O começo da expressão cobre três vícios do núcleo. O dígito que ele larga para
+# trás quando a unidade vem colada: em "12.500kg" o freio contra letra no fim
+# devolve só `12.50`, e o `0` fica aqui. A faixa ("1.000 a 2.000 pessoas"), em
+# que a unidade só aparece depois do segundo número. E o número por extenso
+# entre parênteses, que é como a peça escreve pena e valor ("1.460 (mil
+# quatrocentos e sessenta) dias-multa").
+#
+# As unidades de uma letra só valem em minúscula, menos o "L" de litro:
+# maiúscula solta depois de número é mais provável que seja sigla. O "mg" também
+# só vale em minúscula — "MG" é a UF de Minas Gerais ("ARE 123456 MG", forma
+# medida nos acórdãos da base), e o miligrama em caixa alta é raro demais para
+# pagar esse risco.
+#
+# A vírgula só entra como decimal, seguida de dígito ("2.000,5 litros"). Solta,
+# ela é pontuação da frase, e atravessá-la levava a unidade para longe do
+# número: em "Ações Diretas de Inconstitucionalidade ns. <n> e <n>, processos nos
+# quais…" (medido nos acórdãos da base) o número da ADI era recusado.
+_QUANTITY_UNIT = re.compile(
+    r"\d*(?:,\d+)?"
+    r"(?:[ \t\xa0]*\n?[ \t\xa0]*(?:a|à|at[ée]|e|ou|[-–])[ \t\xa0]*\n?[ \t\xa0]*"
+    r"\d[\d.]*(?:,\d+)?)?"
+    r"(?:[ \t\xa0]*\([^()\d\n]{1,80}\))?"
+    r"[ \t\xa0]*\n?[ \t\xa0]*"
+    r"(?:dias(?:[-‐ ]multa)?|meses|anos|semanas|horas|minutos|segundos"
+    r"|metros(?:[ \t\xa0]+(?:quadrados|c[úu]bicos))?|quil[ôo]metros|cent[íi]metros"
+    r"|mil[íi]metros|hectares|alqueires|gramas|quilogramas|quilos|toneladas|litros"
+    r"|mililitros|m[²³23]|km[²2]?|cm|mm|ha|kg|(?-i:mg)|ml|kwh|(?-i:m|g|l|L)"
+    r"|reais|d[óo]lares|euros|sal[áa]rios(?:[-‐ ]m[íi]nimos?)?|mil|milh[õo]es|bilh[õo]es"
+    r"|%|por[ \t\xa0]+cento|pontos[ \t\xa0]+percentuais"
+    r"|pessoas|eleitores|votos|habitantes|vezes|unidades|p[áa]ginas|folhas|exemplares"
+    r"|muni[çc][õo]es|cabe[çc]as|processos)"
+    r"(?![A-Za-zÀ-ÿ0-9])",
+    re.IGNORECASE,
+)
+
+# O grama abreviado, que o núcleo engole porque `g` é digitoide: "2.500 g" e
+# "2.500g" chegam aqui inteiros, e o `g` virava o dígito 9 no reparo. Só depois
+# de espaço ou de um grupo de milhar completo — "1.234.56g" é o 9 corrompido de
+# um número de processo, e continua número. O `l` de litro fica de fora: a base
+# tem o ruído que repete a última letra ("Código Penal l"), e depois de um número
+# ele apagaria a citação.
+_SWALLOWED_UNIT = re.compile(r"(?:\d[ \t\xa0]|\.\d{3})g$")
+
+# Quantidade não tem dez dígitos. Acima disso o número é CNJ ou número único do
+# STJ, e nenhuma das duas regras de quantidade vale para ele: "até" e "entre"
+# também introduzem processo ("suspensos até 0801234-56…"), e perder uma citação
+# de número completo custa mais do que qualquer quantia que passasse.
+_LONG_NUMBER_DIGITS = 10
+
+# O quantificador **imediatamente antes** do número. Quando ele encosta no
+# número não sobra lugar para classe entre os dois, então esta regra dispensa o
+# teste de `_names_class_or_marker`. "R$" já está em `_ROTULO_DISTRATOR`.
+_QUANTIFIER = re.compile(
+    r"(?:\b(?:cerca\s+de|aproximadamente|mais\s+de|menos\s+de|at[ée]|entre|quase|apenas"
+    r"|somente|total\s+de|pelo\s+menos|ao\s+menos|no\s+m[áa]ximo|no\s+m[íi]nimo"
+    r"|acima\s+de|abaixo\s+de|superior(?:es)?\s+a|inferior(?:es)?\s+a"
+    r"|em\s+torno\s+d[eoa]s?|por\s+volta\s+de)|US\$)\s*$",
+    re.IGNORECASE,
+)
+
+# A marca que antecede o número de processo mesmo sem classe: "nº 1234",
+# "processo 1234", "autos nº", e o plural "ns." / "nºs" da enumeração ("ADIs ns.
+# <n> e <n>"). O "no" fica aqui e não entre as palavras de ligação: é a
+# grafia de "nº" que a própria base usa, e na dúvida o número continua citação.
+# "recurso" em minúscula não tem forma de elo, e por isso precisa estar na lista.
+_PROCESS_MARKER = re.compile(
+    r"n\s*[.ºo°0]{0,2}|n[º°]?s\.?|[º°]|processos?|autos|recursos?|feitos?|n[úu]meros?",
+    re.IGNORECASE,
+)
+
+# Palavra de ligação que encosta no número na prosa: "pena de <n>", "PENA DE
+# <n>", "eleito com <n> votos", "Foram <n> eleitores". Nome de classe não
+# termina nela — o conector fica **dentro** do nome ("Mandado de Segurança"), e o
+# que encosta no número é o substantivo, a sigla ou a marca. A lista existe
+# porque as curtas, em caixa alta ou abrindo a frase ("DE", "Os", "Com"), têm a
+# forma de uma sigla de três letras como "Rcl".
+#
+# "se" fica de fora de propósito: em caixa alta é a sigla da Sentença
+# Estrangeira ("SE 5.206"), e ali a palavra nomeia a classe.
+_FUNCTION_WORDS = (
+    frozenset(
+        """
+    a o as os ao aos um uma uns umas de da do das dos em na nas nos num numa
+    e ou que com por pela pelo pelas pelos para sem sob sobre entre ate apos
+    desde contra como cerca mais menos quase cada seu sua seus suas todos todas
+    mas nem so foi foram sao era eram sera serao seria ha houve havia tem teve tinha
+    """.split()
+    )
+    | _PALAVRA_DE_PROSA
+)
+
+
+def _looks_like_class(token: str) -> bool:
+    """O token tem forma de sigla processual ou é núcleo de nome de classe?
+
+    Mais estreito que `_e_elo`, de propósito. Na cadeia de prefixo, qualquer
+    palavra capitalizada é elo, e a palavra que abre a frase também é —
+    "Compareceram 5.130 pessoas", "Apreenderam-se 6.240 kg". Aqui o que conta
+    como classe é a sigla (caixa mista, como `REsp` e `AgInt`; caixa alta curta,
+    como `RESP` e `HC`; ou curta com ponto, como `Rcl` e `Recl.`) e o núcleo do
+    nome por extenso ("Recurso", "Reclamação"). `_elo_corrompido` também fica de
+    fora: ele lê o `c` inicial como `E` corrompido, e "Foram consumidos 2.417
+    litros" passava por "Eonsumidos".
+
+    A sigla composta ("TST-E-ED-RR-", "AGR-RESPE", "EMB.DECL.") é julgada pedaço
+    a pedaço, porque o tamanho do todo não diz nada sobre ela.
+    """
+    letras = [c for c in token if c.isalpha()]
+    if not letras or not letras[0].isupper():
+        return False
+    if chave_textual(token.strip(".")) in _NUCLEO_DE_CLASSE:
+        return True
+    pedacos = [p for p in re.split(r"[-‐.]", token) if any(c.isalpha() for c in p)]
+    return all(_is_acronym(p) for p in pedacos)
+
+
+def _is_acronym(piece: str) -> bool:
+    """Caixa mista (`REsp`, `AgInt`), caixa alta curta (`RESP`, `HC`) ou curta (`Rcl`)."""
+    letras = [c for c in piece if c.isalpha()]
+    maiusculas = sum(c.isupper() for c in letras)
+    if 2 <= maiusculas < len(letras):
+        return True
+    if maiusculas == len(letras):
+        return len(letras) <= 6
+    return letras[0].isupper() and len(letras) <= 4
+
+
+def _names_class_or_marker(before: str) -> bool:
+    """A palavra colada à esquerda do número nomeia classe processual ou é marca?
+
+    É a exceção da regra de unidade: "Rcl 12.345" e "processo nº 1234" continuam
+    citação mesmo com uma unidade depois. Quem decide é o vizinho imediato, com
+    a mesma política de quebra de linha de `_expandir_prefixo` — uma quebra é
+    continuação, duas são fim de parágrafo. A cadeia inteira não serve como
+    primeiro teste: ela engole prosa capitalizada ("Cerca de 30.000", "PENA DE
+    1.460"), e aí qualquer número da frase teria "classe".
+
+    A cadeia só entra quando o vizinho é uma palavra por extenso que não é de
+    ligação: "Recurso Especial 1.234.567", "Habeas Corpus 123.456", "Mandado de
+    Segurança 12.345" terminam num adjetivo ou complemento, e o que nomeia a
+    classe é o núcleo mais à esquerda. Ali só o núcleo conta, não qualquer
+    palavra capitalizada — é o que mantém "Compareceram 5.130 pessoas" recusado.
+    """
+    recuo = len(before)
+    quebras = 0
+    while recuo > 0 and before[recuo - 1] in " \t\xa0\n":
+        if before[recuo - 1] == "\n":
+            quebras += 1
+        recuo -= 1
+    if quebras > 1:
+        return False
+    fim_token = recuo
+    while recuo > 0 and not before[recuo - 1].isspace():
+        recuo -= 1
+    token = before[recuo:fim_token].strip("(),;:")
+    if not token:
+        return False
+    if _PROCESS_MARKER.fullmatch(token):
+        return True
+    if chave_textual(token.rstrip(".")) in _FUNCTION_WORDS:
+        return False
+    if _looks_like_class(token):
+        return True
+    cadeia = before[_expandir_prefixo(before, len(before)) :].split()
+    return any(chave_textual(t.strip(".,;:()")) in _NUCLEO_DE_CLASSE for t in cadeia)
+
+
+def _is_prose_number(number: str, text: str, start: int, end: int) -> bool:
+    """O número é quantidade da prosa, ou de artigo, e não número de processo?
+
+    ``start`` e ``end`` delimitam o número em ``text``. Só as janelas vizinhas
+    são lidas, para o custo não crescer com o tamanho do documento.
+    """
+    before = text[max(0, start - _LABEL_WINDOW) : start]
+    if _NON_PROCESS_LABEL.search(before):
+        return True
+    if _digitos(_corrigir_ocr(number)) >= _LONG_NUMBER_DIGITS:
+        return False
+    if _QUANTIFIER.search(before[-_JANELA_ROTULO:]):
+        return True
+    unit = _QUANTITY_UNIT.match(text, end) or _SWALLOWED_UNIT.search(number)
+    return unit is not None and not _names_class_or_marker(before)
 
 
 def _forma_canonica(numero: str) -> str:
@@ -1318,6 +1823,8 @@ def _candidatos(texto: str, inicio_corpo: int) -> list[Achado]:
         if not _digitos_suficientes(numero, corpo, m.start()):
             continue
         if not _e_numero_de_processo(numero, corpo[: m.start()], corpo[fim_numero:]):
+            continue
+        if _is_prose_number(numero, corpo, m.start(), fim_numero):
             continue
         inicio = _expandir_prefixo(corpo, m.start())
         fim = fim_numero

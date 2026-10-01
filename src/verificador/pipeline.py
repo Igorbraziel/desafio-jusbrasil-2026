@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import signal
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from .base_canonica import BaseCanonica
@@ -73,22 +74,36 @@ def processar_pasta(entrada: Path, saida: Path, base: BaseCanonica) -> list[Path
 
     A extensão é conferida sem distinguir caixa: um `.TXT` ficaria sem JSON.
     """
-    escritos: list[Path] = []
-    alarme_anterior = signal.signal(signal.SIGALRM, _alarme)
+    paths = sorted(p for p in entrada.iterdir() if _eh_txt(p))
+    return [document.escrever(saida) for document in process_files(paths, base)]
+
+
+def process_files(paths: Iterable[Path], base: BaseCanonica) -> Iterator[SaidaDocumento]:
+    """Processa cada arquivo sob `TIMEOUT_POR_DOCUMENTO`; o que falha sai vazio.
+
+    É a proteção de `processar_pasta` sem a varredura da pasta nem a escrita. A
+    entrega (`cli`) coleta os arquivos do seu jeito e grava o CSV, e diante de um
+    documento que falha ou trava as duas precisam do mesmo comportamento.
+
+    Gerador: cada documento sai logo depois de processado, e quem consome decide
+    se o grava antes do próximo — `processar_pasta` grava, como sempre gravou.
+    """
+    previous_handler = signal.signal(signal.SIGALRM, _alarme)
     try:
-        for caminho in sorted(p for p in entrada.iterdir() if _eh_txt(p)):
-            signal.setitimer(signal.ITIMER_REAL, TIMEOUT_POR_DOCUMENTO)
-            try:
-                documento = processar_arquivo(caminho, base)
-            except _Estourou:
-                print(f"tempo esgotado em {caminho.name}; saída vazia", file=sys.stderr)
-                documento = SaidaDocumento(documento_id=documento_id(caminho), citacoes=[])
-            except Exception as erro:  # noqa: BLE001 — qualquer falha, o lote segue
-                print(f"falha em {caminho.name}: {erro!r}; saída vazia", file=sys.stderr)
-                documento = SaidaDocumento(documento_id=documento_id(caminho), citacoes=[])
-            finally:
-                signal.setitimer(signal.ITIMER_REAL, 0)
-            escritos.append(documento.escrever(saida))
+        for path in paths:
+            yield _process_with_timeout(path, base)
     finally:
-        signal.signal(signal.SIGALRM, alarme_anterior)
-    return escritos
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def _process_with_timeout(path: Path, base: BaseCanonica) -> SaidaDocumento:
+    signal.setitimer(signal.ITIMER_REAL, TIMEOUT_POR_DOCUMENTO)
+    try:
+        return processar_arquivo(path, base)
+    except _Estourou:
+        print(f"tempo esgotado em {path.name}; saída vazia", file=sys.stderr)
+    except Exception as error:  # noqa: BLE001 — qualquer falha, o lote segue
+        print(f"falha em {path.name}: {error!r}; saída vazia", file=sys.stderr)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+    return SaidaDocumento(documento_id=documento_id(path), citacoes=[])
