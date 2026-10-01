@@ -1,37 +1,9 @@
-"""Segmentação estrutural de um acórdão em zonas.
+"""Segmentação estrutural de um acórdão em zonas (cabeçalho, ementa, relatório, voto...).
 
-Um acórdão não é texto corrido: tem cabeçalho de identificação, ementa,
-relatório, voto e dispositivo, e **o número do próprio processo só aparece em
-algumas dessas zonas**. Nas outras, todo número é citação de outro processo —
-a armadilha que mais custa precisão (``docs/dados.md``, armadilha 5).
-
-Este módulo existe para que essa distinção seja estrutural em vez de posicional.
-A alternativa que ele substitui era uma janela de offset fixo, que funciona nos
-tribunais regulares e quebra no TST, onde o número próprio fica por volta do
-caractere 1.000 em vez do cabeçalho.
-
-**Uma espécie, um parser.** Medindo a presença de marcadores nos 996 acórdãos da
-base, os cinco tribunais não compartilham estrutura:
-
-======  ======  =========  ======  ==============  =========
-marca     STF      STJ       STM        TSE          TST
-======  ======  =========  ======  ==============  =========
-EMENTA    86%      99%      100%        **8%**       36%
-RELATÓRIO 86%      98%      100%        97%          **3%**
-VOTO      92%      98%      100%        99%          **2%**
-======  ======  =========  ======  ==============  =========
-
-TSE quase não usa EMENTA; TST quase não usa RELATÓRIO nem VOTO, e no lugar
-deles traz a fórmula ``Vistos, relatados e discutidos estes autos de … nº TST-…``.
-Um segmentador único erraria nos dois.
-
-**Invariantes**, verificados em ``tests/test_estrutura.py``:
-
-1. as zonas **ladrilham** o documento, sem buraco nem sobreposição;
-2. ``texto[z.inicio:z.fim] == z.texto`` para toda zona — ancoragem, o que separa
-   extração de invenção;
-3. a saída nunca é vazia: sem marcador nenhum, o documento inteiro vira
-   ``cabecalho``, que é o degradado seguro.
+O número do próprio processo só aparece em algumas zonas; nas outras, todo número é
+citação. Cada tribunal tem estrutura própria, então cada um tem sua ordem de marcadores.
+As zonas ladrilham o documento, ``texto[z.inicio:z.fim] == z.texto`` e, sem marcador,
+o documento inteiro vira ``cabecalho``.
 """
 
 from __future__ import annotations
@@ -41,11 +13,9 @@ from dataclasses import dataclass
 
 TRIBUNAIS = ("STF", "STJ", "TSE", "TST", "STM")
 
-# As zonas onde o número do **próprio** processo aparece. Fora daqui, número é
-# citação de outro julgado — indexá-lo faz o registro errado responder por ele.
+# Zonas onde o número do próprio processo aparece; fora delas, número é citação.
 ZONAS_IDENTIFICADORAS = frozenset({"cabecalho", "identificacao"})
 
-# Ordem canônica, para relatório e ordenação estável.
 ZONAS = ("cabecalho", "identificacao", "ementa", "relatorio", "voto", "dispositivo", "corpo")
 
 
@@ -69,9 +39,8 @@ class Marcador:
 
     zona: str
     padrao: re.Pattern[str]
-    # Tamanho máximo. Só a `identificacao` usa: a fórmula de abertura do voto
-    # identifica o processo nos primeiros ~200 caracteres e depois emenda na
-    # lista de partes, que não identifica nada.
+    # Tamanho máximo: a fórmula de abertura identifica o processo logo no início e
+    # depois emenda na lista de partes, que não identifica nada.
     limite: int | None = None
 
 
@@ -79,14 +48,9 @@ def _p(padrao: str, *, i: bool = False) -> re.Pattern[str]:
     return re.compile(padrao, re.IGNORECASE if i else 0)
 
 
-# A fórmula de abertura do voto. "estes autos" quer dizer *estes*: é o que
-# distingue o processo próprio dos que o acórdão apenas cita.
-#
-# A fórmula completa ("Vistos, relatados e discutidos") vem primeiro, e o
-# "estes autos de <Classe>" solto exige fronteira de palavra e a classe em
-# seguida. Sem isso a âncora casava "de*stes autos*" e "ne*stes autos*" na
-# ementa do TST, a zona caía no lugar errado e o número próprio de nove
-# acórdãos ficava fora do índice — cinco deles sem chave nenhuma.
+# Fórmula de abertura do voto: "estes autos" distingue o processo próprio dos citados.
+# A forma solta exige fronteira de palavra e a classe em seguida, para não casar
+# "destes autos" ou "nestes autos" na ementa.
 _ESTES_AUTOS = _p(
     r"(?:Vistos,?\s+relatados\s+e\s+discutidos|\b[Ee]st[eo]s\s+autos\s+de\s+(?=[A-ZÀ-Ú]))"
 )
@@ -96,9 +60,8 @@ _RELATORIO = _p(r"\bRELAT[ÓO]RIO\b")
 _VOTO = _p(r"\bV\s?O\s?T\s?O\b")
 _ACORDAM = _p(r"\bACORDAM\b|\bAcordam\b")
 
-# Ordem em que as zonas aparecem, por tribunal. A busca é sequencial: cada
-# marcador só é procurado depois do anterior, então a ordem da tupla é a ordem
-# no documento — e um marcador ausente simplesmente não abre zona.
+# Ordem das zonas por tribunal. A busca é sequencial (cada marcador depois do
+# anterior), e marcador ausente não abre zona.
 _ORDEM: dict[str, tuple[Marcador, ...]] = {
     "STF": (
         Marcador("ementa", _EMENTA),
@@ -119,15 +82,13 @@ _ORDEM: dict[str, tuple[Marcador, ...]] = {
         Marcador("relatorio", _RELATORIO),
         Marcador("voto", _VOTO),
     ),
-    # TSE quase não marca EMENTA (8%): procurá-la primeiro consumiria o
-    # RELATÓRIO em 92% dos casos, porque a busca é sequencial.
+    # TSE quase não marca EMENTA: procurá-la primeiro consumiria o RELATÓRIO.
     "TSE": (
         Marcador("relatorio", _RELATORIO),
         Marcador("identificacao", _ESTES_AUTOS, limite=400),
         Marcador("voto", _VOTO),
     ),
-    # TST não usa RELATÓRIO nem VOTO (3% e 2%); a fórmula de abertura é o único
-    # marcador confiável, e é onde o número próprio mora.
+    # TST quase não usa RELATÓRIO nem VOTO; a fórmula de abertura é o marcador confiável.
     "TST": (
         Marcador("identificacao", _ESTES_AUTOS, limite=400),
         Marcador("ementa", _EMENTA),
@@ -135,7 +96,7 @@ _ORDEM: dict[str, tuple[Marcador, ...]] = {
     ),
 }
 
-# Ordem genérica, para tribunal desconhecido: a união dos marcadores comuns.
+# Tribunal desconhecido: a união dos marcadores comuns.
 _ORDEM_GENERICA: tuple[Marcador, ...] = (
     Marcador("identificacao", _ESTES_AUTOS, limite=400),
     Marcador("ementa", _EMENTA),
@@ -144,11 +105,8 @@ _ORDEM_GENERICA: tuple[Marcador, ...] = (
     Marcador("dispositivo", _ACORDAM),
 )
 
-# Assinaturas de tribunal. São **estruturais**, não acrônimos: `\bSTF\b` aparece
-# em acórdão do TST que cita o STF, e medindo isso a inferência por sigla solta
-# acertava só 71%. O que distingue de verdade é a forma do cabeçalho — STF
-# abrevia "MIN." onde o STJ escreve "MINISTRO", e o TST espaça as letras de
-# "A C Ó R D Ã O".
+# Assinaturas estruturais, não siglas soltas (um acórdão cita outros tribunais): o STF
+# abrevia "MIN.", o STJ escreve "MINISTRO", o TST espaça "A C Ó R D Ã O".
 _ASSINATURAS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("TST", _p(r"A\s+C\s+[ÓO]\s+R\s+D\s+[ÃA]\s+O|\bSbDI\b|\bTST-[A-Z]")),
     ("STM", _p(r"Poder\s+Judici[áa]rio\s+STM|SUPERIOR\s+TRIBUNAL\s+MILITAR", i=True)),
@@ -157,39 +115,19 @@ _ASSINATURAS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("STF", _p(r"RELATOR[A]?\s*:\s*MIN\.|SUPREMO\s+TRIBUNAL\s+FEDERAL", i=True)),
 )
 
-# A assinatura tem de estar no cabeçalho. Mais adiante o documento cita outros
-# tribunais, e a inferência passa a ler a citação em vez da identidade.
+# A assinatura tem de estar no cabeçalho; mais adiante o documento cita outros tribunais.
 _JANELA_ASSINATURA = 1500
 
-# Teto do cabeçalho. Sem ele, um documento onde nenhum marcador casa cedo tem
-# "cabeçalho" até o primeiro marcador que aparecer — medido no STF, isso levava
-# a região de identificação a 34.000 caracteres no p90 e a 78.510 no pior caso,
-# o que enche o índice de números citados.
-#
-# O valor sai de varredura, não de escolha: nos quatro tribunais que põem o
-# número no cabeçalho, a primeira ocorrência dele cai entre os caracteres 19 e
-# 123, então 300 dá 2,4x de folga sobre o pior caso observado.
-#
-#   limite   órfãos   ambíguos      (recall 77/77 e FP 0 em toda a faixa)
-#      150       27        180
-#      250       25        217
-#      300       25        239   <- aqui
-#     1500       24        397
-#
-# Órfão é registro que citação nenhuma alcança; ambíguo é número que dois ou
-# mais registros reivindicam. Entre 250 e 300 os órfãos empatam, e 300 leva a
-# folga: truncar cabeçalho num formato não visto custa mais caro que
-# ambiguidade, que afeta uma única citação do gabarito e já tem desempate
-# definido (docs/decisoes/0003).
+# Teto do cabeçalho: sem ele, documento sem marcador cedo teria "cabeçalho" enorme,
+# cheio de números citados. Folga ampla sobre a posição do número próprio, porque
+# truncar um cabeçalho de formato não visto custa mais que ambiguidade.
 LIMITE_CABECALHO = 300
 
 
 def tribunal_do_texto(texto: str) -> str | None:
-    """Infere o tribunal pela forma do cabeçalho. ``None`` quando não dá.
+    """Infere o tribunal pela forma do cabeçalho, ou ``None``.
 
-    Best-effort: no caminho normal o tribunal vem da coluna do banco, e esta
-    função serve a documento solto. A precisão medida está em
-    ``docs/checkpoints/01-parser-de-zonas.md``.
+    Best-effort: no caminho normal o tribunal vem da coluna do banco.
     """
     cabecalho = texto[:_JANELA_ASSINATURA]
     for tribunal, assinatura in _ASSINATURAS:
@@ -214,8 +152,7 @@ def _fronteiras(texto: str, ordem: tuple[Marcador, ...]) -> list[tuple[int, Marc
 def segmentar(texto: str, tribunal: str | None = None) -> list[Zona]:
     """Divide o acórdão em zonas contíguas que ladrilham o documento.
 
-    ``tribunal`` escolhe a estratégia; quando ``None``, é inferido do texto e,
-    se nem isso funcionar, cai na ordem genérica.
+    Sem ``tribunal``, ele é inferido do texto; se não der, usa a ordem genérica.
     """
     if not texto:
         return []
@@ -231,11 +168,7 @@ def segmentar(texto: str, tribunal: str | None = None) -> list[Zona]:
             zonas.append(Zona(tipo, inicio, fim, texto[inicio:fim]))
 
     def emitir_preambulo(inicio: int, fim: int) -> None:
-        """O trecho antes de uma fronteira: cabeçalho na primeira vez, corpo depois.
-
-        O cabeçalho é limitado; o que passar do teto vira corpo, para o
-        ladrilhamento continuar íntegro sem inchar a zona identificadora.
-        """
+        """Trecho antes de uma fronteira: cabeçalho (limitado) na primeira vez, corpo depois."""
         if fim <= inicio:
             return
         if zonas:
@@ -247,8 +180,6 @@ def segmentar(texto: str, tribunal: str | None = None) -> list[Zona]:
 
     fronteiras = _fronteiras(texto, ordem)
     for indice, (inicio, marcador) in enumerate(fronteiras):
-        # O que vem antes da primeira fronteira é cabeçalho; entre fronteiras, o
-        # resto da zona anterior já foi emitido no passo anterior.
         emitir_preambulo(cursor, inicio)
 
         proxima = fronteiras[indice + 1][0] if indice + 1 < len(fronteiras) else len(texto)
