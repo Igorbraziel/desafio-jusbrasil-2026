@@ -71,7 +71,7 @@ Junto com a decisão, quatro guardas que ela exige:
    leitura abre com `immutable=1`; registro com campo nulo não derruba a
    execução; `.db` inexistente é erro claro, não um índice antigo de reserva.
 
-<!-- PREENCHER: nomes das funções e dos arquivos que derivam súmulas e dispositivos e que guardam o repertório (definidos pelos agentes B, C e D) -->
+No código: `base_canonica._tabelas_de_sumulas_e_dispositivos` deriva as tabelas; `leis.py` guarda o repertório (`LEIS_NOMEADAS`, `LEIS_POR_NOME`, `SIGLAS_DE_LEI`); `resolucao._codigo_do_diploma` e `_codigo_estrangeiro` fazem as guardas.
 
 ## Consequências
 

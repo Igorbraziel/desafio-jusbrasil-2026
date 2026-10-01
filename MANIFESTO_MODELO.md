@@ -35,7 +35,7 @@ não está no repositório nem no runtime
 | Decodificação determinística (seed, temperature=0) | não se aplica — não há amostragem. O `run.sh` fixa `PYTHONHASHSEED`, a imagem também, e todo desempate tem ordenação explícita. A saída é a mesma byte a byte com outras sementes de hash, em Python 3.10, 3.11, 3.12 e 3.14, e no container — ver o [checkpoint 11](docs/checkpoints/11-entrega-final.md) |
 | Diferenças de `confianca` por hardware | não ocorrem: a confiança é uma constante por caminho de decisão, sem cálculo em ponto flutuante que dependa da máquina |
 
-<!-- PREENCHER: tempo total e por documento medidos na versão final (a derivação de súmulas e dispositivos do .db pode mudar a preparação da base) -->
+Medido em 01/10 no commit 088ade1: 1,5–1,7 s para os 26 documentos do dev, quase todo no preparo da base.
 
 ## Se um modelo for adicionado
 

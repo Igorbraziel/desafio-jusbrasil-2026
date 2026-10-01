@@ -71,7 +71,6 @@ fixa o `PYTHONHASHSEED`, e a confiança é uma constante por caminho de decisão
 que não varia com o hardware. A conferência em clone limpo, no container e em
 Python 3.10, 3.11, 3.12 e 3.14 está no
 [checkpoint 11](docs/checkpoints/11-entrega-final.md).
-<!-- PREENCHER: confirmar a verificação de entrega da versão final (checkpoint 11) antes de enviar o hash -->
 
 ## Abordagem
 
@@ -135,8 +134,7 @@ cardinalidade da consulta à base canônica fechada.
 | [run.sh](run.sh) | ponto de entrada da avaliação final: `.db` + pasta de `.txt` → CSV | pronto |
 
 O pipeline está completo. Os testes em [tests/](tests/) são a especificação de
-cada etapa, e passam todos.
-<!-- PREENCHER: número de testes da versão final (eram 591 em 30/09, antes das mudanças da entrega) -->
+cada etapa — 864 deles, todos passando.
 
 **No conjunto de desenvolvimento, pela métrica oficial: F1 macro 1,0000 nos dois
 níveis, τ = 0, IoU mínimo 1,000, score 1,1000** (com confiança 1,0 nos caminhos
@@ -145,7 +143,6 @@ merece: são os mesmos 26 documentos usados para construir a solução, e
 [docs/dados.md](docs/dados.md#riscos-conhecidos-para-o-conjunto-cego) lista o que
 essa amostra não consegue medir. A nota oficial, que sai da execução da
 organização sobre o conjunto final, é a primeira medida honesta.
-<!-- PREENCHER: confirmar o score do dev na versão final (1,1000 medido em 30/09, antes das mudanças) -->
 
 **Prazo da entrega: 01/10/2026, 23h59 (Brasília)** — o que enviar está em
 [docs/desafio.md](docs/desafio.md#a-entrega-final-e-mail-de-29092026).
@@ -325,7 +322,6 @@ Dockerfile           imagem de submissão, sem pesos e sem dados dentro
 MANIFESTO_MODELO.md  declaração de pesos usados
 data/                gitignored — ver docs/dados.md
 ```
-<!-- PREENCHER: conferir a lista de scripts/ contra a versão final (novos scripts dos agentes A a D) -->
 
 O conversor oficial `json_to_submission.py` vem da aba *Data* e fica fora do git,
 em `data/dev/ferramentas/`. O `run.sh` não depende dele: grava o mesmo CSV por
@@ -363,7 +359,7 @@ conta própria.
    privado com leitura para os cinco usuários listados em
    [docs/desafio.md](docs/desafio.md#a-entrega-final-e-mail-de-29092026)) e o
    **hash do commit da versão final**.
-   <!-- PREENCHER: hash do commit da versão final e data/hora do envio do e-mail -->
+   (pendente: hash do commit final e data do envio)
 9. **01 a 10/10/2026** — a organização executa o código no conjunto final,
    verifica a reprodutibilidade e divulga o ranking. As melhores soluções são
    apresentadas no BRACIS 2026, de 19 a 22/10, em Cuiabá-MT.

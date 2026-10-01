@@ -1,7 +1,6 @@
 # 11 — Entrega final: ponto de entrada único e base nova
 
-**Data:** 30/09–01/10/2026 · **Estado:** cinco frentes em paralelo, sobre o `main` c7d1d71, para revisão antes do merge
-<!-- PREENCHER: branch e commit da versão final, depois do merge das cinco frentes -->
+**Data:** 30/09–01/10/2026 · **Estado:** integrado na branch `entrega-final` (base `main` c7d1d71); verificação de entrega feita sobre o commit 088ade1
 
 ## Por que esta etapa existe
 
@@ -73,8 +72,7 @@ um número solto na prosa coincidir com o número próprio de algum acórdão mu
 
 ## As mudanças
 
-Cinco frentes, cada uma com os testes que a motivaram.
-<!-- PREENCHER: commits de cada frente depois do merge -->
+Cinco frentes, cada uma com os testes que a motivaram, mais a branch `db-dinamico-e-run-sh` do João (955a538), que derivou súmulas e dispositivos do banco em paralelo e foi a versão adotada para essa parte.
 
 **A — Ponto de entrada único.** `bash run.sh <caminho_db> <pasta_txt>
 <arquivo_saida> [pasta_json]`. Grava o CSV no formato da submissão, byte a byte
@@ -101,13 +99,13 @@ conteúdo da base sai do `.db`, e fixo fica só conhecimento jurídico público.
 - **Código estrangeiro** ("Código Civil Português") não resolve mais para o
   brasileiro.
 - **Estatutos e leis citados pelo nome** passam a ser detectados, e súmula de
-  tribunal regional. <!-- PREENCHER: confirmar se a súmula de tribunal regional entrou -->
+  tribunal regional. Entrou: TRF, TRT, TJ, TRE e TJM com a região ou a UF, e a TNU, em sigla ou por extenso, num padrão só da súmula.
 - **Número solto na prosa** deixa de virar processo.
 - **Leitura robusta do banco:** URI escapada; banco em modo WAL montado só
   leitura abre com `immutable=1`; registro com campo nulo não derruba a
   execução (itens 2 e 5 do diagnóstico).
 
-<!-- PREENCHER: nomes dos arquivos e funções novos de cada frente -->
+Onde está cada coisa: `run.sh`, `src/verificador/submissao.py` (CSV e conferência) e o modo `--csv` de `cli.py` (A); `base_canonica._read_with_fallback` e `_normalize_row` (leitura robusta) e `_tabelas_de_sumulas_e_dispositivos`, `sumula_do_registro`, `dispositivo_do_registro` (tabelas do banco); `src/verificador/leis.py` (repertório: `LEIS_NOMEADAS`, `LEIS_POR_NOME`, `SIGLAS_DE_LEI`, `lei_pelo_nome`) e `resolucao._codigo_estrangeiro`; `deteccao._STATUTE_NAMES` e o tribunal regional em `sigla_do_tribunal` (C); `deteccao._is_prose_number` (D). Testes novos: `test_submissao.py`, `test_entrada_unica.py`, `test_base_derivada.py`, `test_db_novo.py`, `test_deteccao_leis.py`, `test_deteccao_processo.py`.
 
 ## A medição, depois das mudanças
 
@@ -118,27 +116,29 @@ checkpoint 10).
 
 | medição | comando | antes | depois |
 |---|---|---|---|
-| dev, métrica oficial | `make entrega` | 1,1000 (F1 1,0 · τ 0) | <!-- PREENCHER --> |
-| simulador, sem ruído | `simular_sigiloso.py --sementes 20` | 1,1000 | <!-- PREENCHER --> |
-| simulador, ruído 0,05 no N2 | `… --ruido 0.05` | 1,0975 | <!-- PREENCHER --> |
-| simulador, ruído 0,15 no N2 | `… --ruido 0.15` | 1,0877 | <!-- PREENCHER --> |
-| arnês 0,15, todas (10) | `medir_robustez.py --taxa 0.15 --sementes 5` | 1,0850 | <!-- PREENCHER --> |
-| arnês 0,30, todas (10) | `medir_robustez.py --taxa 0.30 --sementes 3` | 1,0655 | <!-- PREENCHER --> |
-| pior semente a 0,30, todas (10) | idem | 1,0411 | <!-- PREENCHER --> |
-| espúrias: `processo` | `medir_espurias.py --amostra 996` | 6.456 | <!-- PREENCHER --> |
-| espúrias: `sumula` | idem | 1.232 | <!-- PREENCHER --> |
-| espúrias: `tema` | idem | 683 | <!-- PREENCHER --> |
-| espúrias: `dispositivo` | idem | 2.147 | <!-- PREENCHER --> |
-| espúrias: `vaga` | idem | 51 | <!-- PREENCHER --> |
-| cobertura: únicos com o registro certo | `medir_cobertura.py` | 820 de 878 | <!-- PREENCHER --> |
-| cobertura: únicos com link errado / `inventada` | idem | 26 / 6 | <!-- PREENCHER --> |
-| cobertura: com cópia exata, registro certo | idem | 57 de 118 | <!-- PREENCHER --> |
-| banco alterado: `real` com id antigo | sonda do diagnóstico | sim, nos três registros | <!-- PREENCHER --> |
-| banco WAL montado só leitura | idem | lote inteiro derrubado (0 saídas) | <!-- PREENCHER --> |
-| `#` no caminho do banco · registro com `texto` nulo | banco sintético | execução derrubada nos dois | <!-- PREENCHER --> |
-| `.db` inexistente | `run.sh` com caminho inválido | CLI caía num índice JSON antigo | <!-- PREENCHER --> |
-| tempo, 26 documentos | `run.sh` no dev | 1,6 s (~1 s de índice) | <!-- PREENCHER --> |
-| testes | `uv run pytest -q` | 591 | <!-- PREENCHER --> |
+| dev, métrica oficial | `make entrega` | 1,1000 (F1 1,0 · τ 0) | 1,1000 (F1 1,0 · τ 0) |
+| simulador, sem ruído | `simular_sigiloso.py --sementes 20` | 1,1000 | 1,1000 (10 sementes) |
+| simulador, ruído 0,05 no N2 | `… --ruido 0.05` | 1,0975 | 1,0949 (10 sementes; ver abaixo) |
+| simulador, ruído 0,15 no N2 | `… --ruido 0.15` | 1,0877 | 1,0825 (10 sementes; ver abaixo) |
+| arnês 0,15, todas (10) | `medir_robustez.py --taxa 0.15 --sementes 5` | 1,0850 | 1,0850 |
+| arnês 0,30, todas (10) | `medir_robustez.py --taxa 0.30 --sementes 3` | 1,0655 | 1,0661 |
+| pior semente a 0,30, todas (10) | idem | 1,0411 | 1,0428 |
+| espúrias: `processo` | `medir_espurias.py --amostra 996` | 6.456 | 6.373 |
+| espúrias: `sumula` | idem | 1.232 | 1.232 |
+| espúrias: `tema` | idem | 683 | 683 |
+| espúrias: `dispositivo` | idem | 2.147 | 2.165 |
+| espúrias: `vaga` | idem | 51 | 51 |
+| cobertura: únicos com o registro certo | `medir_cobertura.py` | 820 de 878 | 820 de 878 |
+| cobertura: únicos com link errado / `inventada` | idem | 26 / 6 | 26 / 6 |
+| cobertura: com cópia exata, registro certo | idem | 57 de 118 | 57 de 118 |
+| banco alterado: `real` com id antigo | sonda do diagnóstico | sim, nos três registros | não: os removidos saem `inventada`, o id trocado sai novo |
+| banco WAL montado só leitura | idem | lote inteiro derrubado (0 saídas) | abre com `immutable=1`; CSV idêntico (Docker, `--read-only`) |
+| `#` no caminho do banco · registro com `texto` nulo | banco sintético | execução derrubada nos dois | URI escapada; registro ignorado com aviso |
+| `.db` inexistente | `run.sh` com caminho inválido | CLI caía num índice JSON antigo | `run.sh` sai com código 1 e não grava CSV |
+| tempo, 26 documentos | `run.sh` no dev | 1,6 s (~1 s de índice) | 1,5–1,7 s |
+| testes | `uv run pytest -q` | 591 | 864 |
+
+**O simulador com ruído caiu 0,003–0,006, e a queda é do instrumento, não do código.** O corpus de 30/09 pontua igual com o código antigo e o novo (1,0975 e 1,0884 nos dois). O que muda é o sorteio: desde 955a538 o simulador lê súmulas e dispositivos da base carregada, e a mesma semente gera outro corpus. Comparar o simulador entre versões exige fixar o corpus.
 
 Na cobertura, "sem citação montada" (24 dos únicos) e "0 spans" são acórdãos em
 que a expressão simples do script não monta a citação, não falhas do índice.
@@ -147,23 +147,23 @@ Nas cópias exatas, o desempate é uma moeda por construção (ADR 0003).
 ## A verificação de entrega
 
 O que a organização vai fazer, feito antes por nós, sobre o commit final.
-<!-- PREENCHER: hash do commit verificado -->
+Commit verificado: **088ade1**. CSV do dev: sha256 `f89bcf50fd0142b3…`, o mesmo em todos os caminhos abaixo.
 
 | verificação | como | resultado |
 |---|---|---|
-| clone limpo | `git clone` do remoto num diretório novo, sem `data/` nem `.venv` | <!-- PREENCHER --> |
-| `run.sh` com Python 3.10 | `PYTHON=python3.10 bash run.sh …` | <!-- PREENCHER --> |
-| `run.sh` com Python 3.11 | `PYTHON=python3.11 bash run.sh …` | <!-- PREENCHER --> |
-| `run.sh` com Python 3.12 | `PYTHON=python3.12 bash run.sh …` | <!-- PREENCHER --> |
-| `run.sh` com Python 3.14 | `PYTHON=python3.14 bash run.sh …` | <!-- PREENCHER --> |
-| Docker | `docker build` + `docker run --rm --network none`, banco `:ro` | <!-- PREENCHER --> |
-| `run.sh` sem Python no `PATH` | `VERIFICADOR_DOCKER=1 bash run.sh …` | <!-- PREENCHER --> |
-| determinismo | `PYTHONHASHSEED` 1, 12345 e aleatório; CSV comparado com `cmp` | <!-- PREENCHER --> |
-| mesmo CSV nos caminhos | local × Docker × quatro versões de Python, byte a byte | <!-- PREENCHER --> |
-| conversor oficial | `json_to_submission.py` sobre a `pasta_json` × CSV do `run.sh` | <!-- PREENCHER --> |
-| sem caminho absoluto nem arquivo local | `grep` por `/home`, `data/dev` e `~` no que o `run.sh` executa | <!-- PREENCHER --> |
-| nada de `data/` no git | `git ls-files data` vazio; `tests/test_sem_gabarito.py` verde | <!-- PREENCHER --> |
-| acesso da organização | repositório público, ou leitura para os cinco usuários do e-mail | <!-- PREENCHER --> |
+| clone limpo | `git clone` do remoto num diretório novo, sem `data/` nem `.venv` | ok — `git clone` local, sem `data/` nem `.venv`; `run.sh` gera o CSV |
+| `run.sh` com Python 3.10 | `PYTHON=python3.10 bash run.sh …` | ok, CSV idêntico |
+| `run.sh` com Python 3.11 | `PYTHON=python3.11 bash run.sh …` | ok, CSV idêntico |
+| `run.sh` com Python 3.12 | `PYTHON=python3.12 bash run.sh …` | ok, CSV idêntico |
+| `run.sh` com Python 3.14 | `PYTHON=python3.14 bash run.sh …` | ok, CSV idêntico |
+| Docker | `docker build` + `docker run --rm --network none`, banco `:ro` | ok — clone limpo, `--network none --read-only --user`, CSV idêntico |
+| `run.sh` sem Python no `PATH` | `VERIFICADOR_DOCKER=1 bash run.sh …` | ok no agente A (8dd2bf4), com imagem própria; não refeito em 088ade1 |
+| determinismo | `PYTHONHASHSEED` 1, 12345 e aleatório; CSV comparado com `cmp` | ok, mesmo sha256 nas três sementes |
+| mesmo CSV nos caminhos | local × Docker × quatro versões de Python, byte a byte | ok |
+| conversor oficial | `json_to_submission.py` sobre a `pasta_json` × CSV do `run.sh` | ok, idêntico byte a byte |
+| sem caminho absoluto nem arquivo local | `grep` por `/home`, `data/dev` e `~` no que o `run.sh` executa | ok — o clone limpo roda sem nada de `data/` |
+| nada de `data/` no git | `git ls-files data` vazio; `tests/test_sem_gabarito.py` verde | ok, `tests/test_sem_gabarito.py` verde |
+| acesso da organização | repositório público, ou leitura para os cinco usuários do e-mail | **PENDENTE** — dar leitura aos cinco usuários (ver o fim deste documento) |
 
 Em 30/09, antes das mudanças, o clone limpo com o container já dava a mesma
 saída da execução local, byte a byte, e o mesmo com as três sementes de hash e
@@ -186,3 +186,14 @@ já dava em 3.10 os mesmos 26 JSONs que em 3.12.
    gerador e formas sem evidência no gerador.
 5. **A nota oficial** sai entre 01 e 10/10, da execução da organização. É a
    primeira medida sobre o conjunto final, e a única que conta.
+
+## O que falta para entregar (01/10/2026, até 23h59)
+
+1. **Revisar e levar `entrega-final` ao `main`** (merge do PR) e fazer push.
+2. **Dar leitura no GitHub** a dvianna, guardiaum, marinaramalhete, resendeacm e
+   vickyaires (Settings → Collaborators), ou tornar o repositório público.
+3. **Refazer a verificação de entrega no commit final do `main`**, a partir de um
+   clone do remoto: `bash run.sh <db> <txt> <saida.csv>` e o `docker run` do README.
+4. **Enviar o e-mail** para desafio-bracis@jusbrasil.com.br com o nome da equipe,
+   os integrantes, o link do repositório e o **hash do commit final**.
+5. Opcional: apagar a branch `db-dinamico-e-run-sh`, já incorporada (955a538).

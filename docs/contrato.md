@@ -121,7 +121,7 @@ organização, agrupa os JSONs em `submission.csv`.
 Neste repositório, [`contrato.py`](../src/verificador/contrato.py) implementa a
 serialização e um validador local — `validar(saida, texto)` também confere que
 `trecho == texto[inicio:fim]`.
-<!-- PREENCHER: citar o módulo que grava o CSV no run.sh (nome definido pelo agente A) -->
+O CSV é gravado por [`submissao.py`](../src/verificador/submissao.py).
 
 ## Execução
 
