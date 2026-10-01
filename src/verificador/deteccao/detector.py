@@ -602,6 +602,9 @@ _DISPOSITIVO = re.compile(
     rf"{_QUALIFICADORES}"
     r"(?:"
     rf"\s*,?\s*\n?\s*{_CONECTOR}\s+{_ADJETIVO_DE_DIPLOMA}?(?P<diploma>{_DIPLOMA})"
+    # O ano por extenso depois do número ("Lei nº 9.504, de 30 de setembro de 1997")
+    # fica fora do span, mas é lido para que a resolução o confira.
+    r"(?=,?\s+de\s+(?:\d{1,2}º?\s+de\s+[a-zç]+\s+de\s+)?(?P<ano_da_lei>(?:18|19|20)\d{2})\b)?"
     rf"|\s*,\s*(?P<diploma_sigla>(?-i:{_SIGLA_DE_DIPLOMA}))"
     r")",
     re.IGNORECASE,

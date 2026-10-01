@@ -378,6 +378,11 @@ def _resolver_dispositivo(
 ) -> tuple[str, int | None, float]:
     artigo = _chave_de_artigo(dados.get("artigo"))
     diploma = dados.get("diploma") or dados.get("diploma_sigla")
+    # O ano por extenso só é conferido na lei citada pelo número ("Lei nº 9.999, de
+    # 2000"); depois de um nome ("Código Civil, de 2002 em diante") pode ser prosa.
+    ano = dados.get("ano_da_lei")
+    if ano and _LEI_NUMERADA.search(_chave_do_diploma(diploma)) and "/" not in diploma:
+        diploma = f"{diploma}/{ano}"
     codigo = _codigo_do_diploma(diploma, base)
 
     if artigo is None or not diploma:

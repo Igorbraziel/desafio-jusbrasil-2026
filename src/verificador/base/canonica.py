@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..deteccao.detector import _e_numero_de_processo
+from ..deteccao.detector import _e_numero_de_processo, sigla_do_tribunal
 from ..juridico.classes import marcas
 from ..juridico.leis import codigo_da_lei
 from ..normalizacao import _ESPACOS, _NUCLEO, _NUCLEO_LIMPO, sem_acento
@@ -29,25 +29,62 @@ MINIMO_DIGITOS = 4
 # Cada registro abre com a própria identificação ("Súmula n. <número> do <tribunal>",
 # "Artigo <número> da <lei>"); o que não estiver na tabela é `inventada`.
 
+# A marca de número aceita as grafias "n.", "nº", "n.º", "n°" e "no".
+_MARCA = r"(?:n\s*[.º°o]{0,2}\s*)"
 _SUMULA_DO_REGISTRO = re.compile(
-    r"^\s*S[úu]mula\s+(?P<vinculante>Vinculante\s+)?(?:n\s*[º°o.]?\s*)?(?P<numero>\d+)"
-    r"(?:\s*,?\s*d[oa]\s+(?P<tribunal>STF|STJ|TST|TSE|STM)\b)?",
+    rf"^\s*S[úu]mula\s+(?P<vinculante>Vinculante\s+)?{_MARCA}?(?P<numero>\d+)"
+    r"(?:\s*,?\s*d[oa]\s+(?P<tribunal>[^\n]+))?",
     re.IGNORECASE,
 )
+# O complemento entre vírgulas ("Artigo 37, caput, da ...") não muda a chave.
 _ARTIGO_DO_REGISTRO = re.compile(
-    r"^\s*Art(?:igo|\.)\s+(?P<artigo>\d+(?:\.\d{3})*)\s*[º°o]?\s*(?:[-‐]\s*(?P<sufixo>[A-Z])\b)?"
-    r"\s+d[aoe]s?\s+(?P<diploma>[^\n]+)",
+    r"^\s*Art(?:igo|\.)\s*(?P<artigo>\d+(?:\.\d{3})*)\s*[º°o]?\s*(?:[-‐]\s*(?P<sufixo>[A-Z])\b)?"
+    r"(?:\s*,[^\n]*?,)?\s+d[aoe]s?\s+(?P<diploma>[^\n]+)",
     re.IGNORECASE,
 )
 _LEI_DO_REGISTRO = re.compile(
-    r"(?P<tipo>Lei\s+Complementar|Decreto[-‐\s]*Lei|Lei)\s+n\s*[º°o.]?\s*(?P<numero>\d+(?:\.\d{3})*)"
+    rf"(?P<tipo>Lei\s+Complementar|Decreto[-‐\s]*Lei|Lei)\s+{_MARCA}?(?P<numero>\d+(?:\.\d{{3}})*)"
     r"(?:[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
     re.IGNORECASE,
 )
 _CF_DO_REGISTRO = re.compile(
-    r"Constitui[çc][ãa]o\s+(?:Federal|da\s+Rep[úu]blica)(?:[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
+    r"(?:Constitui[çc][ãa]o\s+(?:Federal|da\s+Rep[úu]blica)|CRFB|CF)\b"
+    r"(?:\s*/\s*(?P<ano_curto>\d{2,4})\b|[^\n]*?\b(?P<ano>(?:18|19|20)\d{2})\b)?",
     re.IGNORECASE,
 )
+_SIGLA_VALIDA = re.compile(r"[A-Z]{2,5}\d{0,2}[A-Z]{0,3}")
+_TRIBUNAIS_SUPERIORES = {
+    "supremo tribunal federal": "STF",
+    "superior tribunal de justica": "STJ",
+    "tribunal superior do trabalho": "TST",
+    "tribunal superior eleitoral": "TSE",
+    "superior tribunal militar": "STM",
+}
+
+
+def _sigla_do_registro(tribunal: str | None) -> str:
+    """Sigla canônica do tribunal escrito no registro ou na coluna `tribunal`."""
+    if not tribunal:
+        return ""
+    tribunal = re.split(r"[,;:()]|\s[-–]\s", tribunal, maxsplit=1)[0].strip()
+    if not tribunal:
+        return ""
+    nome = " ".join(sem_acento(tribunal).lower().split())
+    for extenso, sigla in _TRIBUNAIS_SUPERIORES.items():
+        if nome.startswith(extenso):
+            return sigla
+    for candidato in (tribunal, tribunal.split()[0]):
+        sigla = sigla_do_tribunal(candidato)
+        if _SIGLA_VALIDA.fullmatch(sigla):
+            return sigla
+    return ""
+
+
+def _ano_de_quatro_digitos(ano: str | None) -> int | None:
+    if ano is None:
+        return None
+    valor = int(ano)
+    return valor if len(ano) == 4 else valor + (1900 if valor > 30 else 2000)
 
 
 def chave_de_artigo(numero: str, sufixo: str | None = None) -> str:
@@ -58,11 +95,15 @@ def chave_de_artigo(numero: str, sufixo: str | None = None) -> str:
 
 def sumula_do_registro(texto: str, tribunal: str | None) -> tuple[str, bool, int] | None:
     """(tribunal, vinculante, número) da primeira linha do registro, ou None."""
-    m = _SUMULA_DO_REGISTRO.match(texto)
+    m = _SUMULA_DO_REGISTRO.match(texto.lstrip("﻿"))
     if m is None:
         return None
     vinculante = bool(m.group("vinculante"))
-    sigla = (m.group("tribunal") or tribunal or ("STF" if vinculante else "")).upper()
+    sigla = (
+        _sigla_do_registro(m.group("tribunal"))
+        or _sigla_do_registro(tribunal)
+        or ("STF" if vinculante else "")
+    )
     if not sigla:
         return None
     return sigla, vinculante, int(m.group("numero"))
@@ -73,13 +114,13 @@ def dispositivo_do_registro(texto: str) -> tuple[str, str, str | None, int | Non
 
     Só a Constituição Federal de 1988 entra como `CF`; outra constituição fica fora.
     """
-    m = _ARTIGO_DO_REGISTRO.match(texto)
+    m = _ARTIGO_DO_REGISTRO.match(texto.lstrip("﻿"))
     if m is None:
         return None
     artigo = chave_de_artigo(m.group("artigo"), m.group("sufixo"))
     diploma = m.group("diploma")
     if (cf := _CF_DO_REGISTRO.match(diploma)) is not None:
-        ano = int(cf.group("ano")) if cf.group("ano") else None
+        ano = _ano_de_quatro_digitos(cf.group("ano_curto") or cf.group("ano"))
         if ano not in (None, 1988):
             return None
         return "CF", artigo, None, 1988
