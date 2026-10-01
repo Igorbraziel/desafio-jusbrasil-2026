@@ -1,29 +1,7 @@
 """Contrato de saída: um JSON por documento processado, schema 1.2.
 
-Formato publicado pela organização::
-
-    {
-      "schema_version": "1.2",
-      "documento_id": "doc_0042",
-      "citacoes": [
-        {
-          "id": "c1",
-          "inicio": 1284,
-          "fim": 1302,
-          "trecho": "REsp 1.234.567/SP",
-          "tipo": "jurisprudencia",
-          "classificacao": "real",
-          "resolucao": {"fonte": "jusbrasil", "id_canonico": "2106313729"},
-          "confianca": 0.91
-        }
-      ]
-    }
-
-Na entrega final o JSON completo é obrigatório, com todos os campos — inclusive
-``trecho`` e ``tipo``, que não entram na métrica.
-
-``confianca`` é opcional, mas alimenta o bônus de calibração de até 10%; quem
-não a envia não ganha nem perde por isso.
+Todos os campos são obrigatórios, inclusive ``trecho`` e ``tipo``, que não
+entram na métrica; ``confianca`` é opcional e alimenta o bônus de calibração.
 """
 
 from __future__ import annotations
@@ -53,8 +31,7 @@ class Citacao:
     confianca: float | None = None
 
     def para_dicionario(self) -> dict:
-        # O exemplo oficial do contrato traz id_canonico como string; emitimos
-        # no mesmo formato. Ver docs/contrato.md.
+        # O exemplo oficial do contrato traz id_canonico como string.
         resolucao = (
             {"fonte": FONTE, "id_canonico": str(self.id_canonico)}
             if self.classificacao == "real" and self.id_canonico is not None

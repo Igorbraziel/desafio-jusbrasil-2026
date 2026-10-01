@@ -45,14 +45,10 @@ robustez: ## Mede a degradação por classe de ruído (exige `make baseline`)
 confianca: ## Mede a acurácia por caminho de decisão, para calibrar CONFIANCA
 	$(RUN) python scripts/medir_confianca.py --taxa 0.15 --sementes 3
 
-# O CSV sai do nosso escritor (verificador.saida.submissao), que reproduz byte a byte
-# o conversor da organização — sem depender de data/dev/ferramentas para gerar.
 submissao: ## Gera e confere data/submission.csv para enviar no Kaggle
 	$(RUN) python -m verificador.cli --input $(DEV)/txt --output $(OUT) --csv data/submission.csv --db $(DEV)/desafio1_bracis.db
 	$(RUN) python scripts/conferir_submissao.py data/submission.csv $(DEV)/sample_submission.csv
 
-# O que a avaliação final roda — o run.sh sobre a base e os pareceres —, pontuado
-# pela métrica oficial direto do CSV entregue.
 entrega: ## Roda o run.sh da entrega no dev e pontua o CSV pela métrica oficial
 	bash run.sh $(DEV)/desafio1_bracis.db $(DEV)/txt data/submission.csv $(OUT)
 	$(RUN) python scripts/avaliar.py --submissao data/submission.csv --goldenset $(DEV)/goldenset.csv
@@ -60,8 +56,7 @@ entrega: ## Roda o run.sh da entrega no dev e pontua o CSV pela métrica oficial
 requirements: ## Exporta requirements.txt pinado para o Dockerfile
 	uv export --no-dev --format requirements-txt --no-emit-project > requirements.txt
 
-# Sem depender de `requirements`: o requirements.txt é versionado, e exportá-lo
-# exigiria uv no host só para construir a imagem.
+# Sem depender de `requirements`: o arquivo é versionado e evita exigir uv no host.
 docker: ## Constrói a imagem da entrega
 	docker build -t verificador-citacoes:latest .
 

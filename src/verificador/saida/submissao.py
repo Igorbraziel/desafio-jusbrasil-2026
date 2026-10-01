@@ -1,24 +1,8 @@
 """O submission.csv do Kaggle, escrito direto dos documentos processados.
 
-A avaliação final roda o nosso código sobre uma base e pareceres novos, sem
-acesso nosso, e pede a saída "no mesmo formato das submissões". Esse formato é o
-que o conversor da organização (``json_to_submission.py``) produz a partir dos
-JSONs do contrato, e este módulo o reproduz **byte a byte**:
-
-- ``csv.writer`` no dialeto padrão: fim de linha ``\\r\\n``, aspas só quando a
-  célula tem vírgula;
-- cabeçalho ``documento_id,citacoes`` e uma linha por documento, na ordem do
-  nome do JSON;
-- a célula junta as citações com ``|``, cada uma ``inicio,fim,classe,id,conf``,
-  com ``-`` no id ou na confiança ausentes e ``-`` no documento sem citações.
-
-A entrada são os mesmos dicionários que viram JSON
-(``SaidaDocumento.para_dicionario``): com uma fonte só, CSV e JSON não têm como
-divergir.
-
-A conferência roda as checagens que o ``kaggle_metric.py`` faz antes de
-pontuar. Nele, erro de formato não custa pontos: rejeita a submissão
-**inteira**.
+Reproduz byte a byte o conversor oficial (``json_to_submission.py``) a partir dos
+mesmos dicionários que viram JSON, e confere o CSV com as checagens da métrica
+oficial, onde erro de formato rejeita a submissão inteira.
 """
 
 from __future__ import annotations
@@ -33,20 +17,14 @@ from pathlib import Path
 from .contrato import CLASSIFICACOES
 
 HEADER = ("documento_id", "citacoes")
-# Célula e campo ausentes. O Kaggle rejeita célula vazia, por isso o hífen.
+# O Kaggle rejeita célula vazia, por isso o hífen.
 MISSING = "-"
-# Duas citações do mesmo documento com IoU a partir daqui são duplicata, e o
-# oficial rejeita a submissão (§8 do regulamento).
+# IoU a partir do qual duas citações do mesmo documento são duplicata.
 MIN_IOU = 0.5
 
 
 def encode_cell(document: dict) -> str:
-    """A célula de um documento, com a regra do conversor oficial campo a campo.
-
-    O id passa por ``str(...).strip() or "-"`` e a confiança por
-    ``f"{float(c):.4f}"``, como lá: qualquer diferença de arredondamento ou de
-    espaço mudaria bytes do CSV e deixaria de ser "o mesmo formato".
-    """
+    """A célula de um documento, com a mesma formatação do conversor oficial."""
     parts: list[str] = []
     for citation in document.get("citacoes", []):
         resolution = citation.get("resolucao") or {}
@@ -61,27 +39,17 @@ def encode_cell(document: dict) -> str:
 
 
 def submission_rows(documents: Iterable[dict]) -> list[tuple[str, str]]:
-    """Uma linha por documento, na ordem em que o conversor oficial as escreve.
+    """Uma linha por documento, na ordem do conversor oficial.
 
-    O conversor lê ``sorted(pasta.glob("*.json"))``: a ordem é a do **nome do
-    arquivo**, não a do id. As duas divergem quando um id é prefixo de outro —
-    ``a-b.json`` vem antes de ``a.json`` (``-`` < ``.``), embora ``a`` venha
-    antes de ``a-b``.
-
-    Id repetido fica com o último documento, que é o que sobra na pasta de JSONs
-    depois que a última escrita sobrescreve as anteriores.
+    A ordem é a do nome do JSON, não a do id (``a-b.json`` < ``a.json``); id
+    repetido fica com o último documento.
     """
     cells = {document["documento_id"]: encode_cell(document) for document in documents}
     return sorted(cells.items(), key=lambda row: f"{row[0]}.json")
 
 
 def write_submission(documents: Iterable[dict], destination: Path) -> Path:
-    """Grava o CSV de forma atômica: ou o arquivo inteiro, ou o anterior intacto.
-
-    Escreve num temporário do mesmo diretório e troca com ``os.replace``. Um
-    processo interrompido no meio da escrita não deixa um CSV truncado que
-    passaria por completo — documento sem linha rejeita a submissão inteira.
-    """
+    """Grava o CSV de forma atômica: ou o arquivo inteiro, ou o anterior intacto."""
     rows = submission_rows(documents)
     destination.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(
@@ -92,9 +60,8 @@ def write_submission(documents: Iterable[dict], destination: Path) -> Path:
             writer = csv.writer(file)
             writer.writerow(HEADER)
             writer.writerows(rows)
-        # O `mkstemp` cria com 0600. No container rodado sem `--user` o CSV
-        # nasce com dono root, e com 0600 quem chamou nem conseguiria lê-lo. Um
-        # volume que não aceita chmod não é motivo para perder a saída.
+        # `mkstemp` cria com 0600, ilegível para quem chamou se o container rodar
+        # como root; volume sem chmod não deve custar a saída.
         with contextlib.suppress(OSError):
             os.chmod(temporary, _creation_mode())
         os.replace(temporary, destination)
@@ -157,13 +124,8 @@ def check_cell(document_id: str, cell: str | None) -> list[str]:
 
 
 def check_submission(path: Path, expected: Iterable[str]) -> list[str]:
-    """Confere o CSV inteiro. Devolve os problemas; vazia quando pode ser enviado.
-
-    ``expected`` são os documentos que precisam de linha: no Kaggle, os do
-    ``sample_submission.csv``; na entrega, os ``.txt`` processados.
-    """
-    # utf-8-sig: um CSV salvo de novo por planilha ganha BOM, e sem isso a
-    # primeira coluna passaria a se chamar "﻿documento_id".
+    """Confere o CSV inteiro; ``expected`` são os documentos que precisam de linha."""
+    # utf-8-sig tolera o BOM que uma planilha acrescenta ao salvar.
     with path.open(encoding="utf-8-sig", newline="") as file:
         reader = csv.DictReader(file)
         missing_columns = [column for column in HEADER if column not in (reader.fieldnames or [])]

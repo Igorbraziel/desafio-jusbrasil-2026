@@ -1,15 +1,6 @@
-"""Ponto de entrada do verificador.
+"""Ponto de entrada do verificador: gera o CSV de submissão e/ou um JSON por documento.
 
-Entrega — o que o ``run.sh`` chama, com o CSV no formato das submissões::
-
-    python -m verificador.cli --db <banco> --input <pasta_txt> --csv <submission.csv>
-                              [--output <pasta_json>]
-
-Desenvolvimento — um JSON do contrato por documento::
-
-    python -m verificador.cli --input <pasta_txt> --output <pasta_json> --db <banco>
-
-Tudo é determinístico e local: nenhuma chamada de rede, nenhum peso de modelo.
+Uso: ``python -m verificador.cli --db <banco> --input <pasta> [--csv <arq>] [--output <pasta>]``
 """
 
 from __future__ import annotations
@@ -29,18 +20,10 @@ LABELS = ("real", "inventada", "incompleta")
 
 
 def _carregar_base(indice: Path | None, db: Path) -> BaseCanonica:
-    """Constrói o índice do banco; o JSON pré-construído é só o reserva.
+    """Constrói o índice a partir do banco; o JSON pré-construído é só reserva.
 
-    No contrato de execução da organização só o banco é montado, e o índice sai
-    dele. Preferir um JSON que estivesse no disco faria a execução local usar um
-    índice possivelmente antigo — a submissão feita daqui divergiria da
-    reexecução, e "não bater o score" desclassifica. Construir leva cerca de um
-    segundo.
-
-    O índice só vale passado explicitamente. Antes ele tinha um padrão em
-    ``data/dev``, e com o banco ausente — um caminho errado na avaliação final —
-    a execução caía em silêncio no índice da base antiga: código 0 e um CSV de
-    aparência normal, resolvido contra a base errada.
+    Preferir o banco garante que a execução local e a reexecução usem a mesma
+    base, e o JSON só vale passado explicitamente para nunca cair numa base antiga.
     """
     if db.is_file():
         return BaseCanonica.de_banco(db)
@@ -62,10 +45,8 @@ def _load_base(indice: Path | None, db: Path) -> BaseCanonica:
 def collect_texts(folder: Path) -> list[Path]:
     """Os ``.txt`` a processar, em ordem determinística.
 
-    O contrato põe os documentos no primeiro nível da pasta. Sem nenhum ali,
-    procura nas subpastas: uma pasta que passou por um zip costuma voltar com
-    um nível a mais (``pasta/txt/*.txt``), e processar zero documentos daria um
-    CSV só com o cabeçalho — sem linha para nenhum documento, rejeitado inteiro.
+    Sem nenhum no primeiro nível, procura nas subpastas (zip costuma criar um
+    nível a mais), pois um CSV sem documentos seria rejeitado.
     """
     from .pipeline import _eh_txt
 
@@ -83,11 +64,7 @@ def collect_texts(folder: Path) -> list[Path]:
 
 
 def _warn_repeated_ids(paths: list[Path]) -> None:
-    """Dois arquivos com o mesmo nome em subpastas diferentes são um documento só.
-
-    O ``documento_id`` é o nome sem extensão, e o CSV tem uma linha por id: fica
-    o último, como na pasta de JSONs, em que a última escrita sobrescreve.
-    """
+    """Avisa de ``documento_id`` repetido em subpastas; no CSV fica o último."""
     from .texto import documento_id
 
     counts = Counter(documento_id(path) for path in paths)
@@ -142,8 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     problems: list[str] = []
     if args.csv is not None:
         write_submission(documents, args.csv)
-        # Confere contra os documentos processados, não contra o que o CSV tem:
-        # é assim que o avaliador acusa o documento sem linha.
+        # Confere contra os documentos processados, como o avaliador faz.
         problems = check_submission(args.csv, {d["documento_id"] for d in documents})
 
     destination = args.csv if args.csv is not None else args.saida
