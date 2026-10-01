@@ -41,6 +41,18 @@ NOVOS = [
         "dispositivo",
         "Artigo 312 do Decreto-Lei nº 1.002, de 21 de outubro de 1969\nArt. 312. A prisão.",
     ),
+    (
+        "990000098",
+        None,
+        "dispositivo",
+        "Artigo 98 da Lei nº 8.069, de 13 de julho de 1990\nArt. 98. As medidas de proteção.",
+    ),
+    (
+        "990000066",
+        None,
+        "dispositivo",
+        "Artigo 66 da Lei nº 7.210, de 11 de julho de 1984\nArt. 66. Compete ao Juiz.",
+    ),
 ]
 
 
@@ -89,6 +101,19 @@ def base_nova(tmp_path_factory):
         ("o art. 313 do CPPM", "inventada", None),
         # o CPPM no banco não vaza para o CPP, que continua com o próprio registro
         ("o art. 312 do CPP", "real", 10652044),
+        # lei citada pelo nome ou pela sigla resolve contra o registro do número dela
+        ("o art. 98 do Estatuto da Criança e do Adolescente", "real", 990000098),
+        ("o art. 98 do ECA", "real", 990000098),
+        ("o art. 66 da Lei de Execução Penal", "real", 990000066),
+        ("o art. 66 da LEP", "real", 990000066),
+        ("o art. 67 da Lei de Execução Penal", "inventada", None),
+        # nome que contém "civil" não é o Código Civil, e código estrangeiro também não
+        ("o art. 186 da Lei da Ação Civil Pública", "inventada", None),
+        ("o art. 186 da Lei de Introdução ao Código Civil", "inventada", None),
+        ("o art. 186 do Código Civil Português", "inventada", None),
+        ("o art. 186 do Código Civil", "real", 10718759),
+        # a Lei de Inelegibilidade é a LC 64/1990
+        ("o art. 1º da Lei de Inelegibilidade", "real", 11304039),
     ],
 )
 def test_classe_acompanha_o_banco_recebido(base_nova, citacao, classe, id_canonico):

@@ -45,7 +45,7 @@ import re
 from .base_canonica import BaseCanonica, chave_de_artigo
 from .classe import afinidade, marcas
 from .deteccao import Achado, sigla_do_tribunal
-from .leis import ANO_DA_LEI, NUMERO_DA_LEI, codigo_da_lei
+from .leis import ANO_DA_LEI, NUMERO_DA_LEI, codigo_da_lei, lei_pelo_nome
 from .normalizacao import (
     CONFUSOES_DE_LETRA,
     OCR_PARA_DIGITO,
@@ -378,6 +378,24 @@ def _contem_marcador(chave: str, marcador: str) -> bool:
 
 _LEI_DE_OUTRO_ENTE = re.compile(r"\blei\s+(?:complementar\s+)?(?:estadual|municipal|distrital)\b")
 
+# Código de outro país com o nome de um código brasileiro: "Código Civil
+# Português", "Código de Processo Civil Francês". Só a CF tinha regra de
+# inclusão, e "art. 186 do Código Civil Português" resolvia para o art. 186 do
+# CC/2002 — `inventada` → `real`. A palavra de nacionalidade que vem depois do
+# nome do código o tira da cobertura; "brasileiro" e "nacional" continuam
+# valendo ("Código Tributário Nacional", "Código de Trânsito Brasileiro").
+_NACIONALIDADE_ESTRANGEIRA = re.compile(
+    r"\b(?:portugu[eê]s|francesa?|frances|italian[oa]|alem[aã]o?|espanhol|argentin[oa]|"
+    r"chilen[oa]|uruguai[oa]|paraguai[oa]|american[oa]|norte-american[oa]|estrangeir[oa]|"
+    r"suic[oa]|japon[eê]s|ingl[eê]s|mexican[oa]|colombian[oa]|peruan[oa]|"
+    r"napole[oô]nico|europeu|canon(?:ico)?)\b"
+)
+
+
+def _codigo_estrangeiro(chave: str) -> bool:
+    """O diploma citado é um código, mas de outro país?"""
+    return chave.startswith("codigo") and _NACIONALIDADE_ESTRANGEIRA.search(chave) is not None
+
 
 def _chave_do_diploma(diploma: str) -> str:
     """O nome do diploma com o ruído de letra desfeito e o número reparado.
@@ -436,6 +454,16 @@ def _codigo_do_diploma(diploma: str | None, base: BaseCanonica | None = None) ->
             versao = _ANO_DE_VERSAO.search(chave, lei.end(1))
             ano = versao.group(1) if versao else None
         return codigo if _ano_confere(ano, codigo, base) else None
+    # A lei citada pelo nome vem antes dos marcadores genéricos: "Lei da Ação
+    # Civil Pública" contém "civil", e o marcador a levava ao Código Civil.
+    if (pelo_nome := lei_pelo_nome(chave)) is not None:
+        codigo, ano_da_lei = pelo_nome
+        versao = _ANO_DE_VERSAO.search(chave)
+        if versao is not None and _ano(versao.group(1)) != ano_da_lei:
+            return None
+        return codigo
+    if _codigo_estrangeiro(chave):
+        return None
     for marcadores, exclusoes, codigo in DIPLOMAS:
         if not any(_contem_marcador(chave, marcador) for marcador in marcadores):
             continue
